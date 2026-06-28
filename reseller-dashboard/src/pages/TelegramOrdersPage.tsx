@@ -148,6 +148,10 @@ export function TelegramOrdersPage() {
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Signed URLs keyed by orderId — cached for the session so repeated clicks
+  // don't hit the backend again until the component unmounts.
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [fetchingSignedUrl, setFetchingSignedUrl] = useState<string | null>(null);
 
   const telegramOrders = useMemo(() => getTelegramOrders(orders), [orders]);
 
@@ -171,6 +175,31 @@ export function TelegramOrdersPage() {
       rejected: telegramOrders.filter((o) => o.review_status === "rejected").length,
     };
   }, [telegramOrders]);
+
+  const getSignedUrl = async (orderId: string): Promise<string | null> => {
+    if (signedUrls[orderId]) return signedUrls[orderId];
+    try {
+      setFetchingSignedUrl(orderId);
+      const response = await api.get(`/reseller/orders/${orderId}/screenshot-url`);
+      const url = response.data.signed_url as string;
+      setSignedUrls((prev) => ({ ...prev, [orderId]: url }));
+      return url;
+    } catch {
+      return null;
+    } finally {
+      setFetchingSignedUrl(null);
+    }
+  };
+
+  const handlePreview = async (orderId: string) => {
+    const url = await getSignedUrl(orderId);
+    if (url) setPreviewUrl(url);
+  };
+
+  const handleOpenOriginal = async (orderId: string) => {
+    const url = await getSignedUrl(orderId);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   const handleConfirm = async (orderId: string) => {
     try {
@@ -395,17 +424,16 @@ export function TelegramOrdersPage() {
                                 <Button
                                   size="small"
                                   variant="outlined"
-                                  startIcon={<ImageRoundedIcon />}
-                                  onClick={() => setPreviewUrl(order.payment_screenshot_url || null)}
+                                  startIcon={fetchingSignedUrl === order.id ? undefined : <ImageRoundedIcon />}
+                                  disabled={fetchingSignedUrl === order.id}
+                                  onClick={() => void handlePreview(order.id)}
                                 >
-                                  Preview
+                                  {fetchingSignedUrl === order.id ? "Loading…" : "Preview"}
                                 </Button>
                                 <IconButton
-                                  component="a"
-                                  href={order.payment_screenshot_url}
-                                  target="_blank"
-                                  rel="noreferrer"
                                   size="small"
+                                  disabled={fetchingSignedUrl === order.id}
+                                  onClick={() => void handleOpenOriginal(order.id)}
                                 >
                                   <OpenInNewRoundedIcon fontSize="small" />
                                 </IconButton>

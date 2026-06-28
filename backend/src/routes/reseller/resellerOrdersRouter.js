@@ -281,4 +281,57 @@ router.post("/", async (req, res) => {
   }
 });
 
+// GET /:orderId/screenshot-url
+// Returns a 60-minute signed URL for the payment screenshot stored in the
+// private Supabase bucket. The path is looked up from vpn_orders; the service-
+// role key generates the signed URL server-side — the reseller client never
+// gets a permanent public URL or any storage credentials.
+router.get("/:orderId/screenshot-url", async (req, res) => {
+  try {
+    const reseller = req.reseller;
+    const { orderId } = req.params;
+
+    const { data: order, error: orderError } = await supabase
+      .from("vpn_orders")
+      .select("id, reseller_id, payment_screenshot_url")
+      .eq("id", orderId)
+      .eq("reseller_id", reseller.id)
+      .maybeSingle();
+
+    if (orderError) {
+      console.error("Screenshot URL order lookup error:", orderError);
+      return res.status(500).json({ error: "Failed to load order" });
+    }
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    if (!order.payment_screenshot_url) {
+      return res.status(404).json({ error: "No screenshot on this order" });
+    }
+
+    const path = order.payment_screenshot_url;
+
+    // Legacy orders stored a full URL; return it directly.
+    if (path.startsWith("http")) {
+      return res.json({ signed_url: path, expires_in: null });
+    }
+
+    // New orders store the Supabase storage path — generate a short-lived
+    // signed URL using the service-role key (never exposed to the client).
+    const { data: signed, error: signError } = await supabase.storage
+      .from("payment-screenshots")
+      .createSignedUrl(path, 3600);
+
+    if (signError || !signed?.signedUrl) {
+      console.error("Signed URL generation error:", signError);
+      return res.status(500).json({ error: "Failed to generate screenshot URL" });
+    }
+
+    return res.json({ signed_url: signed.signedUrl, expires_in: 3600 });
+  } catch (err) {
+    console.error("Screenshot URL exception:", err);
+    return res.status(500).json({ error: "Unexpected server error" });
+  }
+});
+
 export default router;

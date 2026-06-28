@@ -1,18 +1,21 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import CameraAltRoundedIcon from "@mui/icons-material/CameraAltRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import HourglassTopRoundedIcon from "@mui/icons-material/HourglassTopRounded";
-import PhotoCameraBackRoundedIcon from "@mui/icons-material/PhotoCameraBackRounded";
 import {
   Alert,
   Box,
   Button,
   Card,
   CardContent,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
+  IconButton,
   Stack,
   TextField,
   Typography,
@@ -22,8 +25,11 @@ import EmptyState from "../components/common/EmptyState";
 import { SUPPORT_URL } from "../constants/app";
 import { openExternalLink } from "../lib/telegram";
 import { useSubmitPurchase } from "../features/access/hooks";
+import { uploadPaymentScreenshot } from "../features/access/api";
 import PackageCard from "../features/packages/PackageCard";
 import SupportCard from "../features/support/SupportCard";
+
+const MINIAPP_SLUG = import.meta.env.VITE_MINIAPP_SLUG || "nexa";
 
 function PendingReviewCard({ order }) {
   return (
@@ -46,65 +52,235 @@ function PendingReviewCard({ order }) {
           <Typography variant="body2" color="text.secondary">
             Your premium access is already active. The reseller will review your payment screenshot later.
           </Typography>
-
-          {order?.payment_screenshot_url ? (
-            <Button
-              variant="outlined"
-              size="small"
-              component="a"
-              href={order.payment_screenshot_url}
-              target="_blank"
-              rel="noreferrer"
-              sx={{ alignSelf: "flex-start" }}
-            >
-              Open Submitted Screenshot
-            </Button>
-          ) : null}
         </Stack>
       </CardContent>
     </Card>
   );
 }
 
+function PaymentInfoCard({ methods, onCopy }) {
+  if (!Array.isArray(methods) || methods.length === 0) return null;
+
+  return (
+    <Stack spacing={1.25}>
+      {methods.map((method, i) => (
+        <Card
+          key={i}
+          sx={{
+            background:
+              "linear-gradient(180deg, rgba(99,102,241,0.1) 0%, rgba(18,20,36,0.98) 100%)",
+            border: "1px solid rgba(99,102,241,0.2)",
+          }}
+        >
+          <CardContent sx={{ p: 2 }}>
+            <Stack spacing={1.1}>
+              <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                Pay with {method.method}
+              </Typography>
+
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Account Name</Typography>
+                  <Typography fontWeight={800}>{method.account_name}</Typography>
+                </Box>
+              </Stack>
+
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Account Number</Typography>
+                  <Typography fontWeight={800} sx={{ fontSize: "1.05rem", letterSpacing: "0.04em" }}>
+                    {method.account_number}
+                  </Typography>
+                </Box>
+                <IconButton
+                  size="small"
+                  onClick={() => onCopy(method.account_number)}
+                  sx={{ color: "#6366f1" }}
+                  aria-label="Copy account number"
+                >
+                  <ContentCopyRoundedIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+      ))}
+    </Stack>
+  );
+}
+
+function ScreenshotUpload({ previewSrc, isUploading, error, onSelect }) {
+  const inputRef = useRef(null);
+
+  const handleClick = () => inputRef.current?.click();
+
+  const handleChange = (e) => {
+    const file = e.target.files?.[0];
+    // Reset so the same file can be re-selected after a change
+    e.target.value = "";
+    if (file) onSelect(file);
+  };
+
+  return (
+    <Box>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        style={{ display: "none" }}
+        onChange={handleChange}
+      />
+
+      {isUploading ? (
+        <Box
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "2px dashed rgba(255,255,255,0.18)",
+            borderRadius: 2,
+            py: 3.5,
+            gap: 1.25,
+          }}
+        >
+          <CircularProgress size={28} />
+          <Typography variant="body2" color="text.secondary">
+            Uploading…
+          </Typography>
+        </Box>
+      ) : previewSrc ? (
+        <Stack spacing={1}>
+          <Box
+            component="img"
+            src={previewSrc}
+            alt="Payment screenshot preview"
+            sx={{
+              width: "100%",
+              maxHeight: 220,
+              objectFit: "contain",
+              borderRadius: 2,
+              border: "1px solid rgba(255,255,255,0.1)",
+              bgcolor: "rgba(0,0,0,0.3)",
+            }}
+          />
+          <Button size="small" onClick={handleClick} sx={{ alignSelf: "flex-start", color: "#6366f1" }}>
+            Change screenshot
+          </Button>
+        </Stack>
+      ) : (
+        <Box
+          role="button"
+          tabIndex={0}
+          onClick={handleClick}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleClick(); }}
+          sx={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            border: "2px dashed rgba(255,255,255,0.18)",
+            borderRadius: 2,
+            py: 3.5,
+            gap: 1,
+            cursor: "pointer",
+            "&:hover": { borderColor: "rgba(99,102,241,0.5)", bgcolor: "rgba(99,102,241,0.04)" },
+          }}
+        >
+          <CameraAltRoundedIcon sx={{ color: "text.secondary", fontSize: 32 }} />
+          <Typography variant="body2" color="text.secondary">
+            Tap to upload payment screenshot
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ opacity: 0.6 }}>
+            JPEG · PNG · WebP · max 5 MB
+          </Typography>
+        </Box>
+      )}
+
+      {error ? (
+        <Alert severity="error" sx={{ mt: 1, borderRadius: 2 }}>
+          {error}
+        </Alert>
+      ) : null}
+    </Box>
+  );
+}
+
 function PurchaseDialog({
   open,
   plan,
+  paymentMethods,
+  telegramUserId,
   submitting,
-  screenshotUrl,
-  paymentNote,
-  onChangeScreenshotUrl,
-  onChangePaymentNote,
   onClose,
   onSubmit,
+  onToast,
 }) {
-  const canSubmit = Boolean(plan?.id && screenshotUrl.trim());
+  const [uploadedPath, setUploadedPath] = useState(null);
+  const [previewSrc, setPreviewSrc] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [paymentNote, setPaymentNote] = useState("");
+
+  const resetUploadState = () => {
+    setUploadedPath(null);
+    setPreviewSrc(null);
+    setIsUploading(false);
+    setUploadError(null);
+  };
+
+  const handleClose = () => {
+    if (submitting || isUploading) return;
+    resetUploadState();
+    setPaymentNote("");
+    onClose();
+  };
+
+  const handleFileSelect = async (file) => {
+    resetUploadState();
+    setIsUploading(true);
+    setPreviewSrc(URL.createObjectURL(file));
+
+    try {
+      const result = await uploadPaymentScreenshot({
+        file,
+        slug: MINIAPP_SLUG,
+        telegramUserId,
+      });
+      setUploadedPath(result.path);
+    } catch (err) {
+      setUploadError(err.message || "Upload failed. Please try again.");
+      setPreviewSrc(null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleCopyAccountNumber = async (number) => {
+    try {
+      await navigator.clipboard.writeText(number);
+      onToast("Account number copied", "success");
+    } catch {
+      onToast("Could not copy — please copy manually", "warning");
+    }
+  };
+
+  const canSubmit = Boolean(uploadedPath) && !isUploading && !submitting;
 
   return (
-    <Dialog open={open} onClose={submitting ? undefined : onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
       <DialogTitle sx={{ fontWeight: 800 }}>
         Buy {plan?.name || "Package"}
       </DialogTitle>
 
       <DialogContent dividers>
-        <Stack spacing={2}>
-          <Alert severity="info" sx={{ borderRadius: 3 }}>
-            For now, paste your payment screenshot image URL here to test the order flow from the Mini App UI.
-          </Alert>
-
-          <Card
-            sx={{
-              background:
-                "linear-gradient(180deg, rgba(124,58,237,0.12) 0%, rgba(18,20,36,0.98) 100%)",
-            }}
-          >
+        <Stack spacing={2.5}>
+          {/* Plan summary */}
+          <Card sx={{ background: "linear-gradient(180deg, rgba(124,58,237,0.12) 0%, rgba(18,20,36,0.98) 100%)" }}>
             <CardContent sx={{ p: 2 }}>
               <Stack spacing={0.7}>
-                <Typography variant="body2" color="text.secondary">
-                  Selected Plan
-                </Typography>
-                <Typography variant="h6" fontWeight={800}>
-                  {plan?.name || "-"}
-                </Typography>
+                <Typography variant="body2" color="text.secondary">Selected Plan</Typography>
+                <Typography variant="h6" fontWeight={800}>{plan?.name || "-"}</Typography>
                 <Typography variant="body2" color="text.secondary">
                   Submit payment screenshot and premium access will be created immediately.
                 </Typography>
@@ -112,37 +288,28 @@ function PurchaseDialog({
             </CardContent>
           </Card>
 
+          {/* Payment info */}
+          <PaymentInfoCard methods={paymentMethods} onCopy={handleCopyAccountNumber} />
+
           <Divider />
 
+          {/* Screenshot upload */}
           <Stack spacing={1}>
             <Typography variant="subtitle2" fontWeight={800}>
-              Payment Screenshot URL
+              Payment Screenshot <Box component="span" sx={{ color: "#ef4444" }}>*</Box>
             </Typography>
-
-            <TextField
-              fullWidth
-              multiline
-              minRows={3}
-              placeholder="https://your-image-host.com/payment-screenshot.jpg"
-              value={screenshotUrl}
-              onChange={(e) => onChangeScreenshotUrl(e.target.value)}
-              InputProps={{
-                startAdornment: (
-                  <PhotoCameraBackRoundedIcon
-                    sx={{ mr: 1, mt: 0.4, color: "rgba(255,255,255,0.52)" }}
-                  />
-                ),
-              }}
+            <ScreenshotUpload
+              previewSrc={previewSrc}
+              isUploading={isUploading}
+              error={uploadError}
+              onSelect={handleFileSelect}
             />
-
-            <Typography variant="caption" color="text.secondary">
-              Use any public image URL for testing right now.
-            </Typography>
           </Stack>
 
+          {/* Optional note */}
           <Stack spacing={1}>
             <Typography variant="subtitle2" fontWeight={800}>
-              Payment Note
+              Payment Note <Box component="span" sx={{ color: "text.secondary", fontWeight: 400 }}>(optional)</Box>
             </Typography>
             <TextField
               fullWidth
@@ -150,23 +317,23 @@ function PurchaseDialog({
               minRows={2}
               placeholder="Example: Paid with KBZPay at 3:10 PM"
               value={paymentNote}
-              onChange={(e) => onChangePaymentNote(e.target.value)}
+              onChange={(e) => setPaymentNote(e.target.value)}
             />
           </Stack>
         </Stack>
       </DialogContent>
 
       <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onClose} disabled={submitting}>
+        <Button onClick={handleClose} disabled={submitting || isUploading}>
           Cancel
         </Button>
         <Button
           variant="contained"
-          onClick={onSubmit}
-          disabled={!canSubmit || submitting}
+          onClick={() => onSubmit({ uploadedPath, paymentNote: paymentNote.trim() || undefined })}
+          disabled={!canSubmit}
           startIcon={<CheckCircleRoundedIcon />}
         >
-          {submitting ? "Submitting..." : "Submit & Activate"}
+          {submitting ? "Submitting…" : "Submit & Activate"}
         </Button>
       </DialogActions>
     </Dialog>
@@ -182,6 +349,7 @@ export default function PackagesPage({
 }) {
   const plans = data?.plans || [];
   const subscription = data?.subscription || null;
+  const paymentMethods = data?.config?.payment || [];
   const supportUsername = data?.config?.brand?.support_username
     ? `@${String(data.config.brand.support_username).replace(/^@/, "")}`
     : "";
@@ -192,21 +360,13 @@ export default function PackagesPage({
 
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [screenshotUrl, setScreenshotUrl] = useState("");
-  const [paymentNote, setPaymentNote] = useState("");
 
   const submitMutation = useSubmitPurchase({
     onSuccess: async () => {
       onToast("Premium access created. Waiting for reseller review.", "success");
       setDialogOpen(false);
       setSelectedPlan(null);
-      setScreenshotUrl("");
-      setPaymentNote("");
-
-      if (onRefreshAuth) {
-        await onRefreshAuth();
-      }
-
+      if (onRefreshAuth) await onRefreshAuth();
       onTabChange("home");
     },
     onError: (error) => {
@@ -214,28 +374,31 @@ export default function PackagesPage({
     },
   });
 
-  const visiblePlans = useMemo(() => {
-    return (plans || []).filter((plan) => {
-      const name = String(plan?.name || "").toLowerCase();
-      return !name.includes("trial");
-    });
-  }, [plans]);
+  const visiblePlans = useMemo(
+    () => (plans || []).filter((plan) => !String(plan?.name || "").toLowerCase().includes("trial")),
+    [plans]
+  );
 
   const openBuyDialog = (plan) => {
     if (!data?.user?.telegram_user_id) {
       onToast("Telegram user is not ready yet", "warning");
       return;
     }
-
     if (pendingReviewOrder) {
       onToast("You already have a purchase waiting for reseller review", "warning");
       return;
     }
-
     setSelectedPlan(plan);
-    setScreenshotUrl("");
-    setPaymentNote("");
     setDialogOpen(true);
+  };
+
+  const handleSubmit = ({ uploadedPath, paymentNote }) => {
+    submitMutation.mutate({
+      telegram_user_id: data?.user?.telegram_user_id,
+      plan_id: selectedPlan?.id,
+      payment_screenshot_url: uploadedPath,
+      payment_note: paymentNote,
+    });
   };
 
   return (
@@ -267,24 +430,12 @@ export default function PackagesPage({
       <PurchaseDialog
         open={dialogOpen}
         plan={selectedPlan}
+        paymentMethods={paymentMethods}
+        telegramUserId={data?.user?.telegram_user_id}
         submitting={submitMutation.isPending}
-        screenshotUrl={screenshotUrl}
-        paymentNote={paymentNote}
-        onChangeScreenshotUrl={setScreenshotUrl}
-        onChangePaymentNote={setPaymentNote}
-        onClose={() => {
-          if (!submitMutation.isPending) {
-            setDialogOpen(false);
-          }
-        }}
-        onSubmit={() =>
-          submitMutation.mutate({
-            telegram_user_id: data?.user?.telegram_user_id,
-            plan_id: selectedPlan?.id,
-            payment_screenshot_url: screenshotUrl.trim(),
-            payment_note: paymentNote.trim(),
-          })
-        }
+        onClose={() => { if (!submitMutation.isPending) setDialogOpen(false); }}
+        onSubmit={handleSubmit}
+        onToast={onToast}
       />
     </PageContainer>
   );

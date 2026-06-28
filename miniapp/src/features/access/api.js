@@ -1,6 +1,14 @@
-import { postJson } from "../../services/http";
+import { postJson, uploadFormData } from "../../services/http";
 
 const MINIAPP_SLUG = import.meta.env.VITE_MINIAPP_SLUG || "nexa";
+
+export async function uploadPaymentScreenshot({ file, slug, telegramUserId }) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("telegram_user_id", String(telegramUserId));
+  const payload = await uploadFormData(`/api/miniapp/${slug}/upload-screenshot`, form);
+  return payload;
+}
 
 export async function linkMiniAppServer({ server_id, telegram_user_id }) {
   const payload = await postJson(

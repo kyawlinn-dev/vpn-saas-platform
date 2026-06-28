@@ -1,5 +1,7 @@
 import express from "express";
 import crypto from "node:crypto";
+import multer from "multer";
+import rateLimit from "express-rate-limit";
 import {supabase} from "../../lib/supabase.js";
 import { parseSsUrl } from "../../utils/parseSsUrl.js";
 import {
@@ -15,6 +17,63 @@ import {
 } from "../../services/serverService.js";
 
 const router = express.Router();
+
+// ── Screenshot upload infrastructure ─────────────────────────────────────────
+
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+// multer: memory storage, 5 MB cap enforced DURING the upload stream —
+// the connection is dropped before the full body lands in RAM.
+const _uploadSingle = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_IMAGE_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(Object.assign(new Error("Only JPEG, PNG and WebP images are accepted"), { code: "INVALID_TYPE" }));
+    }
+  },
+}).single("file");
+
+// Wraps multer so its errors become JSON responses instead of hitting the
+// global error handler.
+function runUploadMiddleware(req, res, next) {
+  _uploadSingle(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ error: "File exceeds the 5 MB limit" });
+    }
+    return res.status(415).json({ error: err.message || "Invalid file upload" });
+  });
+}
+
+// Magic-byte checks — defence-in-depth against a file that lies about its
+// Content-Type. Checked against the actual buffer bytes after multer lands it.
+const MAGIC_CHECKS = {
+  "image/jpeg": (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  "image/png": (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47,
+  // WebP: RIFF at bytes 0-3, then WEBP at bytes 8-11
+  "image/webp": (b) =>
+    b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+    b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50,
+};
+
+function hasValidMagicBytes(buffer, mimetype) {
+  const check = MAGIC_CHECKS[mimetype];
+  return check && buffer.length >= 12 && check(buffer);
+}
+
+// Tight per-IP rate limit on the upload route to limit storage abuse.
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many upload attempts. Please try again later." },
+});
+
+const EXT_MAP = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 
 function getRequestBaseUrl(req) {
   const proto =
@@ -105,6 +164,7 @@ function toPublicMiniAppConfig(row) {
       data_limit_gb: row.trial_data_limit_gb,
       duration_days: row.trial_duration_days,
     },
+    payment: Array.isArray(row.payment_info) ? row.payment_info : [],
   };
 }
 
@@ -321,7 +381,8 @@ router.get("/:slug/config", async (req, res) => {
         trial_enabled,
         trial_data_limit_gb,
         trial_duration_days,
-        is_enabled
+        is_enabled,
+        payment_info
       `)
       .eq("miniapp_slug", slug)
       .maybeSingle();
@@ -1881,5 +1942,110 @@ router.post("/:slug/orders", async (req, res) => {
     });
   }
 });
+
+// ── POST /:slug/upload-screenshot ────────────────────────────────────────────
+// Accepts a multipart image from the miniapp, validates it, and stores it in
+// the private Supabase Storage bucket using the service-role key.
+// Returns the storage path (not a URL). The anon key is never involved.
+
+router.post(
+  "/:slug/upload-screenshot",
+  uploadLimiter,
+  runUploadMiddleware,
+  async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const telegramUserId = req.body.telegram_user_id
+        ? Number(req.body.telegram_user_id)
+        : null;
+
+      // ── 1. Resolve miniapp ────────────────────────────────────────────────
+      const { data: miniapp, error: miniappError } = await supabase
+        .from("reseller_miniapps")
+        .select("id, reseller_id, miniapp_slug, is_enabled")
+        .eq("miniapp_slug", slug)
+        .maybeSingle();
+
+      if (miniappError) {
+        console.error("Screenshot upload miniapp lookup:", miniappError);
+        return res.status(500).json({ error: "Failed to load Mini App" });
+      }
+      if (!miniapp) return res.status(404).json({ error: "Mini App not found" });
+      if (!miniapp.is_enabled) return res.status(403).json({ error: "Mini App is disabled" });
+
+      // ── 2. Verify Telegram user is a registered customer of this reseller ─
+      if (!telegramUserId) {
+        return res.status(400).json({ error: "telegram_user_id is required" });
+      }
+
+      const { data: link, error: linkError } = await supabase
+        .from("telegram_links")
+        .select("id, customer_id, reseller_id")
+        .eq("reseller_id", miniapp.reseller_id)
+        .eq("telegram_user_id", telegramUserId)
+        .maybeSingle();
+
+      if (linkError) {
+        console.error("Screenshot upload link lookup:", linkError);
+        return res.status(500).json({ error: "Failed to verify customer" });
+      }
+      if (!link) {
+        return res.status(401).json({ error: "Unregistered Telegram user for this Mini App" });
+      }
+
+      // ── 3. Confirm a legitimate payment context exists ────────────────────
+      // The customer must have at least one order in this reseller's system —
+      // proving they completed onboarding (trial created on first auth) and are
+      // a real customer, not a spoofed telegram_user_id calling this endpoint
+      // directly. A purchase order does not need to exist yet; a trial is enough.
+      const { data: anyOrder, error: orderContextError } = await supabase
+        .from("vpn_orders")
+        .select("id")
+        .eq("customer_id", link.customer_id)
+        .eq("reseller_id", miniapp.reseller_id)
+        .limit(1)
+        .maybeSingle();
+
+      if (orderContextError) {
+        console.error("Screenshot upload order context check:", orderContextError);
+        return res.status(500).json({ error: "Failed to verify order context" });
+      }
+      if (!anyOrder) {
+        return res.status(403).json({ error: "No order context for this customer" });
+      }
+
+      // ── 4. Validate the file ──────────────────────────────────────────────
+      if (!req.file) {
+        return res.status(400).json({ error: "Image file is required" });
+      }
+
+      // Magic-byte check: reject files that lie about their Content-Type
+      if (!hasValidMagicBytes(req.file.buffer, req.file.mimetype)) {
+        return res.status(415).json({ error: "File content does not match its declared image type" });
+      }
+
+      // ── 5. Upload to private Supabase Storage with service-role key ───────
+      const ext = EXT_MAP[req.file.mimetype] || "jpg";
+      const storagePath = `${slug}/${miniapp.reseller_id}/${crypto.randomUUID()}.${ext}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("payment-screenshots")
+        .upload(storagePath, req.file.buffer, {
+          contentType: req.file.mimetype,
+          upsert: false,
+        });
+
+      if (uploadError) {
+        console.error("Supabase Storage upload error:", uploadError);
+        return res.status(500).json({ error: "Failed to store screenshot" });
+      }
+
+      return res.json({ path: storagePath });
+    } catch (err) {
+      console.error("Screenshot upload exception:", err);
+      return res.status(500).json({ error: "Unexpected server error" });
+    }
+  }
+);
 
 export default router;

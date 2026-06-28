@@ -45,6 +45,21 @@ export async function requestJson(path, options = {}) {
   return parseResponse(response);
 }
 
+// Sends a multipart/form-data POST. Do NOT set Content-Type manually —
+// the browser must set it so the multipart boundary is included.
+export async function uploadFormData(path, formData) {
+  const response = await fetch(buildUrl(path), {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "ngrok-skip-browser-warning": "true",
+    },
+    body: formData,
+  });
+
+  return parseResponse(response);
+}
+
 export async function postJson(path, body, options = {}) {
   const response = await fetch(buildUrl(path), {
     ...options,
