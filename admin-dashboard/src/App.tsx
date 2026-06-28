@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, AppBar, Box, Chip, Container, CssBaseline, MenuItem, Stack, Tab, Tabs, TextField, ThemeProvider, Toolbar, Typography, createTheme } from '@mui/material';
+import { Alert, AppBar, Box, Button, Chip, Container, CssBaseline, LinearProgress, MenuItem, Stack, Tab, Tabs, TextField, ThemeProvider, Toolbar, Typography, createTheme } from '@mui/material';
 import { CustomerForm } from './components/CustomerForm';
 import { OrderForm } from './components/OrderForm';
 import { OrdersTable } from './components/OrdersTable';
@@ -7,6 +7,8 @@ import { SimpleTableCard } from './components/SimpleTableCard';
 import { SummaryCards } from './components/SummaryCards';
 import { useDashboardData } from './hooks/useDashboardData';
 import { formatBytes, formatDate, formatMMK, getStatusColor } from './lib/format';
+import { useAdminAuth } from './providers/AdminAuthProvider';
+import { LoginPage } from './pages/LoginPage';
 
 const theme = createTheme({
   palette: {
@@ -15,6 +17,7 @@ const theme = createTheme({
 });
 
 export default function App() {
+  const { isAuthenticated, initializing, admin, logout } = useAdminAuth();
   const { customers, orders, plans, resellers, keys, loading, error, refresh } = useDashboardData();
   const [tab, setTab] = useState(0);
   const [selectedResellerId, setSelectedResellerId] = useState('all');
@@ -30,6 +33,24 @@ export default function App() {
       keys: keys.filter((item) => item.reseller_id === selectedResellerId),
     };
   }, [customers, orders, keys, selectedResellerId]);
+
+  if (initializing) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <LinearProgress />
+      </ThemeProvider>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <LoginPage />
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider theme={theme}>
@@ -58,6 +79,14 @@ export default function App() {
                 </MenuItem>
               ))}
             </TextField>
+            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ flexShrink: 0 }}>
+              <Typography variant="body2" color="text.secondary" noWrap>
+                {admin?.name || admin?.email}
+              </Typography>
+              <Button size="small" variant="outlined" color="inherit" onClick={() => void logout()}>
+                Sign Out
+              </Button>
+            </Stack>
           </Stack>
         </Toolbar>
       </AppBar>

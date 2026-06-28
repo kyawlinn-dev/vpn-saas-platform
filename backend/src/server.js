@@ -6,12 +6,14 @@ import rateLimit from "express-rate-limit";
 
 import { requireAuth } from "./middleware/requireAuth.js";
 import { requireAdmin } from "./middleware/requireAdmin.js";
+import { requireAdminAuth } from "./middleware/requireAdminAuth.js";
 import { requireActiveReseller } from "./middleware/requireActiveReseller.js";
 import { requireTrustedOrigin } from "./middleware/requireTrustedOrigin.js";
 import { startAutoStopJob } from "./jobs/autoStopJob.js";
 import { validateEncryptionKey } from "./lib/tokenEncryption.js";
 
 import resellerSessionRouter from "./routes/auth/resellerSessionRouter.js";
+import adminSessionRouter from "./routes/admin/adminSessionRouter.js";
 import adminMeRouter from "./routes/admin/adminMeRouter.js";
 import adminServersRouter from "./routes/admin/adminServersRouter.js";
 import resellerMeRouter from "./routes/reseller/resellerMeRouter.js";
@@ -147,6 +149,16 @@ app.use("/api/miniapp", resellerMiniappRoutes);
 app.use("/api/bot-webhook", botWebhookRouter);
 
 /**
+ * admin auth routes (public — protected only by credentials)
+ */
+app.use(
+  "/api/admin/auth",
+  authLimiter,
+  requireTrustedOrigin,
+  adminSessionRouter
+);
+
+/**
  * reseller auth routes
  */
 app.use(
@@ -206,7 +218,7 @@ app.use(
 app.use(
   "/api/admin/me",
   requireTrustedOrigin,
-  requireAuth,
+  requireAdminAuth,
   requireAdmin,
   adminMeRouter
 );
@@ -214,7 +226,7 @@ app.use(
 app.use(
   "/api/admin/servers",
   requireTrustedOrigin,
-  requireAuth,
+  requireAdminAuth,
   requireAdmin,
   adminServersRouter
 );

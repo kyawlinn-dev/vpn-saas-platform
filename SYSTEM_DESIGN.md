@@ -135,7 +135,7 @@ Buy button on each package → payment form (reseller's KBZPay info + screenshot
 Reseller dashboard section to set brand name, bot token, KBZPay/bank details, support link.
 Reads/writes `reseller_miniapps` + `resellers`.
 
-**Phase 5 — Multi-tenant bot service (Option A)**
+**Phase 5 — Multi-tenant bot service (Option A)** ✅ DONE
 Single service loading all reseller tokens, routing each customer to the right branded
 mini app, isolated by `reseller_id`.
 
