@@ -52,7 +52,7 @@ function SectionCard({
 }
 
 function useSave(
-  patch: (data: WorkspaceSettingsPatch) => Promise<void>,
+  patch: (data: WorkspaceSettingsPatch) => Promise<Record<string, unknown>>,
   onSuccess?: () => void
 ) {
   const [saving, setSaving] = useState(false);
@@ -85,7 +85,7 @@ function BrandSection({
   patch,
 }: {
   settings: WorkspaceSettings;
-  patch: (data: WorkspaceSettingsPatch) => Promise<void>;
+  patch: (data: WorkspaceSettingsPatch) => Promise<Record<string, unknown>>;
 }) {
   const [brandName, setBrandName] = useState(settings.brand_name);
   const [supportUsername, setSupportUsername] = useState(
@@ -166,7 +166,7 @@ function TrialSection({
   patch,
 }: {
   settings: WorkspaceSettings;
-  patch: (data: WorkspaceSettingsPatch) => Promise<void>;
+  patch: (data: WorkspaceSettingsPatch) => Promise<Record<string, unknown>>;
 }) {
   const [trialEnabled, setTrialEnabled] = useState(settings.trial_enabled);
   const [dataLimitGb, setDataLimitGb] = useState(
@@ -248,7 +248,7 @@ function PaymentSection({
   patch,
 }: {
   settings: WorkspaceSettings;
-  patch: (data: WorkspaceSettingsPatch) => Promise<void>;
+  patch: (data: WorkspaceSettingsPatch) => Promise<Record<string, unknown>>;
 }) {
   const theme = useTheme();
   const dark = theme.palette.mode === "dark";
@@ -358,15 +358,40 @@ function BotTokenSection({
   patch,
 }: {
   settings: WorkspaceSettings;
-  patch: (data: WorkspaceSettingsPatch) => Promise<void>;
+  patch: (data: WorkspaceSettingsPatch) => Promise<Record<string, unknown>>;
 }) {
   const [botToken, setBotToken] = useState("");
   const [botConnected, setBotConnected] = useState(settings.bot_connected);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [regWarning, setRegWarning] = useState("");
 
-  const { save, saving, saved, error } = useSave(patch, () => {
-    setBotConnected(true);
-    setBotToken("");
-  });
+  const handleSave = async () => {
+    if (!botToken.trim()) return;
+    setSaving(true);
+    setSaveError("");
+    setRegWarning("");
+    setSaved(false);
+    try {
+      const result = await patch({ bot_token: botToken });
+      setSaved(true);
+      setBotToken("");
+      setTimeout(() => setSaved(false), 3000);
+      if (result?.bot_registered === true) {
+        setBotConnected(true);
+      } else if (result?.bot_registered === false) {
+        setRegWarning(
+          String(result?.bot_error || "Token saved but webhook registration failed — check your bot token.")
+        );
+        setBotConnected(false);
+      }
+    } catch (err: any) {
+      setSaveError(err?.response?.data?.error || err?.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <SectionCard
@@ -382,7 +407,7 @@ function BotTokenSection({
             <Typography fontWeight={600}>Bot Token Status</Typography>
             <Chip
               size="small"
-              label={botConnected ? "Token configured" : "No token set"}
+              label={botConnected ? "Token configured & webhook active" : "No token set"}
               sx={{
                 mt: 0.5,
                 fontWeight: 700,
@@ -423,20 +448,22 @@ function BotTokenSection({
           />
         </Stack>
 
-        <Alert severity="warning" sx={{ fontSize: "0.82rem" }}>
-          This field is write-only. Tokens are encrypted with AES-256-GCM and are never
-          returned by the API — not even to you.
+        <Alert severity="info" sx={{ fontSize: "0.82rem" }}>
+          Write-only. Tokens are encrypted with AES-256-GCM and never returned by the API.
+          The bot goes live immediately — webhook registration happens on save.
         </Alert>
 
-        {error ? <Alert severity="error">{error}</Alert> : null}
+        {regWarning ? <Alert severity="warning">{regWarning}</Alert> : null}
+        {saveError ? <Alert severity="error">{saveError}</Alert> : null}
+
         <Box>
           <Button
             variant="contained"
             disabled={saving || !botToken.trim()}
             startIcon={saved ? <CheckCircleRoundedIcon /> : undefined}
-            onClick={() => void save({ bot_token: botToken })}
+            onClick={() => void handleSave()}
           >
-            {saving ? "Saving…" : saved ? "Token Saved" : "Save Bot Token"}
+            {saving ? "Saving & registering…" : saved ? "Token Saved" : "Save Bot Token"}
           </Button>
         </Box>
       </Stack>

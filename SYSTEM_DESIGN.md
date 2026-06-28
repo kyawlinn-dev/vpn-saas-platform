@@ -131,7 +131,7 @@ existing `/:slug/auth` and `/:slug/config` endpoints.
 Buy button on each package → payment form (reseller's KBZPay info + screenshot upload) →
 `POST /:slug/orders` → immediate key delivery → order appears in reseller dashboard.
 
-**Phase 4 — Reseller workspace settings**
+**Phase 4 — Reseller workspace settings** ✅ DONE
 Reseller dashboard section to set brand name, bot token, KBZPay/bank details, support link.
 Reads/writes `reseller_miniapps` + `resellers`.
 

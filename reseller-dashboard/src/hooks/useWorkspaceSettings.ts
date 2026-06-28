@@ -44,8 +44,9 @@ export function useWorkspaceSettings() {
     };
   }, [isAuthenticated, initializing]);
 
-  const patch = async (data: WorkspaceSettingsPatch): Promise<void> => {
-    await api.patch("/reseller/workspace", data);
+  const patch = async (data: WorkspaceSettingsPatch): Promise<Record<string, unknown>> => {
+    const res = await api.patch("/reseller/workspace", data);
+    return res.data as Record<string, unknown>;
   };
 
   return { settings, loading, error, patch };

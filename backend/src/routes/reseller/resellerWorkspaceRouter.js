@@ -1,6 +1,7 @@
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { encrypt } from "../../lib/tokenEncryption.js";
+import * as botManager from "../../bot/manager.js";
 
 const router = express.Router();
 
@@ -111,6 +112,22 @@ router.patch("/", async (req, res) => {
   if (error) {
     console.error("workspace PATCH error:", error);
     return res.status(500).json({ error: "Failed to update workspace settings" });
+  }
+
+  // If a bot token was saved, restart the bot and wait for webhook registration.
+  // The reseller sees whether their token actually worked, not just that it was stored.
+  if ("bot_token" in body) {
+    try {
+      await botManager.restartBot(resellerId);
+      return res.json({ success: true, bot_registered: true });
+    } catch (err) {
+      console.error(`[bot:${resellerId}] post-save registration failed:`, err.message);
+      return res.json({
+        success: true,
+        bot_registered: false,
+        bot_error: err.message || "Webhook registration failed — check your bot token",
+      });
+    }
   }
 
   return res.json({ success: true });

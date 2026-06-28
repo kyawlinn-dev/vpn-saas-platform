@@ -25,6 +25,8 @@ import subscriptionRoutes from "./routes/public/subscriptionRoutes.js";
 
 import telegramMiniAppRoutes from "./routes/public/telegramMiniAppRoutes.js";
 import resellerMiniappRoutes from "./routes/public/resellerMiniappRoutes.js";
+import botWebhookRouter from "./bot/webhookRouter.js";
+import * as botManager from "./bot/manager.js";
 
 dotenv.config();
 validateEncryptionKey(); // fails loudly at boot if key is absent or wrong length
@@ -141,6 +143,8 @@ app.use("/api/public/plans", planRoutes);
 app.use("/api/public", subscriptionRoutes);
 app.use("/api/public/telegram-miniapp", telegramMiniAppRoutes);
 app.use("/api/miniapp", resellerMiniappRoutes);
+// Bot webhooks — public, authenticated only by X-Telegram-Bot-Api-Secret-Token header
+app.use("/api/bot-webhook", botWebhookRouter);
 
 /**
  * reseller auth routes
@@ -228,4 +232,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   startAutoStopJob();
+  void botManager.start(); // registers webhooks for all configured reseller bots
 });
