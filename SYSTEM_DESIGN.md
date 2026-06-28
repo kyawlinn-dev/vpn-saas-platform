@@ -123,7 +123,7 @@ all handlers to preserve isolation.
 Refactor to one persistent token per customer resolving to current server dynamically.
 Add `#brand-username` label. Everything else builds on this key model.
 
-**Phase 2 — Finish mini app auth/access modules**
+**Phase 2 — Finish mini app auth/access modules** ✅ DONE
 Fill the empty `features/auth` and `features/access` modules, workspace-aware, wired to the
 existing `/:slug/auth` and `/:slug/config` endpoints.
 
