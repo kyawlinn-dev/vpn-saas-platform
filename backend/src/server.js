@@ -9,11 +9,13 @@ import { requireAdmin } from "./middleware/requireAdmin.js";
 import { requireActiveReseller } from "./middleware/requireActiveReseller.js";
 import { requireTrustedOrigin } from "./middleware/requireTrustedOrigin.js";
 import { startAutoStopJob } from "./jobs/autoStopJob.js";
+import { validateEncryptionKey } from "./lib/tokenEncryption.js";
 
 import resellerSessionRouter from "./routes/auth/resellerSessionRouter.js";
 import adminMeRouter from "./routes/admin/adminMeRouter.js";
 import adminServersRouter from "./routes/admin/adminServersRouter.js";
 import resellerMeRouter from "./routes/reseller/resellerMeRouter.js";
+import resellerWorkspaceRouter from "./routes/reseller/resellerWorkspaceRouter.js";
 
 import resellerOrdersRouter from "./routes/reseller/resellerOrdersRouter.js";
 import resellerKeysRouter from "./routes/reseller/resellerKeysRouter.js";
@@ -25,6 +27,7 @@ import telegramMiniAppRoutes from "./routes/public/telegramMiniAppRoutes.js";
 import resellerMiniappRoutes from "./routes/public/resellerMiniappRoutes.js";
 
 dotenv.config();
+validateEncryptionKey(); // fails loudly at boot if key is absent or wrong length
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -158,6 +161,14 @@ app.use(
   requireAuth,
   requireActiveReseller,
   resellerMeRouter
+);
+
+app.use(
+  "/api/reseller/workspace",
+  requireTrustedOrigin,
+  requireAuth,
+  requireActiveReseller,
+  resellerWorkspaceRouter
 );
 
 app.use(

@@ -4,6 +4,7 @@ import DashboardRoundedIcon from "@mui/icons-material/DashboardRounded";
 import ReceiptLongRoundedIcon from "@mui/icons-material/ReceiptLongRounded";
 import SmartToyRoundedIcon from "@mui/icons-material/SmartToyRounded";
 import SellRoundedIcon from "@mui/icons-material/SellRounded";
+import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
@@ -43,6 +44,7 @@ const navItems = [
   { label: "Orders", to: "/app/orders", icon: <ReceiptLongRoundedIcon fontSize="small" /> },
   { label: "Telegram Orders", to: "/app/telegram-orders", icon: <SmartToyRoundedIcon fontSize="small" /> },
   { label: "Plans", to: "/app/plans", icon: <SellRoundedIcon fontSize="small" /> },
+  { label: "Settings", to: "/app/settings", icon: <SettingsRoundedIcon fontSize="small" /> },
 ];
 
 function NavButton({

@@ -140,6 +140,25 @@ export interface VpnServer {
   created_at?: string;
 }
 
+export interface PaymentMethod {
+  method: string;
+  account_name: string;
+  account_number: string;
+}
+
+export interface WorkspaceSettings {
+  miniapp_slug: string;
+  brand_name: string;
+  brand_logo_url: string;
+  support_username: string;
+  primary_color: string;
+  trial_enabled: boolean;
+  trial_data_limit_gb: number | null;
+  trial_duration_days: number | null;
+  payment_info: PaymentMethod[];
+  bot_connected: boolean;
+}
+
 export interface ServerInventoryCounts {
   total: number;
   available: number;

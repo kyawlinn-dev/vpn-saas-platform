@@ -9,6 +9,7 @@ import { OverviewPage } from "./pages/OverviewPage";
 import { OrdersPage } from "./pages/OrdersPage";
 import { PlansPage } from "./pages/PlansPage";
 import { TelegramOrdersPage } from "./pages/TelegramOrdersPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { ResellerLayout } from "./layouts/ResellerLayout";
 import { ColorModeContext } from "./theme/ColorModeContext";
 
@@ -212,6 +213,7 @@ export default function App() {
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="telegram-orders" element={<TelegramOrdersPage />} />
                 <Route path="plans" element={<PlansPage />} />
+                <Route path="settings" element={<SettingsPage />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/app" replace />} />
