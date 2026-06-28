@@ -1,0 +1,12 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: #030712;
+}
+
+a {
+  color: inherit;
+}

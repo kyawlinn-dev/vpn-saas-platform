@@ -1,0 +1,7 @@
+name = "vpn"
+main = "worker.js"
+compatibility_date = "2026-04-13"
+workers_dev = true
+
+[vars]
+BACKEND_BASE_URL = "https://beulah-nonfactious-after.ngrok-free.dev"
