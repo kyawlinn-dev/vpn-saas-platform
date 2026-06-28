@@ -127,7 +127,7 @@ Add `#brand-username` label. Everything else builds on this key model.
 Fill the empty `features/auth` and `features/access` modules, workspace-aware, wired to the
 existing `/:slug/auth` and `/:slug/config` endpoints.
 
-**Phase 3 — Buy / payment flow** *(revenue unlock)*
+**Phase 3 — Buy / payment flow** ✅ DONE
 Buy button on each package → payment form (reseller's KBZPay info + screenshot upload) →
 `POST /:slug/orders` → immediate key delivery → order appears in reseller dashboard.
 
