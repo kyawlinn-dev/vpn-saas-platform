@@ -16,10 +16,6 @@ import {
 
 const router = express.Router();
 
-function createSsconfToken() {
-  return crypto.randomUUID().replaceAll("-", "");
-}
-
 function getRequestBaseUrl(req) {
   const proto =
     String(req.headers["x-forwarded-proto"] || "")
@@ -42,53 +38,22 @@ function buildSsconfHttpUrl(req, slug, token) {
   )}/ssconf/${encodeURIComponent(token)}`;
 }
 
-function buildDynamicAccessUrl(req, slug, token) {
+function buildDynamicAccessUrl(req, slug, token, label) {
   const httpUrl = buildSsconfHttpUrl(req, slug, token);
   const url = new URL(httpUrl);
-
-  return `ssconf://${url.host}${url.pathname}`;
+  const fragment = label ? `#${label}` : "";
+  return `ssconf://${url.host}${url.pathname}${fragment}`;
 }
 
-function toPublicOutlineKey(req, slug, key) {
-  if (!key?.ssconf_token) return null;
+function toPublicOutlineKey(req, slug, customerSsconfToken, key, label) {
+  if (!customerSsconfToken) return null;
 
   return {
-    id: key.id,
-    ssconf_token: key.ssconf_token,
-
-    // Normal URL for browser/curl/backend testing
-    ssconf_url: buildSsconfHttpUrl(req, slug, key.ssconf_token),
-
-    // User-facing Outline import URL
-    dynamic_access_url: buildDynamicAccessUrl(req, slug, key.ssconf_token),
-
-    data_limit_bytes: key.data_limit_bytes,
-    used_bytes: key.used_bytes || 0,
-  };
-}
-
-async function ensureKeySsconfToken(key) {
-  if (!key || key.ssconf_token) return key;
-
-  const ssconfToken = createSsconfToken();
-
-  const { data, error } = await supabase
-    .from("vpn_keys")
-    .update({
-      ssconf_token: ssconfToken,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", key.id)
-    .select("id, ssconf_token")
-    .single();
-
-  if (error || !data?.ssconf_token) {
-    throw new Error(error?.message || "Failed to create ssconf token");
-  }
-
-  return {
-    ...key,
-    ssconf_token: data.ssconf_token,
+    ssconf_token: customerSsconfToken,
+    ssconf_url: buildSsconfHttpUrl(req, slug, customerSsconfToken),
+    dynamic_access_url: buildDynamicAccessUrl(req, slug, customerSsconfToken, label),
+    data_limit_bytes: key?.data_limit_bytes ?? null,
+    used_bytes: key?.used_bytes ?? 0,
   };
 }
 
@@ -141,6 +106,42 @@ function toPublicMiniAppConfig(row) {
       duration_days: row.trial_duration_days,
     },
   };
+}
+
+// Generates and persists a permanent ssconf_token on vpn_customers if one does
+// not already exist. Race-safe: uses a conditional UPDATE then re-fetches.
+async function ensureCustomerSsconfToken(customerId) {
+  const { data: existing, error: readErr } = await supabase
+    .from("vpn_customers")
+    .select("ssconf_token")
+    .eq("id", customerId)
+    .single();
+
+  if (readErr) throw new Error(readErr.message);
+  if (existing?.ssconf_token) return existing.ssconf_token;
+
+  const newToken = crypto.randomUUID().replaceAll("-", "");
+
+  const { error: updateErr } = await supabase
+    .from("vpn_customers")
+    .update({ ssconf_token: newToken })
+    .eq("id", customerId)
+    .is("ssconf_token", null);
+
+  if (updateErr) throw new Error(updateErr.message);
+
+  // Re-fetch in case a concurrent request won the race and set a different token
+  const { data: updated, error: refetchErr } = await supabase
+    .from("vpn_customers")
+    .select("ssconf_token")
+    .eq("id", customerId)
+    .single();
+
+  if (refetchErr || !updated?.ssconf_token) {
+    throw new Error("Failed to ensure customer ssconf token");
+  }
+
+  return updated.ssconf_token;
 }
 
 async function getBestActiveOrder({ customerId, resellerId }) {
@@ -221,19 +222,56 @@ router.get("/:slug/ssconf/:token", async (req, res) => {
       return res.status(403).json({ error: "Mini App is disabled" });
     }
 
-    const { data: key, error: keyError } = await supabase
-      .from("vpn_keys")
-      .select(`
-        id,
-        reseller_id,
-        order_id,
-        access_url,
-        ssconf_token,
-        status,
-        deleted_at
-      `)
+    // Resolve customer by their persistent ssconf_token (scoped to this reseller)
+    const { data: customer, error: customerError } = await supabase
+      .from("vpn_customers")
+      .select("id, reseller_id")
       .eq("ssconf_token", token)
       .eq("reseller_id", miniapp.reseller_id)
+      .maybeSingle();
+
+    if (customerError) {
+      console.error("Mini App ssconf customer lookup error:", customerError);
+      return res.status(500).json({ error: "Failed to load customer" });
+    }
+
+    if (!customer) {
+      return res.status(404).json({ error: "VPN key not found" });
+    }
+
+    // Find the customer's best active order (purchase wins over trial)
+    let activeOrder;
+    try {
+      activeOrder = await getBestActiveOrder({
+        customerId: customer.id,
+        resellerId: miniapp.reseller_id,
+      });
+    } catch (err) {
+      console.error("Mini App ssconf order lookup error:", err);
+      return res.status(500).json({ error: "Failed to load subscription" });
+    }
+
+    if (!activeOrder) {
+      return res.status(410).json({ error: "No active subscription" });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    if (!activeOrder.expiry_date || activeOrder.expiry_date < today) {
+      return res.status(410).json({ error: "Subscription has expired" });
+    }
+
+    // Most recently created active key wins — deterministic even if two keys
+    // briefly coexist during a server switch
+    const { data: key, error: keyError } = await supabase
+      .from("vpn_keys")
+      .select("id, access_url")
+      .eq("customer_id", customer.id)
+      .eq("reseller_id", miniapp.reseller_id)
+      .eq("order_id", activeOrder.id)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (keyError) {
@@ -241,35 +279,8 @@ router.get("/:slug/ssconf/:token", async (req, res) => {
       return res.status(500).json({ error: "Failed to load VPN key" });
     }
 
-    if (!key) {
-      return res.status(404).json({ error: "VPN key not found" });
-    }
-
-    if (key.status !== "active" || key.deleted_at) {
-      return res.status(410).json({ error: "VPN key is no longer active" });
-    }
-
-    const { data: order, error: orderError } = await supabase
-      .from("vpn_orders")
-      .select("id, reseller_id, status, expiry_date")
-      .eq("id", key.order_id)
-      .eq("reseller_id", miniapp.reseller_id)
-      .maybeSingle();
-
-    if (orderError) {
-      console.error("Mini App ssconf order lookup error:", orderError);
-      return res.status(500).json({ error: "Failed to load VPN order" });
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-
-    if (
-      !order ||
-      order.status !== "active" ||
-      !order.expiry_date ||
-      order.expiry_date < today
-    ) {
-      return res.status(410).json({ error: "VPN key is expired" });
+    if (!key || !key.access_url) {
+      return res.status(410).json({ error: "No active VPN key for this subscription" });
     }
 
     const parsed = parseSsUrl(key.access_url);
@@ -503,6 +514,10 @@ router.post("/:slug/auth", async (req, res) => {
       customer = existingLink.vpn_customers;
     }
 
+    // Ensure the customer has a permanent ssconf_token from this point forward
+    const customerSsconfToken = await ensureCustomerSsconfToken(customer.id);
+    const label = [miniapp.brand_name, telegramUsername].filter(Boolean).join("-");
+
     let activeOrder = null;
 
     try {
@@ -617,7 +632,7 @@ router.post("/:slug/auth", async (req, res) => {
       trialCreated = true;
     }
 
-    let activeKey = null;
+    let currentKeyRow = null;
     let currentServer = null;
 
     if (activeOrder) {
@@ -625,7 +640,6 @@ router.post("/:slug/auth", async (req, res) => {
         .from("vpn_keys")
         .select(`
           id,
-          ssconf_token,
           outline_key_id,
           data_limit_bytes,
           used_bytes,
@@ -659,7 +673,7 @@ router.post("/:slug/auth", async (req, res) => {
         });
       }
 
-      activeKey = keyRow ? await ensureKeySsconfToken(keyRow) : null;
+      currentKeyRow = keyRow || null;
 
       if (keyRow?.vpn_servers) {
         currentServer = mapServerForMiniApp(keyRow.vpn_servers, true);
@@ -693,8 +707,8 @@ router.post("/:slug/auth", async (req, res) => {
             }
           : null,
         current_server: currentServer,
-        outline_key: activeKey
-          ? toPublicOutlineKey(req, slug, activeKey)
+        outline_key: currentKeyRow
+          ? toPublicOutlineKey(req, slug, customerSsconfToken, currentKeyRow, label)
           : null,
         trial: {
           created_now: trialCreated,
@@ -979,7 +993,7 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
 
     const { data: miniapp, error: miniappError } = await supabase
       .from("reseller_miniapps")
-      .select("id, reseller_id, miniapp_slug, is_enabled")
+      .select("id, reseller_id, miniapp_slug, brand_name, is_enabled")
       .eq("miniapp_slug", slug)
       .maybeSingle();
 
@@ -1046,6 +1060,9 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
         message: "Customer is inactive",
       });
     }
+
+    const customerSsconfToken = await ensureCustomerSsconfToken(customer.id);
+    const label = [miniapp.brand_name, customer.telegram_username].filter(Boolean).join("-");
 
     let activeOrder = null;
 
@@ -1133,7 +1150,6 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
         server_id,
         outline_key_id,
         access_url,
-        ssconf_token,
         data_limit_bytes,
         used_bytes,
         status,
@@ -1164,14 +1180,12 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       existingCurrentKey?.server_id === server.id &&
       existingCurrentKey?.access_url
     ) {
-      const publicKey = await ensureKeySsconfToken(existingCurrentKey);
-
       return res.json({
         success: true,
         message: "Server already linked",
         data: {
           current_server: mapServerForMiniApp(server, true),
-          outline_key: toPublicOutlineKey(req, slug, publicKey),
+          outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, existingCurrentKey, label),
         },
       });
     }
@@ -1201,14 +1215,13 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
         outline_key_id: outlineKey.outline_key_id,
         key_name: outlineKey.key_name,
         access_url: outlineKey.access_url,
-        ssconf_token: createSsconfToken(),
         data_limit_bytes: dataLimitBytes,
         used_bytes: 0,
         status: "active",
         is_used: true,
         used_at: new Date().toISOString(),
       })
-      .select("id, ssconf_token, outline_key_id, server_id, data_limit_bytes, used_bytes")
+      .select("id, outline_key_id, server_id, data_limit_bytes, used_bytes")
       .single();
 
     if (insertKeyError || !insertedKey) {
@@ -1264,7 +1277,7 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       message: "Server linked successfully",
       data: {
         current_server: mapServerForMiniApp(server, true),
-        outline_key: toPublicOutlineKey(req, slug, insertedKey),
+        outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, insertedKey, label),
       },
     });
   } catch (err) {
@@ -1346,6 +1359,7 @@ router.post("/:slug/orders", async (req, res) => {
         id,
         reseller_id,
         miniapp_slug,
+        brand_name,
         is_enabled
       `)
       .eq("miniapp_slug", slug)
@@ -1414,6 +1428,9 @@ router.post("/:slug/orders", async (req, res) => {
         message: "Customer is inactive",
       });
     }
+
+    const customerSsconfToken = await ensureCustomerSsconfToken(customer.id);
+    const label = [miniapp.brand_name, customer.telegram_username].filter(Boolean).join("-");
 
     const { data: plan, error: planError } = await supabase
       .from("vpn_plans")
@@ -1542,7 +1559,6 @@ router.post("/:slug/orders", async (req, res) => {
         .select(`
           id,
           access_url,
-          ssconf_token,
           outline_key_id,
           data_limit_bytes,
           used_bytes,
@@ -1577,8 +1593,6 @@ router.post("/:slug/orders", async (req, res) => {
       }
 
       if (existingKey?.access_url) {
-        const publicKey = await ensureKeySsconfToken(existingKey);
-
         return res.status(409).json({
           success: false,
           message: "You already have a pending order with active access.",
@@ -1592,7 +1606,7 @@ router.post("/:slug/orders", async (req, res) => {
               plan: existingPendingOrder.vpn_plans,
             },
             current_server: mapServerForMiniApp(existingKey.vpn_servers, true),
-            outline_key: toPublicOutlineKey(req, slug, publicKey),
+            outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, existingKey, label),
           },
         });
       }
@@ -1632,14 +1646,13 @@ router.post("/:slug/orders", async (req, res) => {
           outline_key_id: outlineKey.outline_key_id,
           key_name: outlineKey.key_name,
           access_url: outlineKey.access_url,
-          ssconf_token: createSsconfToken(),
           data_limit_bytes: dataLimitBytes,
           used_bytes: 0,
           status: "active",
           is_used: true,
           used_at: new Date().toISOString(),
         })
-        .select("id, ssconf_token, data_limit_bytes, used_bytes")
+        .select("id, data_limit_bytes, used_bytes")
         .single();
 
       if (insertKeyError || !insertedKey) {
@@ -1668,7 +1681,7 @@ router.post("/:slug/orders", async (req, res) => {
             plan: existingPendingOrder.vpn_plans,
           },
           current_server: mapServerForMiniApp(defaultServer, true),
-          outline_key: toPublicOutlineKey(req, slug, insertedKey),
+          outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, insertedKey, label),
         },
       });
     }
@@ -1788,14 +1801,13 @@ router.post("/:slug/orders", async (req, res) => {
         outline_key_id: outlineKey.outline_key_id,
         key_name: outlineKey.key_name,
         access_url: outlineKey.access_url,
-        ssconf_token: createSsconfToken(),
         data_limit_bytes: dataLimitBytes,
         used_bytes: 0,
         status: "active",
         is_used: true,
         used_at: new Date().toISOString(),
       })
-      .select("id, ssconf_token, data_limit_bytes, used_bytes")
+      .select("id, data_limit_bytes, used_bytes")
       .single();
 
     if (insertKeyError || !insertedKey) {
@@ -1828,7 +1840,7 @@ router.post("/:slug/orders", async (req, res) => {
           plan: createdOrder.vpn_plans,
         },
         current_server: mapServerForMiniApp(defaultServer, true),
-        outline_key: toPublicOutlineKey(req, slug, insertedKey),
+        outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, insertedKey, label),
       },
     });
   } catch (err) {
