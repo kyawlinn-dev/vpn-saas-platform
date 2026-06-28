@@ -119,7 +119,7 @@ all handlers to preserve isolation.
 
 ## 6. Build Plan (phased; app stays working after each phase)
 
-**Phase 1 — Dynamic per-customer key** *(do early; data-model foundation)*
+**Phase 1 — Dynamic per-customer key** ✅ DONE
 Refactor to one persistent token per customer resolving to current server dynamically.
 Add `#brand-username` label. Everything else builds on this key model.
 
