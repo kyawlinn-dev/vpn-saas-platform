@@ -17,12 +17,11 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation } from "@tanstack/react-query";
 import PageContainer from "../components/layout/PageContainer";
 import EmptyState from "../components/common/EmptyState";
 import { SUPPORT_URL } from "../constants/app";
 import { openExternalLink } from "../lib/telegram";
-import { submitMiniAppPurchase } from "../features/auth/api";
+import { useSubmitPurchase } from "../features/access/hooks";
 import PackageCard from "../features/packages/PackageCard";
 import SupportCard from "../features/support/SupportCard";
 
@@ -196,14 +195,7 @@ export default function PackagesPage({
   const [screenshotUrl, setScreenshotUrl] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
 
-  const submitMutation = useMutation({
-    mutationFn: () =>
-      submitMiniAppPurchase({
-        telegram_user_id: data?.user?.telegram_user_id,
-        plan_id: selectedPlan?.id,
-        payment_screenshot_url: screenshotUrl.trim(),
-        payment_note: paymentNote.trim(),
-      }),
+  const submitMutation = useSubmitPurchase({
     onSuccess: async () => {
       onToast("Premium access created. Waiting for reseller review.", "success");
       setDialogOpen(false);
@@ -285,7 +277,14 @@ export default function PackagesPage({
             setDialogOpen(false);
           }
         }}
-        onSubmit={() => submitMutation.mutate()}
+        onSubmit={() =>
+          submitMutation.mutate({
+            telegram_user_id: data?.user?.telegram_user_id,
+            plan_id: selectedPlan?.id,
+            payment_screenshot_url: screenshotUrl.trim(),
+            payment_note: paymentNote.trim(),
+          })
+        }
       />
     </PageContainer>
   );

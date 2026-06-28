@@ -17,10 +17,9 @@ import {
   Stack,
   Typography,
 } from "@mui/material";
-import { useMutation } from "@tanstack/react-query";
 import PageContainer from "../components/layout/PageContainer";
 import EmptyState from "../components/common/EmptyState";
-import { linkMiniAppServer } from "../features/auth/api";
+import { useLinkServer } from "../features/access/hooks";
 
 function pingFor(server) {
   const seed = String(server?.id || server?.server_number || server?.name || "").length;
@@ -128,12 +127,7 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange 
   const [openGroups, setOpenGroups] = useState({});
   const [selectedServer, setSelectedServer] = useState(null);
 
-  const linkMutation = useMutation({
-    mutationFn: (server) =>
-      linkMiniAppServer({
-        server_id: server.id,
-        telegram_user_id: telegramUserId,
-      }),
+  const linkMutation = useLinkServer({
     onSuccess: async () => {
       onToast("Server linked successfully", "success");
       setSelectedServer(null);
@@ -254,7 +248,7 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange 
           <Button
             fullWidth
             variant="contained"
-            onClick={() => linkMutation.mutate(selectedServer)}
+            onClick={() => linkMutation.mutate({ server_id: selectedServer.id, telegram_user_id: telegramUserId })}
             disabled={linkMutation.isPending}
             sx={{ bgcolor: "#1d4ed8", "&:hover": { bgcolor: "#2563eb" } }}
           >
