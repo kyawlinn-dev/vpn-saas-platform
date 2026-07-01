@@ -16,6 +16,8 @@ import resellerSessionRouter from "./routes/auth/resellerSessionRouter.js";
 import adminSessionRouter from "./routes/admin/adminSessionRouter.js";
 import adminMeRouter from "./routes/admin/adminMeRouter.js";
 import adminServersRouter from "./routes/admin/adminServersRouter.js";
+import adminResellersRouter from "./routes/admin/adminResellersRouter.js";
+import adminDataRouter from "./routes/admin/adminDataRouter.js";
 import resellerMeRouter from "./routes/reseller/resellerMeRouter.js";
 import resellerWorkspaceRouter from "./routes/reseller/resellerWorkspaceRouter.js";
 
@@ -229,6 +231,25 @@ app.use(
   requireAdminAuth,
   requireAdmin,
   adminServersRouter
+);
+
+// /api/admin/resellers must be mounted before /api/admin so Express matches
+// the more specific path first (GET, POST, PATCH all go to adminResellersRouter).
+app.use(
+  "/api/admin/resellers",
+  requireTrustedOrigin,
+  requireAdminAuth,
+  requireAdmin,
+  adminResellersRouter
+);
+
+// Generic data endpoints: /api/admin/customers, /orders, /plans, /keys
+app.use(
+  "/api/admin",
+  requireTrustedOrigin,
+  requireAdminAuth,
+  requireAdmin,
+  adminDataRouter
 );
 
 app.use((err, req, res, next) => {

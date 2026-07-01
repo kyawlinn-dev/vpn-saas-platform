@@ -27,11 +27,11 @@ export function useDashboardData(): DashboardDataState {
       setLoading(true);
       setError('');
       const [customersRes, ordersRes, plansRes, resellersRes, keysRes] = await Promise.all([
-        api.get<Customer[]>('/customers'),
-        api.get<Order[]>('/orders'),
-        api.get<Plan[]>('/plans'),
-        api.get<Reseller[]>('/resellers'),
-        api.get<VpnKey[]>('/keys'),
+        api.get<Customer[]>('/admin/customers'),
+        api.get<Order[]>('/admin/orders'),
+        api.get<Plan[]>('/admin/plans'),
+        api.get<Reseller[]>('/admin/resellers'),
+        api.get<VpnKey[]>('/admin/keys'),
       ]);
 
       setCustomers(customersRes.data);

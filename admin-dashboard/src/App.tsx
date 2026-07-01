@@ -3,6 +3,7 @@ import { Alert, AppBar, Box, Button, Chip, Container, CssBaseline, LinearProgres
 import { CustomerForm } from './components/CustomerForm';
 import { OrderForm } from './components/OrderForm';
 import { OrdersTable } from './components/OrdersTable';
+import { ResellersTab } from './components/ResellersTab';
 import { SimpleTableCard } from './components/SimpleTableCard';
 import { SummaryCards } from './components/SummaryCards';
 import { useDashboardData } from './hooks/useDashboardData';
@@ -157,16 +158,7 @@ export default function App() {
           )}
 
           {tab === 4 && (
-            <SimpleTableCard
-              title="Resellers"
-              rows={resellers}
-              columns={[
-                { key: 'name', header: 'Name', render: (row) => row.name },
-                { key: 'commission', header: 'Commission', render: (row) => `${row.commission_percent || 0}%` },
-                { key: 'customers', header: 'Customers', render: (row) => customers.filter((item) => item.reseller_id === row.id).length },
-                { key: 'orders', header: 'Orders', render: (row) => orders.filter((item) => item.reseller_id === row.id).length },
-              ]}
-            />
+            <ResellersTab resellers={resellers} onSuccess={refresh} />
           )}
         </Stack>
       </Container>

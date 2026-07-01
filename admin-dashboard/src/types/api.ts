@@ -3,9 +3,12 @@ export type Nullable<T> = T | null;
 export interface Reseller {
   id: string;
   name: string;
+  email?: string;
   status?: string;
   commission_percent?: number;
   created_at?: string;
+  miniapp_slug?: string | null;
+  miniapp_enabled?: boolean | null;
 }
 
 export interface Customer {
