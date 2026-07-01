@@ -107,6 +107,15 @@ all handlers to preserve isolation.
 - autoStop background job (expiry handling), per-server capacity tracking
 
 **Missing / unfinished**
+
+> **TOP PRIORITY — Miniapp dynamic-slug (white-label multi-tenancy blocker)**
+> Currently `VITE_MINIAPP_SLUG` is baked into the miniapp at build time, so every reseller's
+> bot opens the same NovaNet-branded app. True white-label multi-tenancy requires the miniapp
+> to read its workspace slug dynamically — from the Telegram `startParam` (passed by the bot
+> when it opens the WebApp) — and pass it through to all API calls instead of using the
+> hardcoded env var. Until this is done, adding a second reseller gives them NovaNet branding
+> and NovaNet plans instead of their own.
+
 - Mini app `features/access/*` and `features/auth/{hooks,store}` — empty (0 bytes)
 - Mini app **Buy button + payment form** (KBZPay info + screenshot upload → POST orders)
 - Dynamic per-customer key (currently per-server keys — see 4.2)
@@ -144,8 +153,8 @@ Admin dashboard to manage servers, plans, resellers (enable/disable, oversee ord
 - **6A** ✅ DONE — Admin session auth (`/api/admin/auth/*`), `requireAdminAuth` + `requireAdmin` middleware
 - **6B** ✅ DONE — Admin data endpoints: cross-reseller GET for customers, orders, plans, keys
 - **6C** ✅ DONE — Reseller management: atomic create (auth user + resellers row + miniapp row with rollback), enable/disable
-- **6D** — Plan management UI (admin can create/edit/toggle plans)
-- **6E** — Server and order oversight UI
+- **6D** ✅ DONE — Plan management UI: create/edit/toggle plans (`adminPlansRouter`, `PlansTab`)
+- **6E** ✅ DONE — Server tab (capacity bar + edit-capacity dialog), admin order actions (activate/extend/stop with confirm dialog + admin-id logging; unscoped cross-reseller fetch)
 
 **Phase 7 — Automation & RAG support bot**
 Auto key-delivery refinements + 24/7 RAG customer-service bot (flexibot architecture:
