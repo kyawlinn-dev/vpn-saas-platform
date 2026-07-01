@@ -10,6 +10,7 @@ import { requireAdminAuth } from "./middleware/requireAdminAuth.js";
 import { requireActiveReseller } from "./middleware/requireActiveReseller.js";
 import { requireTrustedOrigin } from "./middleware/requireTrustedOrigin.js";
 import { startAutoStopJob } from "./jobs/autoStopJob.js";
+import { startSyncUsageJob } from "./jobs/syncUsageJob.js";
 import { validateEncryptionKey } from "./lib/tokenEncryption.js";
 
 import resellerSessionRouter from "./routes/auth/resellerSessionRouter.js";
@@ -291,5 +292,6 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   startAutoStopJob();
+  startSyncUsageJob();
   void botManager.start(); // registers webhooks for all configured reseller bots
 });

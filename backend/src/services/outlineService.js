@@ -385,3 +385,17 @@ export async function deleteOutlineKey({ apiUrl, certSha256, outlineKeyId }) {
     );
   }
 }
+
+export async function getOutlineTransferMetrics({ apiUrl, certSha256 }) {
+  const client = createOutlineClient({ apiUrl, certSha256 });
+
+  try {
+    const { data } = await withRetry(
+      () => client.get("/metrics/transfer"),
+      { attempts: 2, baseDelayMs: 500 }
+    );
+    return data?.bytesTransferredByUserId ?? {};
+  } catch (error) {
+    throw normalizeOutlineError(error, "Failed to fetch Outline transfer metrics");
+  }
+}

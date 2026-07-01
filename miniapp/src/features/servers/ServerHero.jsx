@@ -1,4 +1,3 @@
-import SignalCellularAltRoundedIcon from "@mui/icons-material/SignalCellularAltRounded";
 import { Box, Card, CardContent, Stack, Typography } from "@mui/material";
 
 export default function ServerHero({ server }) {
@@ -15,27 +14,18 @@ export default function ServerHero({ server }) {
             Current Server :
           </Typography>
 
-          <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1.5}>
-            <Stack direction="row" alignItems="center" spacing={1.2} minWidth={0}>
-              <Typography sx={{ fontSize: 34, lineHeight: 1 }}>
-                {server?.flag || "🌐"}
+          <Stack direction="row" alignItems="center" spacing={1.2} minWidth={0}>
+            <Typography sx={{ fontSize: 34, lineHeight: 1 }}>
+              {server?.flag || "🌐"}
+            </Typography>
+            <Box minWidth={0}>
+              <Typography variant="h6" fontWeight={900} noWrap sx={{ color: "#fff" }}>
+                {location || server?.region || "Choose server"}
               </Typography>
-              <Box minWidth={0}>
-                <Typography variant="h6" fontWeight={900} noWrap sx={{ color: "#fff" }}>
-                  {location || server?.region || "Choose server"}
-                </Typography>
-                <Typography variant="body2" fontWeight={900} sx={{ color: "#facc15" }}>
-                  {serverNumber || "Not linked"}
-                </Typography>
-              </Box>
-            </Stack>
-
-            <Stack direction="row" spacing={0.6} alignItems="center" sx={{ color: "#22c55e" }}>
-              <SignalCellularAltRoundedIcon fontSize="small" />
-              <Typography variant="caption" fontWeight={900}>
-                24ms
+              <Typography variant="body2" fontWeight={900} sx={{ color: "#facc15" }}>
+                {serverNumber || "Not linked"}
               </Typography>
-            </Stack>
+            </Box>
           </Stack>
         </Stack>
       </CardContent>

@@ -120,6 +120,7 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
   const subscription = data?.subscription || null;
   const currentServer = data?.current_server || null;
   const outlineKey = data?.outline_key || null;
+  const recentRejection = data?.recent_rejection || null;
   const rawSupportHandle = data?.config?.brand?.support_username
     ? String(data.config.brand.support_username).replace(/^@/, "")
     : null;
@@ -200,8 +201,12 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
     <PageContainer>
       <EmptyState
         icon={<Inventory2RoundedIcon />}
-        title="No active package"
-        description="Your account is linked, but there is no active VPN package yet."
+        title={recentRejection ? "Payment not confirmed" : "No active package"}
+        description={
+          recentRejection
+            ? `Your${recentRejection.plan_name ? ` ${recentRejection.plan_name}` : ""} payment was rejected. Please contact support or submit a new payment.`
+            : "Your account is linked, but there is no active VPN package yet."
+        }
         action={
           <Stack spacing={1.2}>
             <SecondaryButton onClick={() => onTabChange("packages")}>View Packages</SecondaryButton>

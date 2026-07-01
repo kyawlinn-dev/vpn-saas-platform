@@ -1,3 +1,6 @@
+import { OUTLINE_BRIDGE_BASE } from "../constants/app";
+import { openExternalLink } from "./telegram";
+
 export function getDynamicAccessUrl(keyOrServer) {
   return String(keyOrServer?.dynamic_access_url || "").trim();
 }
@@ -15,11 +18,12 @@ export function getShareUrl(keyOrServer) {
 }
 
 export function openOutlineKey(keyOrServer) {
-  const importUrl = getImportUrl(keyOrServer);
+  const ssconfUrl = getImportUrl(keyOrServer);
 
-  if (!importUrl) {
+  if (!ssconfUrl) {
     throw new Error("Please choose server first.");
   }
 
-  window.location.href = importUrl;
+  const bridgeUrl = `${OUTLINE_BRIDGE_BASE}/open-key?url=${encodeURIComponent(ssconfUrl)}`;
+  openExternalLink(bridgeUrl);
 }

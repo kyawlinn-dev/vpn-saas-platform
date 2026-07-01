@@ -146,6 +146,7 @@ export function TelegramOrdersPage() {
   const [reviewFilter, setReviewFilter] = useState("pending_review");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
+  const [rejectConfirmOrder, setRejectConfirmOrder] = useState<Order | null>(null);
   const [actionError, setActionError] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   // Signed URLs keyed by orderId — cached for the session so repeated clicks
@@ -493,7 +494,7 @@ export function TelegramOrdersPage() {
                               color="error"
                               startIcon={<CancelRoundedIcon />}
                               disabled={!canReview || busy}
-                              onClick={() => void handleReject(order.id)}
+                              onClick={() => setRejectConfirmOrder(order)}
                             >
                               Reject
                             </Button>
@@ -508,6 +509,35 @@ export function TelegramOrdersPage() {
           )}
         </CardContent>
       </Card>
+
+      {rejectConfirmOrder && (
+        <Dialog open onClose={() => setRejectConfirmOrder(null)} maxWidth="xs" fullWidth>
+          <DialogTitle>Reject Payment?</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2">
+              This will permanently delete the VPN key for{" "}
+              <strong>{rejectConfirmOrder.customer?.full_name ?? "this customer"}</strong> and cut
+              their access immediately. The order will be marked rejected and cannot be confirmed
+              afterward.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRejectConfirmOrder(null)}>Cancel</Button>
+            <Button
+              variant="contained"
+              color="error"
+              disabled={busyOrderId === rejectConfirmOrder.id}
+              onClick={() => {
+                const order = rejectConfirmOrder;
+                setRejectConfirmOrder(null);
+                void handleReject(order.id);
+              }}
+            >
+              Reject &amp; Remove Access
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       <Dialog open={Boolean(previewUrl)} onClose={() => setPreviewUrl(null)} maxWidth="md" fullWidth>
         <DialogTitle>Payment Screenshot</DialogTitle>

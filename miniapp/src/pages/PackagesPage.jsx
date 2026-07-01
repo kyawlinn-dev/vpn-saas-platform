@@ -384,8 +384,8 @@ export default function PackagesPage({
       onToast("Telegram user is not ready yet", "warning");
       return;
     }
-    if (pendingReviewOrder) {
-      onToast("You already have a purchase waiting for reseller review", "warning");
+    if (subscription?.type === "purchase") {
+      onToast("You already have an active package", "warning");
       return;
     }
     setSelectedPlan(plan);

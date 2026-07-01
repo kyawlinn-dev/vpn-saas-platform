@@ -16,6 +16,7 @@ import {
   setServerError,
   clearServerError,
 } from "../../services/serverService.js";
+import { deleteProvisionedKeysForOrder } from "../../services/subscriptionProvisionService.js";
 
 const router = express.Router();
 
@@ -778,6 +779,29 @@ router.post("/:slug/auth", async (req, res) => {
       trialCreated = true;
     }
 
+    // When no active order exists, check whether the customer's most recent
+    // purchase was rejected so the miniapp can surface a clear message.
+    let recentRejection = null;
+    if (!activeOrder) {
+      const { data: rejectedOrder } = await supabase
+        .from("vpn_orders")
+        .select("stopped_at, vpn_plans(name)")
+        .eq("customer_id", customer.id)
+        .eq("reseller_id", miniapp.reseller_id)
+        .eq("status", "stopped")
+        .eq("review_status", "rejected")
+        .order("stopped_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (rejectedOrder) {
+        recentRejection = {
+          plan_name: rejectedOrder.vpn_plans?.name || null,
+          stopped_at: rejectedOrder.stopped_at || null,
+        };
+      }
+    }
+
     let currentKeyRow = null;
     let currentServer = null;
 
@@ -860,6 +884,7 @@ router.post("/:slug/auth", async (req, res) => {
           created_now: trialCreated,
           used: Boolean(telegramLink.trial_used_at || trialCreated),
         },
+        recent_rejection: recentRejection,
       },
     });
   } catch (err) {
@@ -1071,7 +1096,7 @@ router.get("/:slug/servers", async (req, res) => {
     const mappedServers = (servers || []).map((server) => {
       const canAccess =
         allowedRegions.length === 0
-          ? false
+          ? true
           : allowedRegions.includes(server.region);
 
       return {
@@ -1270,7 +1295,7 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       });
     }
 
-    if (!allowedRegions.includes(server.region)) {
+    if (allowedRegions.length > 0 && !allowedRegions.includes(server.region)) {
       return res.status(403).json({
         success: false,
         message: "Your package cannot access this server",
@@ -1533,6 +1558,20 @@ router.post("/:slug/orders", async (req, res) => {
       });
     }
 
+    // Require a non-empty path that was produced by our own upload endpoint.
+    // Format: {slug}/{reseller_id}/{uuid}.{ext}
+    const _screenshotPath = typeof payment_screenshot_url === "string" ? payment_screenshot_url : "";
+    const _validScreenshot =
+      _screenshotPath.startsWith(`${slug}/${miniapp.reseller_id}/`) &&
+      [".jpg", ".png", ".webp"].some((ext) => _screenshotPath.endsWith(ext));
+
+    if (!_validScreenshot) {
+      return res.status(400).json({
+        success: false,
+        message: "Payment screenshot is required",
+      });
+    }
+
     const { data: link, error: linkError } = await supabase
       .from("telegram_links")
       .select(`
@@ -1616,6 +1655,84 @@ router.post("/:slug/orders", async (req, res) => {
       });
     }
 
+    // Rule 2: Block if the customer already has an active non-trial purchase.
+    // Expired/stopped/rejected orders have status='stopped' so they are not caught here.
+    // NOTE: No DB-level lock prevents two simultaneous requests from both passing this
+    // check. A partial unique index on (customer_id, reseller_id) WHERE
+    // (status='active' AND order_type='purchase') could close this race in v2.
+    const { data: activePurchaseOrder, error: activePurchaseError } = await supabase
+      .from("vpn_orders")
+      .select("id")
+      .eq("customer_id", customer.id)
+      .eq("reseller_id", miniapp.reseller_id)
+      .eq("status", "active")
+      .eq("order_type", "purchase")
+      .limit(1)
+      .maybeSingle();
+
+    if (activePurchaseError) {
+      console.error("Active purchase check error:", activePurchaseError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to check active package",
+      });
+    }
+
+    if (activePurchaseOrder) {
+      return res.status(409).json({
+        success: false,
+        message: "You already have an active package. Wait for it to expire before purchasing again.",
+      });
+    }
+
+    // Rule 1: End the customer's active trial before creating the purchase order.
+    // If cleanup throws, abort — never leave both a live trial and a new purchase active.
+    const { data: activeTrialOrder, error: activeTrialError } = await supabase
+      .from("vpn_orders")
+      .select("id")
+      .eq("customer_id", customer.id)
+      .eq("reseller_id", miniapp.reseller_id)
+      .eq("status", "active")
+      .eq("order_type", "trial")
+      .limit(1)
+      .maybeSingle();
+
+    if (activeTrialError) {
+      console.error("Active trial check error:", activeTrialError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to check active trial",
+      });
+    }
+
+    if (activeTrialOrder) {
+      try {
+        await deleteProvisionedKeysForOrder(activeTrialOrder.id);
+      } catch (err) {
+        console.error("Trial key cleanup error:", err);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to end trial before creating purchase order",
+        });
+      }
+
+      const { error: stopTrialError } = await supabase
+        .from("vpn_orders")
+        .update({
+          status: "stopped",
+          stopped_at: new Date().toISOString(),
+        })
+        .eq("id", activeTrialOrder.id);
+
+      if (stopTrialError) {
+        console.error("Trial order stop error:", stopTrialError);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to stop trial order",
+        });
+      }
+    }
+
     const { data: defaultServer, error: defaultServerError } = await supabase
       .from("vpn_servers")
       .select(`
@@ -1658,177 +1775,6 @@ router.post("/:slug/orders", async (req, res) => {
       return res.status(500).json({
         success: false,
         message: "Default server Outline config is missing",
-      });
-    }
-
-    const { data: existingPendingOrder, error: pendingOrderError } =
-      await supabase
-        .from("vpn_orders")
-        .select(`
-          id,
-          customer_id,
-          reseller_id,
-          plan_id,
-          status,
-          payment_status,
-          review_status,
-          created_at,
-          vpn_plans (
-            id,
-            name,
-            price_mmk,
-            data_limit_gb,
-            duration_days,
-            max_devices
-          )
-        `)
-        .eq("customer_id", customer.id)
-        .eq("reseller_id", miniapp.reseller_id)
-        .eq("source", "miniapp")
-        .eq("order_type", "purchase")
-        .eq("review_status", "pending_review")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-    if (pendingOrderError) {
-      console.error("Pending order lookup error:", pendingOrderError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to check pending order",
-      });
-    }
-
-    if (existingPendingOrder) {
-      const { data: existingKey, error: existingKeyError } = await supabase
-        .from("vpn_keys")
-        .select(`
-          id,
-          access_url,
-          outline_key_id,
-          data_limit_bytes,
-          used_bytes,
-          server_id,
-          vpn_servers (
-            id,
-            name,
-            region,
-            region_code,
-            display_country,
-            display_city,
-            flag_emoji,
-            server_number,
-            is_default
-          )
-        `)
-        .eq("customer_id", customer.id)
-        .eq("reseller_id", miniapp.reseller_id)
-        .eq("order_id", existingPendingOrder.id)
-        .eq("status", "active")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (existingKeyError) {
-        console.error("Existing pending key lookup error:", existingKeyError);
-        return res.status(500).json({
-          success: false,
-          message: "Failed to load existing pending access",
-        });
-      }
-
-      if (existingKey?.access_url) {
-        return res.status(409).json({
-          success: false,
-          message: "You already have a pending order with active access.",
-          data: {
-            order: {
-              id: existingPendingOrder.id,
-              status: existingPendingOrder.status,
-              payment_status: existingPendingOrder.payment_status,
-              review_status: existingPendingOrder.review_status,
-              created_at: existingPendingOrder.created_at,
-              plan: existingPendingOrder.vpn_plans,
-            },
-            current_server: mapServerForMiniApp(existingKey.vpn_servers, true),
-            outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, existingKey, label),
-          },
-        });
-      }
-
-      await supabase
-        .from("vpn_orders")
-        .update({
-          status: "active",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existingPendingOrder.id);
-
-      const dataLimitBytes = gbToBytes(existingPendingOrder.vpn_plans?.data_limit_gb);
-
-      const outlineKey = await createOutlineKey({
-        apiUrl: defaultServer.outline_api_url,
-        certSha256: defaultServer.outline_cert_sha256,
-        name: buildMiniAppKeyName({
-          customer,
-          server: defaultServer,
-          order: existingPendingOrder,
-          plan: existingPendingOrder.vpn_plans,
-        }),
-        dataLimitBytes,
-      });
-
-      createdOutlineKeyId = outlineKey.outline_key_id;
-      createdServer = defaultServer;
-
-      const { data: insertedKey, error: insertKeyError } = await supabase
-        .from("vpn_keys")
-        .insert({
-          order_id: existingPendingOrder.id,
-          customer_id: customer.id,
-          reseller_id: miniapp.reseller_id,
-          server_id: defaultServer.id,
-          outline_key_id: outlineKey.outline_key_id,
-          key_name: outlineKey.key_name,
-          access_url: outlineKey.access_url,
-          data_limit_bytes: dataLimitBytes,
-          used_bytes: 0,
-          status: "active",
-          is_used: true,
-          used_at: new Date().toISOString(),
-        })
-        .select("id, data_limit_bytes, used_bytes")
-        .single();
-
-      if (insertKeyError || !insertedKey) {
-        throw new Error(insertKeyError?.message || "Failed to store VPN key");
-      }
-
-      insertedVpnKeyId = insertedKey.id;
-
-      await incrementServerUsage(defaultServer.id);
-      incrementedServer = true;
-      await clearServerError(defaultServer.id);
-
-      return res.status(200).json({
-        success: true,
-        message: "Pending order access created successfully.",
-        data: {
-          order: {
-            id: existingPendingOrder.id,
-            status: "active",
-            payment_status: existingPendingOrder.payment_status,
-            review_status: existingPendingOrder.review_status,
-            order_type: "purchase",
-            source: "miniapp",
-            price_mmk: existingPendingOrder.vpn_plans?.price_mmk,
-            created_at: existingPendingOrder.created_at,
-            plan: existingPendingOrder.vpn_plans,
-          },
-          current_server: mapServerForMiniApp(defaultServer, true),
-          outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, insertedKey, label),
-        },
       });
     }
 

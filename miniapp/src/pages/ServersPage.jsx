@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
 import KeyboardArrowRightRoundedIcon from "@mui/icons-material/KeyboardArrowRightRounded";
-import SignalCellularAltRoundedIcon from "@mui/icons-material/SignalCellularAltRounded";
 import CrownIcon from "@mui/icons-material/WorkspacePremiumRounded";
 import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
 import {
@@ -20,11 +19,6 @@ import {
 import PageContainer from "../components/layout/PageContainer";
 import EmptyState from "../components/common/EmptyState";
 import { useLinkServer } from "../features/access/hooks";
-
-function pingFor(server) {
-  const seed = String(server?.id || server?.server_number || server?.name || "").length;
-  return 18 + ((seed * 7) % 42);
-}
 
 function groupServers(servers) {
   const groups = new Map();
@@ -85,17 +79,11 @@ function ServerRow({ server, linking, onSelect }) {
             </Box>
           ) : null}
         </Typography>
-        <Stack direction="row" spacing={0.8} alignItems="center">
-          <SignalCellularAltRoundedIcon sx={{ fontSize: 16, color: "#22c55e" }} />
-          <Typography variant="caption" color="text.secondary">
-            {pingFor(server)}ms
+        {isCurrent ? (
+          <Typography variant="caption" sx={{ color: "#3b82f6", fontWeight: 900 }}>
+            Current
           </Typography>
-          {isCurrent ? (
-            <Typography variant="caption" sx={{ color: "#3b82f6", fontWeight: 900 }}>
-              Current
-            </Typography>
-          ) : null}
-        </Stack>
+        ) : null}
       </Box>
 
       <IconButton
