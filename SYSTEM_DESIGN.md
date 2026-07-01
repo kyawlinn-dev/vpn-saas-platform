@@ -141,10 +141,45 @@ mini app, isolated by `reseller_id`.
 
 **Phase 6 — Admin control layer**
 Admin dashboard to manage servers, plans, resellers (enable/disable, oversee orders).
+- **6A** ✅ DONE — Admin session auth (`/api/admin/auth/*`), `requireAdminAuth` + `requireAdmin` middleware
+- **6B** ✅ DONE — Admin data endpoints: cross-reseller GET for customers, orders, plans, keys
+- **6C** ✅ DONE — Reseller management: atomic create (auth user + resellers row + miniapp row with rollback), enable/disable
+- **6D** — Plan management UI (admin can create/edit/toggle plans)
+- **6E** — Server and order oversight UI
 
 **Phase 7 — Automation & RAG support bot**
 Auto key-delivery refinements + 24/7 RAG customer-service bot (flexibot architecture:
 Gemini + Vertex AI RAG + Supabase + Redis memory).
+
+---
+
+## 8. Technical Debt / Cleanup
+
+### Before production — security blockers
+
+| Item | Location | Risk |
+|------|----------|------|
+| Remove `GET /api/public/plans/debug/outline` | `backend/src/routes/public/planRoutes.js` | No-auth endpoint; skips TLS cert pinning (`rejectUnauthorized: false`) against live servers |
+
+### Delete dead code (safe any time)
+
+| Item | Location | Why dead |
+|------|----------|----------|
+| `resellerAuthRouter.js` | `backend/src/routes/reseller/resellerAuthRouter.js` | Never imported or mounted in `server.js`. Returns a raw `access_token` in the response body (no httpOnly cookie) — wrong auth pattern. |
+
+### Eventual legacy removal (after miniapp is fully migrated)
+
+These are live but unused by any current customer flow. Remove once confirmed no customer traffic reaches them.
+
+| Item | Notes |
+|------|-------|
+| Cloudflare Worker (`worker/worker.js`) + `wrangler.toml` | Only serves the `tok_xxx` token portal (`/t/:token`, `/sub/:token/*`). No current flow creates token portal URLs. |
+| `GET /api/public/subscription?token=<tok>` | Only called by the Worker above. |
+| `POST /api/public/telegram-miniapp/auth` and `/purchase` | Old single-bot miniapp paradigm. Uses global `TELEGRAM_BOT_TOKEN` instead of per-reseller tokens. |
+| `access_tokens` table | Backing store for the legacy token flow. Orphaned once the Worker is removed. |
+| `token_server_assignments` table | Maps `tok_xxx` tokens to servers. Orphaned with `access_tokens`. |
+| `vpn_keys.ssconf_token` column | Superseded by `vpn_customers.ssconf_token` (the per-customer permanent token used by `/api/miniapp/:slug/ssconf/:token`). |
+| `telegram-bot/` directory | Pre-Phase-5 standalone bot. The multi-tenant bot now runs inside the backend process (`backend/src/bot/`). |
 
 ---
 
