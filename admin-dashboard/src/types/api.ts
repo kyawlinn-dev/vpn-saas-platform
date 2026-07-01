@@ -27,9 +27,30 @@ export interface Plan {
   name: string;
   price_mmk: number;
   duration_days: number;
-  data_limit_gb: Nullable<number>;
-  max_devices: Nullable<number>;
-  is_active?: boolean;
+  data_limit_gb: number;
+  max_devices: number;
+  is_active: boolean;
+  is_trial: boolean;
+  sort_order: number;
+  features: unknown;
+  allowed_regions: string[] | null;
+  created_at?: string;
+}
+
+export interface Server {
+  id: string;
+  name: string;
+  provider: string | null;
+  region: string;
+  status: string;
+  host_ip: string | null;
+  current_active_keys: number;
+  max_active_keys: number;
+  remaining_capacity: number;
+  is_default: boolean;
+  last_error: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 export interface Order {

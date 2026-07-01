@@ -3,7 +3,9 @@ import { Alert, AppBar, Box, Button, Chip, Container, CssBaseline, LinearProgres
 import { CustomerForm } from './components/CustomerForm';
 import { OrderForm } from './components/OrderForm';
 import { OrdersTable } from './components/OrdersTable';
+import { PlansTab } from './components/PlansTab';
 import { ResellersTab } from './components/ResellersTab';
+import { ServersTab } from './components/ServersTab';
 import { SimpleTableCard } from './components/SimpleTableCard';
 import { SummaryCards } from './components/SummaryCards';
 import { useDashboardData } from './hooks/useDashboardData';
@@ -19,7 +21,7 @@ const theme = createTheme({
 
 export default function App() {
   const { isAuthenticated, initializing, admin, logout } = useAdminAuth();
-  const { customers, orders, plans, resellers, keys, loading, error, refresh } = useDashboardData();
+  const { customers, orders, plans, resellers, servers, keys, loading, error, refresh } = useDashboardData();
   const [tab, setTab] = useState(0);
   const [selectedResellerId, setSelectedResellerId] = useState('all');
 
@@ -103,6 +105,7 @@ export default function App() {
               <Tab label="Customers" />
               <Tab label="Plans" />
               <Tab label="Keys" />
+              <Tab label="Servers" />
               <Tab label="Resellers" />
             </Tabs>
           </Box>
@@ -129,19 +132,7 @@ export default function App() {
             />
           )}
 
-          {tab === 2 && (
-            <SimpleTableCard
-              title="Plans"
-              rows={plans}
-              columns={[
-                { key: 'name', header: 'Name', render: (row) => row.name },
-                { key: 'price', header: 'Price', render: (row) => formatMMK(row.price_mmk) },
-                { key: 'duration', header: 'Duration', render: (row) => `${row.duration_days} days` },
-                { key: 'limit', header: 'Data Limit', render: (row) => row.data_limit_gb ? `${row.data_limit_gb} GB` : 'Unlimited' },
-                { key: 'devices', header: 'Devices', render: (row) => row.max_devices || '-' },
-              ]}
-            />
-          )}
+          {tab === 2 && <PlansTab plans={plans} onSuccess={refresh} />}
 
           {tab === 3 && (
             <SimpleTableCard
@@ -157,7 +148,9 @@ export default function App() {
             />
           )}
 
-          {tab === 4 && (
+          {tab === 4 && <ServersTab servers={servers} onSuccess={refresh} />}
+
+          {tab === 5 && (
             <ResellersTab resellers={resellers} onSuccess={refresh} />
           )}
         </Stack>
