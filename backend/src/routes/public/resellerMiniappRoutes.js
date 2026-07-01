@@ -8,6 +8,7 @@ import {
   createOutlineKey,
   deleteOutlineKey,
 } from "../../services/outlineService.js";
+import { decrypt } from "../../lib/tokenEncryption.js";
 
 import {
   incrementServerUsage,
@@ -17,6 +18,59 @@ import {
 } from "../../services/serverService.js";
 
 const router = express.Router();
+
+// Only true when NODE_ENV is explicitly "development". Unset/missing → false →
+// production behaviour (full HMAC verification, no bypass allowed).
+const IS_DEV = process.env.NODE_ENV === "development";
+
+// Verifies Telegram initData per the WebApp HMAC-SHA256 spec.
+// Returns { valid: true, user } on success or { valid: false, user: null } on any failure.
+function verifyTelegramInitData(initData, botToken) {
+  let params;
+  try {
+    params = new URLSearchParams(initData);
+  } catch {
+    return { valid: false, user: null };
+  }
+
+  const hash = params.get("hash");
+  // Telegram HMAC-SHA256 digest is always 64 hex chars; reject anything else
+  // so timingSafeEqual receives buffers of equal length and can't throw.
+  if (typeof hash !== "string" || hash.length !== 64) return { valid: false, user: null };
+
+  params.delete("hash");
+
+  const dataCheckString = Array.from(params.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+
+  const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
+  const expectedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+
+  let hashMatch = false;
+  try {
+    hashMatch = crypto.timingSafeEqual(Buffer.from(expectedHash, "hex"), Buffer.from(hash, "hex"));
+  } catch {
+    return { valid: false, user: null };
+  }
+
+  if (!hashMatch) return { valid: false, user: null };
+
+  const authDate = Number(params.get("auth_date") || 0);
+  if (Math.floor(Date.now() / 1000) - authDate > 86400) return { valid: false, user: null };
+
+  let user = null;
+  try {
+    user = JSON.parse(params.get("user") || "null");
+  } catch {
+    return { valid: false, user: null };
+  }
+
+  if (!user?.id) return { valid: false, user: null };
+
+  return { valid: true, user };
+}
 
 // ── Screenshot upload infrastructure ─────────────────────────────────────────
 
@@ -425,19 +479,13 @@ router.get("/:slug/config", async (req, res) => {
 router.post("/:slug/auth", async (req, res) => {
   try {
     const { slug } = req.params;
-    const { telegram_user } = req.body;
+    const { init_data } = req.body;
+    const initDataString = typeof init_data === "string" ? init_data.trim() : "";
 
     if (!slug) {
       return res.status(400).json({
         success: false,
         message: "Mini App slug is required",
-      });
-    }
-
-    if (!telegram_user?.id) {
-      return res.status(400).json({
-        success: false,
-        message: "Telegram user is required",
       });
     }
 
@@ -454,7 +502,8 @@ router.post("/:slug/auth", async (req, res) => {
         trial_enabled,
         trial_data_limit_gb,
         trial_duration_days,
-        is_enabled
+        is_enabled,
+        bot_token_encrypted
       `)
       .eq("miniapp_slug", slug)
       .maybeSingle();
@@ -481,10 +530,46 @@ router.post("/:slug/auth", async (req, res) => {
       });
     }
 
-    const telegramUserId = Number(telegram_user.id);
-    const telegramUsername = telegram_user.username || null;
+    // ── Telegram HMAC verification ──────────────────────────────────────────
+    // Fallback is ONLY available when NODE_ENV is explicitly "development" AND
+    // the client sent no initData (browser/local dev). Any other combination
+    // goes through full HMAC verification. Unset NODE_ENV → IS_DEV is false →
+    // verification is required (fail-safe default).
+    let verifiedUser = null;
+
+    if (IS_DEV && !initDataString) {
+      verifiedUser = { id: 123456789, first_name: "Kyaw", last_name: "Linn", username: "kyawlinn" };
+    } else {
+      if (!initDataString) {
+        return res.status(401).json({ success: false, message: "Authentication required" });
+      }
+
+      if (!miniapp.bot_token_encrypted) {
+        return res.status(503).json({ success: false, message: "Mini App bot is not configured" });
+      }
+
+      let botToken;
+      try {
+        botToken = decrypt(miniapp.bot_token_encrypted);
+      } catch (err) {
+        console.error("Bot token decrypt error:", err);
+        return res.status(500).json({ success: false, message: "Failed to process authentication" });
+      }
+
+      const { valid, user } = verifyTelegramInitData(initDataString, botToken);
+      // botToken goes out of scope here — not logged, not stored, not returned
+
+      if (!valid) {
+        return res.status(401).json({ success: false, message: "Invalid or expired Telegram authentication" });
+      }
+
+      verifiedUser = user;
+    }
+
+    const telegramUserId = Number(verifiedUser.id);
+    const telegramUsername = verifiedUser.username || null;
     const fullName =
-      [telegram_user.first_name, telegram_user.last_name]
+      [verifiedUser.first_name, verifiedUser.last_name]
         .filter(Boolean)
         .join(" ") || `Telegram User ${telegramUserId}`;
 

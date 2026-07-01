@@ -1,37 +1,16 @@
 import { postJson, requestJson } from "../../services/http";
 import { MINIAPP_SLUG } from "../../lib/slug";
 
-function getTelegramUserFallback() {
-  const webAppUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-
-  if (webAppUser?.id) {
-    return {
-      id: webAppUser.id,
-      first_name: webAppUser.first_name || "",
-      last_name: webAppUser.last_name || "",
-      username: webAppUser.username || "",
-    };
-  }
-
-  // Browser/dev fallback
-  return {
-    id: 123456789,
-    first_name: "Kyaw",
-    last_name: "Linn",
-    username: "kyawlinn",
-  };
-}
-
 export async function getMiniAppConfig() {
   const payload = await requestJson(`/api/miniapp/${MINIAPP_SLUG}/config`);
   return payload.data;
 }
 
 export async function authenticateMiniApp() {
-  const telegram_user = getTelegramUserFallback();
+  const initData = window.Telegram?.WebApp?.initData || "";
 
   const payload = await postJson(`/api/miniapp/${MINIAPP_SLUG}/auth`, {
-    telegram_user,
+    init_data: initData,
   });
 
   return payload.data;

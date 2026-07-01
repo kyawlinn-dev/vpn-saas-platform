@@ -41,6 +41,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === "production";
 
+if (process.env.NODE_ENV === "development") {
+  console.warn(
+    "[WARN] NODE_ENV=development — Telegram HMAC dev bypass is active in resellerMiniappRoutes. Never deploy with this setting."
+  );
+}
+
 app.set("trust proxy", 1);
 
 function parseOriginList(value) {
@@ -91,12 +97,12 @@ function isAllowedOrigin(origin) {
 app.use((req, res, next) => {
   const origin = req.headers.origin;
 
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-  }
-
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
+
+  if (origin && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
   res.setHeader(
     "Access-Control-Allow-Methods",
     "GET,POST,PUT,PATCH,DELETE,OPTIONS"
