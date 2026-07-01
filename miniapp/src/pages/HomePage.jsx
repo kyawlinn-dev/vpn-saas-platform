@@ -8,11 +8,10 @@ import SecondaryButton from "../components/common/SecondaryButton";
 import PageContainer from "../components/layout/PageContainer";
 import AddKeyButton from "../features/servers/AddKeyButton";
 import ServerHero from "../features/servers/ServerHero";
-import { SUPPORT_URL } from "../constants/app";
 import { formatDate } from "../lib/format";
 import { getShareUrl } from "../lib/links";
 import {
-  openExternalLink,
+  openTelegramNativeLink,
   openTelegramSharePicker,
   isTelegramWebBrowser,
 } from "../lib/telegram";
@@ -121,6 +120,12 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
   const subscription = data?.subscription || null;
   const currentServer = data?.current_server || null;
   const outlineKey = data?.outline_key || null;
+  const rawSupportHandle = data?.config?.brand?.support_username
+    ? String(data.config.brand.support_username).replace(/^@/, "")
+    : null;
+  const handleSupportContact = rawSupportHandle
+    ? () => openTelegramNativeLink(`https://t.me/${rawSupportHandle}`)
+    : null;
   const keyForActions = outlineKey || currentServer;
   const hasImportLink = Boolean(keyForActions?.dynamic_access_url);
 
@@ -182,7 +187,7 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
             action={
               <Stack spacing={1.2}>
                 <SecondaryButton onClick={() => onTabChange("servers")}>Choose Server</SecondaryButton>
-                <SecondaryButton onClick={() => openExternalLink(SUPPORT_URL)}>Contact Support</SecondaryButton>
+                {handleSupportContact && <SecondaryButton onClick={handleSupportContact}>Contact Support</SecondaryButton>}
               </Stack>
             }
           />
@@ -200,7 +205,7 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
         action={
           <Stack spacing={1.2}>
             <SecondaryButton onClick={() => onTabChange("packages")}>View Packages</SecondaryButton>
-            <SecondaryButton onClick={() => openExternalLink(SUPPORT_URL)}>Contact Support</SecondaryButton>
+            {handleSupportContact && <SecondaryButton onClick={handleSupportContact}>Contact Support</SecondaryButton>}
           </Stack>
         }
       />

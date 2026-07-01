@@ -22,14 +22,11 @@ import {
 } from "@mui/material";
 import PageContainer from "../components/layout/PageContainer";
 import EmptyState from "../components/common/EmptyState";
-import { SUPPORT_URL } from "../constants/app";
-import { openExternalLink } from "../lib/telegram";
+import { openTelegramNativeLink } from "../lib/telegram";
 import { useSubmitPurchase } from "../features/access/hooks";
 import { uploadPaymentScreenshot } from "../features/access/api";
 import PackageCard from "../features/packages/PackageCard";
 import SupportCard from "../features/support/SupportCard";
-
-const MINIAPP_SLUG = import.meta.env.VITE_MINIAPP_SLUG || "nexa";
 
 function PendingReviewCard({ order }) {
   return (
@@ -244,7 +241,6 @@ function PurchaseDialog({
     try {
       const result = await uploadPaymentScreenshot({
         file,
-        slug: MINIAPP_SLUG,
         telegramUserId,
       });
       setUploadedPath(result.path);
@@ -350,9 +346,13 @@ export default function PackagesPage({
   const plans = data?.plans || [];
   const subscription = data?.subscription || null;
   const paymentMethods = data?.config?.payment || [];
-  const supportUsername = data?.config?.brand?.support_username
-    ? `@${String(data.config.brand.support_username).replace(/^@/, "")}`
-    : "";
+  const rawSupportHandle = data?.config?.brand?.support_username
+    ? String(data.config.brand.support_username).replace(/^@/, "")
+    : null;
+  const supportUsername = rawSupportHandle ? `@${rawSupportHandle}` : "";
+  const handleSupportContact = rawSupportHandle
+    ? () => openTelegramNativeLink(`https://t.me/${rawSupportHandle}`)
+    : null;
   const pendingReviewOrder =
     subscription?.type === "purchase" && subscription?.review_status === "pending_review"
       ? subscription
@@ -405,7 +405,7 @@ export default function PackagesPage({
     <PageContainer>
       <SupportCard
         supportUsername={supportUsername}
-        onContact={() => openExternalLink(SUPPORT_URL)}
+        onContact={handleSupportContact}
       />
 
       {pendingReviewOrder ? <PendingReviewCard order={pendingReviewOrder} /> : null}

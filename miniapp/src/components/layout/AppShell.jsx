@@ -1,5 +1,6 @@
 import { Box } from "@mui/material";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Header from "./Header";
 import BottomTabs from "./BottomTabs";
 import LoadingPage from "../../pages/LoadingPage";
@@ -7,6 +8,7 @@ import ErrorPage from "../../pages/ErrorPage";
 import ToastMessage from "../common/ToastMessage";
 import { DEFAULT_TAB } from "../../constants/app";
 import { useMiniAppAuth } from "../../hooks/useMiniAppAuth";
+import { getMiniAppConfig } from "../../features/auth/api";
 import { renderPage } from "../../app/router";
 
 export default function AppShell() {
@@ -29,6 +31,20 @@ export default function AppShell() {
     refreshAuth,
   } = useMiniAppAuth();
 
+  // Fetched independently so ErrorPage can show the reseller's support handle
+  // even when the main auth query fails (e.g. auth error after config succeeded).
+  // If config itself fails (bad/missing slug), configData is undefined and
+  // ErrorPage hides the support button entirely.
+  const { data: configData } = useQuery({
+    queryKey: ["miniapp-config"],
+    queryFn: getMiniAppConfig,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+  const supportUsername =
+    (data?.config ?? configData)?.brand?.support_username ?? null;
+
   const showToast = (message, severity = "info") => {
     setToast({
       open: true,
@@ -46,7 +62,7 @@ export default function AppShell() {
   if (isLoading) {
     content = <LoadingPage />;
   } else if (isError) {
-    content = <ErrorPage error={error} />;
+    content = <ErrorPage error={error} supportUsername={supportUsername} />;
   } else {
     content = renderPage(tab, {
       data,

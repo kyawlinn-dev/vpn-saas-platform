@@ -1,6 +1,5 @@
 import { postJson, requestJson } from "../../services/http";
-
-const MINIAPP_SLUG = import.meta.env.VITE_MINIAPP_SLUG || "nexa";
+import { MINIAPP_SLUG } from "../../lib/slug";
 
 function getTelegramUserFallback() {
   const webAppUser = window.Telegram?.WebApp?.initDataUnsafe?.user;

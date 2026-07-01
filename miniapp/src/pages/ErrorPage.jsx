@@ -5,10 +5,9 @@ import EmptyState from "../components/common/EmptyState";
 import PrimaryButton from "../components/common/PrimaryButton";
 import PageContainer from "../components/layout/PageContainer";
 import SecondaryButton from "../components/common/SecondaryButton";
-import { SUPPORT_URL } from "../constants/app";
-import { openExternalLink } from "../lib/telegram";
+import { openTelegramNativeLink } from "../lib/telegram";
 
-export default function ErrorPage({ error }) {
+export default function ErrorPage({ error, supportUsername }) {
   const message =
     error?.message || "Something went wrong while loading the Mini App.";
 
@@ -27,9 +26,13 @@ export default function ErrorPage({ error }) {
               Try Again
             </PrimaryButton>
 
-            <SecondaryButton onClick={() => openExternalLink(SUPPORT_URL)}>
-              Contact Support
-            </SecondaryButton>
+            {supportUsername && (
+              <SecondaryButton
+                onClick={() => openTelegramNativeLink(`https://t.me/${supportUsername}`)}
+              >
+                Contact Support
+              </SecondaryButton>
+            )}
           </Stack>
         }
       />

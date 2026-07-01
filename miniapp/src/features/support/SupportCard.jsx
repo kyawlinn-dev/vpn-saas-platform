@@ -3,15 +3,7 @@ import TelegramIcon from "@mui/icons-material/Telegram";
 import { Card, CardContent, Stack, Typography } from "@mui/material";
 import PrimaryButton from "../../components/common/PrimaryButton";
 
-function usernameFromUrl(value) {
-  const raw = String(value || "").replace(/\/$/, "");
-  const last = raw.split("/").pop();
-  return last ? `@${last.replace(/^@/, "")}` : "@support";
-}
-
 export default function SupportCard({ supportUsername, onContact }) {
-  const username = supportUsername || usernameFromUrl("https://t.me/NovaNetMMSupport");
-
   return (
     <Card
       sx={{
@@ -28,12 +20,16 @@ export default function SupportCard({ supportUsername, onContact }) {
           </Stack>
 
           <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
-            Want to buy plan or need support? Chat with {username} on Telegram.
+            {supportUsername
+              ? `Want to buy plan or need support? Chat with ${supportUsername} on Telegram.`
+              : "Want to buy a plan or need help? Contact our support team."}
           </Typography>
 
-          <PrimaryButton startIcon={<TelegramIcon />} onClick={onContact}>
-            Contact Us
-          </PrimaryButton>
+          {onContact && (
+            <PrimaryButton startIcon={<TelegramIcon />} onClick={onContact}>
+              Contact Us
+            </PrimaryButton>
+          )}
         </Stack>
       </CardContent>
     </Card>
