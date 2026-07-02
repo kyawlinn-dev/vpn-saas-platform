@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm list *)",
+      "Bash(npx --yes pg-meta --version)",
+      "Bash(node -e \"require\\('pg'\\)\")"
+    ]
+  }
+}

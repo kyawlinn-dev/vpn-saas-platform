@@ -6,7 +6,22 @@ import {
   START_BTN_BUY,
   START_BTN_ADMIN,
   PLACEHOLDER,
+  keyFoundHeader,
+  keyServerLine,
+  KEY_BTN_ADD,
+  KEY_NO_ACTIVE,
+  KEY_ERROR,
+  BALANCE_TEXT,
+  BALANCE_BTN_OPEN,
+  SERVER_TEXT,
+  SERVER_BTN_OPEN,
 } from "./strings.js";
+import {
+  resolveCustomerByTelegram,
+  getBestActiveOrder,
+  resolveActiveKey,
+  buildDynamicAccessUrl,
+} from "./botCustomerService.js";
 
 /**
  * Builds the WebApp URL for a reseller's miniapp.
@@ -44,6 +59,7 @@ export function setupHandlers(bot, {
   miniappBaseUrl,
   supportUsername,
 }) {
+  const homeUrl     = buildWebAppUrl(miniappBaseUrl, miniappSlug);
   const packagesUrl = buildWebAppUrl(miniappBaseUrl, miniappSlug, "/packages");
 
   // ── Persistent reply keyboard ────────────────────────────────────────────────
@@ -87,24 +103,80 @@ export function setupHandlers(bot, {
   // Stage 1: all return placeholders. Replace with real logic in later stages.
 
   bot.hears(BTN.KEY, async (ctx) => {
+    const telegramUserId = ctx.from?.id;
+    if (!telegramUserId) return;
+
     try {
-      await ctx.reply(PLACEHOLDER.KEY);
+      // 1. Telegram user → customer (reseller-scoped)
+      const customer = await resolveCustomerByTelegram(telegramUserId, resellerId);
+      if (!customer?.ssconfToken) {
+        await ctx.reply(KEY_NO_ACTIVE);
+        return;
+      }
+
+      // 2. Best active order for this customer + reseller
+      const order = await getBestActiveOrder(customer.customerId, resellerId);
+      if (!order) {
+        await ctx.reply(KEY_NO_ACTIVE);
+        return;
+      }
+
+      // 3. Current active key + server
+      const keyRow = await resolveActiveKey(customer.customerId, resellerId, order.id);
+      if (!keyRow) {
+        await ctx.reply(KEY_NO_ACTIVE);
+        return;
+      }
+
+      // 4. Build ssconf:// dynamic access URL (follows customer across server switches)
+      const backendBase = String(process.env.WEBHOOK_BASE_URL || "").replace(/\/$/, "");
+      const telegramUsername = ctx.from?.username || null;
+      const label = [brandName, telegramUsername].filter(Boolean).join("-");
+      const dynamicUrl = buildDynamicAccessUrl(backendBase, miniappSlug, customer.ssconfToken, label);
+
+      // 5. Bridge URL — worker /open-key renders the "Add to Outline" interstitial
+      const workerBase = String(process.env.PUBLIC_WORKER_BASE_URL || "").replace(/\/$/, "");
+      const bridgeUrl = `${workerBase}/open-key?url=${encodeURIComponent(dynamicUrl)}`;
+
+      // 6. Server display info
+      const flag       = keyRow.vpn_servers?.flag_emoji || "🌐";
+      const serverName = keyRow.vpn_servers?.name || "Server";
+
+      // 7. Reply: header + copyable key in code block + server line + inline button
+      const text =
+        `${keyFoundHeader(customer.fullName || "Customer")}\n\n` +
+        `<code>${dynamicUrl}</code>\n\n` +
+        `${keyServerLine(flag, serverName)}`;
+
+      await ctx.replyWithHTML(
+        text,
+        Markup.inlineKeyboard([[Markup.button.url(KEY_BTN_ADD, bridgeUrl)]])
+      );
     } catch (err) {
       console.error(`[bot:${resellerId}] KEY handler error:`, err.message);
+      await ctx.reply(KEY_ERROR).catch(() => {});
     }
   });
 
   bot.hears(BTN.BALANCE, async (ctx) => {
     try {
-      await ctx.reply(PLACEHOLDER.BALANCE);
+      await ctx.replyWithHTML(
+        BALANCE_TEXT,
+        homeUrl ? Markup.inlineKeyboard([[Markup.button.webApp(BALANCE_BTN_OPEN, homeUrl)]]) : {}
+      );
     } catch (err) {
       console.error(`[bot:${resellerId}] BALANCE handler error:`, err.message);
     }
   });
 
+  // v1: opens miniapp at home tab — user taps Servers tab to switch.
+  // Deep-linking to the servers tab requires the miniapp to read start_param (future stage).
   bot.hears(BTN.SERVER, async (ctx) => {
     try {
-      await ctx.reply(PLACEHOLDER.SERVER);
+      await ctx.replyWithHTML(
+        SERVER_TEXT,
+        homeUrl ? Markup.inlineKeyboard([[Markup.button.webApp(SERVER_BTN_OPEN, homeUrl)]]) : {}
+      );
     } catch (err) {
       console.error(`[bot:${resellerId}] SERVER handler error:`, err.message);
     }
