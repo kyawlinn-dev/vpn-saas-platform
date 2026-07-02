@@ -166,15 +166,15 @@ Gemini + Vertex AI RAG + Supabase + Redis memory).
 
 ### Before production — security blockers
 
-| Item | Location | Risk |
-|------|----------|------|
-| Remove `GET /api/public/plans/debug/outline` | `backend/src/routes/public/planRoutes.js` | No-auth endpoint; skips TLS cert pinning (`rejectUnauthorized: false`) against live servers |
+| Item | Location | Risk | Status |
+|------|----------|------|--------|
+| Remove `GET /api/public/plans/debug/outline` | `backend/src/routes/public/planRoutes.js` | No-auth endpoint; skips TLS cert pinning (`rejectUnauthorized: false`) against live servers | ✅ Done |
 
 ### Delete dead code (safe any time)
 
-| Item | Location | Why dead |
-|------|----------|----------|
-| `resellerAuthRouter.js` | `backend/src/routes/reseller/resellerAuthRouter.js` | Never imported or mounted in `server.js`. Returns a raw `access_token` in the response body (no httpOnly cookie) — wrong auth pattern. |
+| Item | Location | Why dead | Status |
+|------|----------|----------|--------|
+| `resellerAuthRouter.js` | `backend/src/routes/reseller/resellerAuthRouter.js` | Never imported or mounted in `server.js`. Returns a raw `access_token` in the response body (no httpOnly cookie) — wrong auth pattern. | ✅ Done |
 
 ### Eventual legacy removal (after miniapp is fully migrated)
 

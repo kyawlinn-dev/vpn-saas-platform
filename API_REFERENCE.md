@@ -394,12 +394,6 @@ Returns all active plans ordered by price. Used by the legacy Telegram miniapp f
 
 ---
 
-### `GET /api/public/plans/debug/outline` — **DEBUG, should not be in production**
-
-Tests Outline server connectivity for all active servers. Skips cert pinning (`rejectUnauthorized: false`). No auth. Remove before production deployment.
-
----
-
 ### `POST /api/public/telegram-miniapp/auth` — **OLD MINIAPP PARADIGM**
 ### `POST /api/public/telegram-miniapp/purchase` — **OLD MINIAPP PARADIGM**
 
@@ -409,9 +403,9 @@ Retain for backward compatibility but do not build new features on top of these.
 
 ---
 
-### `POST /api/auth/reseller-legacy/login` — **DEAD CODE**
+### ~~`POST /api/auth/reseller-legacy/login`~~ — **DELETED**
 
-File exists at `backend/src/routes/reseller/resellerAuthRouter.js` but is **not mounted** in `server.js`. Returns a raw `access_token` in the response body (no httpOnly cookie). Safe to delete.
+`backend/src/routes/reseller/resellerAuthRouter.js` has been deleted. This endpoint no longer exists.
 
 ---
 
@@ -596,4 +590,4 @@ Backend sets CORS headers for all origins (reflects the request Origin). Not all
 
 ### Auto-Stop Job
 
-`backend/src/jobs/autoStopJob.js` — `setInterval` running hourly inside the backend process. Finds `vpn_orders` with `status=active` and `expiry_date < today`, deletes their Outline keys, sets status to `stopped`. No external trigger — runs entirely within the backend process.
+`backend/src/jobs/autoStopJob.js` — `setInterval` running hourly inside the backend process. Finds `vpn_orders` with `status=active` and `expiry_date < today`, fetches **all** active non-deleted `vpn_keys` for each order (not just the first), deletes each from Outline, decrements server usage per key, hard-deletes each row, then sets the order `status=stopped`. No external trigger — runs entirely within the backend process.
