@@ -16,6 +16,7 @@ router.post("/", async (req, res) => {
       is_trial,
       sort_order,
       allowed_regions,
+      features,
     } = req.body;
 
     if (typeof name !== "string" || !name.trim()) {
@@ -52,11 +53,17 @@ router.post("/", async (req, res) => {
       is_active,
       is_trial,
       sort_order,
-      // features omitted — DB default '{}' applies; never pass null
     };
 
     if (Array.isArray(allowed_regions)) {
       insert.allowed_regions = allowed_regions.filter((r) => typeof r === "string" && r.trim());
+    }
+
+    if (Array.isArray(features)) {
+      if (!features.every((f) => typeof f === "string")) {
+        return res.status(400).json({ error: "features must be an array of strings" });
+      }
+      insert.features = features.map((f) => f.trim()).filter(Boolean);
     }
 
     console.log(`[admin:${req.admin?.id}] POST /api/admin/plans — creating "${insert.name}"`);

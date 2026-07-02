@@ -32,7 +32,7 @@ export interface Plan {
   is_active: boolean;
   is_trial: boolean;
   sort_order: number;
-  features: unknown;
+  features?: string[] | null;
   allowed_regions: string[] | null;
   created_at?: string;
 }

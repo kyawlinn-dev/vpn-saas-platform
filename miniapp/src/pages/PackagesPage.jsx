@@ -379,6 +379,21 @@ export default function PackagesPage({
     [plans]
   );
 
+  const groupedPlans = useMemo(() => {
+    const sorted = [...visiblePlans].sort((a, b) => {
+      const orderDiff = (a.sort_order ?? 999) - (b.sort_order ?? 999);
+      if (orderDiff !== 0) return orderDiff;
+      return (a.price_mmk ?? 0) - (b.price_mmk ?? 0);
+    });
+    const map = new Map();
+    for (const plan of sorted) {
+      const days = plan.duration_days ?? 30;
+      if (!map.has(days)) map.set(days, []);
+      map.get(days).push(plan);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a - b);
+  }, [visiblePlans]);
+
   const openBuyDialog = (plan) => {
     if (!data?.user?.telegram_user_id) {
       onToast("Telegram user is not ready yet", "warning");
@@ -410,14 +425,17 @@ export default function PackagesPage({
 
       {pendingReviewOrder ? <PendingReviewCard order={pendingReviewOrder} /> : null}
 
-      <Typography variant="h6" fontWeight={950} sx={{ color: "#fff", px: 0.4 }}>
-        30 Days packages:
-      </Typography>
-
       {visiblePlans.length > 0 ? (
-        visiblePlans.map((plan) => (
-          <Box key={plan.id}>
-            <PackageCard plan={plan} onBuy={openBuyDialog} />
+        groupedPlans.map(([days, groupPlans]) => (
+          <Box key={days}>
+            <Typography variant="h6" fontWeight={950} sx={{ color: "#fff", px: 0.4 }}>
+              {days} Days packages:
+            </Typography>
+            {groupPlans.map((plan) => (
+              <Box key={plan.id}>
+                <PackageCard plan={plan} onBuy={openBuyDialog} />
+              </Box>
+            ))}
           </Box>
         ))
       ) : (

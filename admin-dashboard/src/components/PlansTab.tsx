@@ -41,6 +41,7 @@ interface PlanFormState {
   is_trial: boolean;
   is_active: boolean;
   allowed_regions: string;
+  features: string;
 }
 
 const emptyForm = (): PlanFormState => ({
@@ -53,6 +54,7 @@ const emptyForm = (): PlanFormState => ({
   is_trial: false,
   is_active: true,
   allowed_regions: '',
+  features: '',
 });
 
 function planToForm(plan: Plan): PlanFormState {
@@ -66,6 +68,7 @@ function planToForm(plan: Plan): PlanFormState {
     is_trial: plan.is_trial,
     is_active: plan.is_active,
     allowed_regions: Array.isArray(plan.allowed_regions) ? plan.allowed_regions.join(', ') : '',
+    features: Array.isArray(plan.features) ? plan.features.join('\n') : '',
   };
 }
 
@@ -73,6 +76,11 @@ function formToBody(form: PlanFormState) {
   const regions = form.allowed_regions
     .split(',')
     .map((r) => r.trim().toLowerCase())
+    .filter(Boolean);
+
+  const features = form.features
+    .split('\n')
+    .map((f) => f.trim())
     .filter(Boolean);
 
   return {
@@ -85,6 +93,7 @@ function formToBody(form: PlanFormState) {
     is_trial: form.is_trial,
     is_active: form.is_active,
     allowed_regions: regions.length ? regions : null,
+    features,
   };
 }
 
@@ -169,6 +178,18 @@ function PlanFormFields({
           helperText="Comma-separated region codes. Leave blank to allow all servers."
         />
       </Grid>
+      <Grid size={{ xs: 12 }}>
+        <TextField
+          label="Features (one per line)"
+          value={form.features}
+          onChange={(e) => onChange({ features: e.target.value })}
+          fullWidth
+          multiline
+          rows={4}
+          placeholder={"100 GB Premium Servers\nHigh-Speed Private Servers\nNo-Log Policy\n30 Days Validity"}
+          helperText="Leave blank to auto-generate from plan data. Each line becomes one checklist item."
+        />
+      </Grid>
       <Grid size={{ xs: 12, md: 6 }}>
         <Stack direction="row" alignItems="center" spacing={1}>
           <Switch
@@ -223,7 +244,7 @@ function EditPlanDialog({
 
   return (
     <Dialog open onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Edit Plan — {plan.name}</DialogTitle>
+      <DialogTitle>Edit Plan — {plan.name} ({plan.duration_days}d)</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 0.5 }}>
           {error && <Alert severity="error">{error}</Alert>}
@@ -341,7 +362,9 @@ export function PlansTab({ plans, onSuccess }: Props) {
                 {plans.map((plan) => (
                   <TableRow key={plan.id} hover>
                     <TableCell>
-                      <Typography fontWeight={600}>{plan.name}</Typography>
+                      <Typography fontWeight={600}>
+                        {plan.name} — {plan.duration_days}d
+                      </Typography>
                       {Array.isArray(plan.allowed_regions) && plan.allowed_regions.length > 0 && (
                         <Typography variant="caption" color="text.secondary">
                           {plan.allowed_regions.join(', ')}
