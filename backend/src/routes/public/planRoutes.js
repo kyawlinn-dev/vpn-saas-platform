@@ -7,8 +7,6 @@
 
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
-import axios from "axios";
-import https from "https";
 
 const router = express.Router();
 
@@ -28,48 +26,6 @@ router.get("/", async (_req, res) => {
     return res.json(data ?? []);
   } catch (err) {
     console.error("GET /api/public/plans crash:", err);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.get("/debug/outline", async (req, res) => {
-  try {
-    const { data: servers, error } = await supabase
-      .from("vpn_servers")
-      .select("*")
-      .eq("status", "active");
-
-    if (error) {
-      return res.status(500).json({ error: error.message });
-    }
-
-    const results = [];
-
-    for (const s of servers) {
-      try {
-        const r = await axios.get(`${s.outline_api_url}/server`, {
-          httpsAgent: new https.Agent({
-            rejectUnauthorized: false, // temporary for testing
-          }),
-          timeout: 10000,
-        });
-
-        results.push({
-          name: s.name,
-          ok: true,
-        });
-      } catch (e) {
-        results.push({
-          name: s.name,
-          ok: false,
-          error: e.message,
-        });
-      }
-    }
-
-    return res.json(results);
-  } catch (err) {
-    console.error("DEBUG OUTLINE ERROR:", err);
     return res.status(500).json({ error: err.message });
   }
 });

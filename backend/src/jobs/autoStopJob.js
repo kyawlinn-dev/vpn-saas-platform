@@ -33,16 +33,24 @@ async function stopExpiredOrders() {
 
   for (const order of orders) {
     try {
-      const { data: key } = await supabase
+      const { data: keys, error: keysError } = await supabase
         .from("vpn_keys")
-        .select("*")
+        .select("id, outline_key_id, server_id")
         .eq("order_id", order.id)
-        .maybeSingle();
+        .eq("status", "active")
+        .is("deleted_at", null);
 
-      if (key && key.outline_key_id) {
+      if (keysError) {
+        console.warn(
+          `[autoStop] Failed to fetch keys for order ${order.id}:`,
+          keysError.message
+        );
+      }
+
+      for (const key of keys || []) {
         const server = key.server_id ? await getServerById(key.server_id) : null;
 
-        if (server?.outline_api_url) {
+        if (server?.outline_api_url && key.outline_key_id) {
           try {
             await deleteOutlineKey({
               apiUrl: server.outline_api_url,
@@ -60,9 +68,7 @@ async function stopExpiredOrders() {
             await decrementServerUsage(key.server_id);
           } catch (_) {}
         }
-      }
 
-      if (key) {
         const { error: deleteKeyError } = await supabase
           .from("vpn_keys")
           .delete()
@@ -88,7 +94,9 @@ async function stopExpiredOrders() {
         throw new Error(updateOrderError.message);
       }
 
-      console.log(`[autoStop] Auto-stopped order ${order.id} immediately after expiry.`);
+      console.log(
+        `[autoStop] Auto-stopped order ${order.id} (${(keys || []).length} key(s) removed).`
+      );
     } catch (err) {
       console.error(`[autoStop] Error stopping order ${order.id}:`, err.message);
     }
