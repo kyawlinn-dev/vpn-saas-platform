@@ -15,6 +15,11 @@ import {
   BALANCE_BTN_OPEN,
   SERVER_TEXT,
   SERVER_BTN_OPEN,
+  DL_CB,
+  DOWNLOAD_PICKER_TEXT,
+  DOWNLOAD_BTNS,
+  DOWNLOAD_PLATFORMS,
+  howToUse,
 } from "./strings.js";
 import {
   resolveCustomerByTelegram,
@@ -182,17 +187,66 @@ export function setupHandlers(bot, {
     }
   });
 
+  // ── Download Outline — device picker ────────────────────────────────────────
+  // The picker and all platform replies share the same message (edited in place).
+
+  function downloadPickerKeyboard() {
+    return Markup.inlineKeyboard([
+      [Markup.button.callback(DOWNLOAD_BTNS.IOS,     DL_CB.IOS    ),
+       Markup.button.callback(DOWNLOAD_BTNS.ANDROID, DL_CB.ANDROID)],
+      [Markup.button.callback(DOWNLOAD_BTNS.MACOS,   DL_CB.MACOS  ),
+       Markup.button.callback(DOWNLOAD_BTNS.WINDOWS, DL_CB.WINDOWS)],
+    ]);
+  }
+
+  function platformKeyboard(platform) {
+    return Markup.inlineKeyboard([
+      [Markup.button.url(platform.urlLabel, platform.url)],
+      [Markup.button.callback(DOWNLOAD_BTNS.BACK, DL_CB.BACK)],
+    ]);
+  }
+
   bot.hears(BTN.DOWNLOAD, async (ctx) => {
     try {
-      await ctx.reply(PLACEHOLDER.DOWNLOAD);
+      await ctx.replyWithHTML(DOWNLOAD_PICKER_TEXT, downloadPickerKeyboard());
     } catch (err) {
       console.error(`[bot:${resellerId}] DOWNLOAD handler error:`, err.message);
     }
   });
 
+  // Platform callbacks — edit the picker message in place, add Back button
+  for (const [key, platform] of Object.entries(DOWNLOAD_PLATFORMS)) {
+    bot.action(DL_CB[key.toUpperCase()], async (ctx) => {
+      try {
+        await ctx.answerCbQuery();
+        await ctx.editMessageText(platform.text, {
+          parse_mode: "HTML",
+          reply_markup: platformKeyboard(platform).reply_markup,
+        });
+      } catch (err) {
+        console.error(`[bot:${resellerId}] DOWNLOAD ${key} callback error:`, err.message);
+      }
+    });
+  }
+
+  // Back — edit message back to the device picker
+  bot.action(DL_CB.BACK, async (ctx) => {
+    try {
+      await ctx.answerCbQuery();
+      await ctx.editMessageText(DOWNLOAD_PICKER_TEXT, {
+        parse_mode: "HTML",
+        reply_markup: downloadPickerKeyboard().reply_markup,
+      });
+    } catch (err) {
+      console.error(`[bot:${resellerId}] DOWNLOAD back callback error:`, err.message);
+    }
+  });
+
+  // ── How to Use ───────────────────────────────────────────────────────────────
+
   bot.hears(BTN.HOWTO, async (ctx) => {
     try {
-      await ctx.reply(PLACEHOLDER.HOWTO);
+      await ctx.replyWithHTML(howToUse(supportUsername));
     } catch (err) {
       console.error(`[bot:${resellerId}] HOWTO handler error:`, err.message);
     }

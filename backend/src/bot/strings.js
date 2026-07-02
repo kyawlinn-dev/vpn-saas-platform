@@ -100,6 +100,79 @@ export const SERVER_TEXT =
 
 export const SERVER_BTN_OPEN = "🌐 Change Server";
 
+// ── Download Outline (📥) handler ─────────────────────────────────────────────
+
+/** Callback data keys for the device-picker inline keyboard. */
+export const DL_CB = {
+  IOS:     "dl:ios",
+  ANDROID: "dl:android",
+  MACOS:   "dl:macos",
+  WINDOWS: "dl:windows",
+  BACK:    "dl:back",
+};
+
+export const DOWNLOAD_PICKER_TEXT =
+  "📥 <b>Outline VPN Download</b>\n\n" +
+  "သင်၏ device ကို ရွေးချယ်ပေးပါ 👇";
+
+export const DOWNLOAD_BTNS = {
+  IOS:     "🍎 iOS",
+  ANDROID: "🤖 Android",
+  MACOS:   "💻 macOS",
+  WINDOWS: "🪟 Windows",
+  BACK:    "⬅️ Back",
+};
+
+// Official Outline download URLs.
+// Verify at https://getoutline.org before launch — store IDs may change.
+export const DOWNLOAD_PLATFORMS = {
+  ios: {
+    text:     "🍎 <b>iOS (iPhone / iPad)</b>\n\nApp Store မှ Outline ကို download ဆွဲပါ:",
+    url:      "https://apps.apple.com/app/id1356177741",
+    urlLabel: "📲 App Store မှ Download",
+  },
+  android: {
+    text:     "🤖 <b>Android</b>\n\nGoogle Play မှ Outline ကို download ဆွဲပါ:",
+    url:      "https://play.google.com/store/apps/details?id=org.outline.android.client",
+    urlLabel: "📲 Google Play မှ Download",
+  },
+  macos: {
+    text:     "💻 <b>macOS</b>\n\nMac App Store မှ Outline ကို download ဆွဲပါ:",
+    url:      "https://apps.apple.com/app/id1356178125",
+    urlLabel: "📲 Mac App Store မှ Download",
+  },
+  windows: {
+    text:     "🪟 <b>Windows</b>\n\nMicrosoft Store မှ Outline ကို download ဆွဲပါ:",
+    url:      "https://apps.microsoft.com/store/detail/outline/9NQMQLKNTQX6",
+    urlLabel: "📲 Microsoft Store မှ Download",
+  },
+};
+
+// ── How to Use (📖) handler ────────────────────────────────────────────────────
+
+/**
+ * Static Burmese how-to instructions.
+ * @param {string} supportUsername  reseller_miniapps.support_username (no @), or "".
+ */
+export function howToUse(supportUsername) {
+  const support = supportUsername ? `@${supportUsername}` : "Admin";
+  return [
+    "📖 <b>Outline VPN အသုံးပြုနည်း</b>",
+    "",
+    "① Outline VPN app ကို download ဆွဲပါ",
+    "   (📥 <b>Download Outline</b> → device ရွေးချယ်ပါ)",
+    "",
+    "② Bot မှ 🔑 <b>Outline Key ရယူရန်</b> ကို နှိပ်ပါ",
+    "",
+    "③ Key ကို <b>copy ကူး</b>ပြီး Outline app ထဲ ထည့်ပါ",
+    "   (သို့မဟုတ်) <b>Add Key To Outline</b> ကို နှိပ်ပါ",
+    "",
+    "④ Outline app မှ <b>Connect</b> ကို နှိပ်ပါ — VPN ချိတ်ဆက်မည်ဖြစ်သည်",
+    "",
+    `⚠️ ပြဿနာ ဖြစ်ပါက ${support} ကို ဆက်သွယ်ပါ`,
+  ].join("\n");
+}
+
 // ── Stage-1 placeholder replies ────────────────────────────────────────────────
 // Each will be replaced with real logic in later stages (Stage 2+).
 
