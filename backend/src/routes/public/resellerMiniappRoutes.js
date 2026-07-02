@@ -7,6 +7,7 @@ import { parseSsUrl } from "../../utils/parseSsUrl.js";
 import {
   createOutlineKey,
   deleteOutlineKey,
+  getOutlineTransferMetrics,
 } from "../../services/outlineService.js";
 import { decrypt } from "../../lib/tokenEncryption.js";
 
@@ -159,7 +160,7 @@ function buildDynamicAccessUrl(req, slug, token, label) {
   return `ssconf://${url.host}${url.pathname}${fragment}`;
 }
 
-function toPublicOutlineKey(req, slug, customerSsconfToken, key, label) {
+function toPublicOutlineKey(req, slug, customerSsconfToken, key, label, orderTotalUsedBytes = 0) {
   if (!customerSsconfToken) return null;
 
   return {
@@ -167,8 +168,23 @@ function toPublicOutlineKey(req, slug, customerSsconfToken, key, label) {
     ssconf_url: buildSsconfHttpUrl(req, slug, customerSsconfToken),
     dynamic_access_url: buildDynamicAccessUrl(req, slug, customerSsconfToken, label),
     data_limit_bytes: key?.data_limit_bytes ?? null,
-    used_bytes: key?.used_bytes ?? 0,
+    used_bytes: orderTotalUsedBytes,
   };
+}
+
+async function getOrderTotalUsedBytes(orderId) {
+  const { data: keys, error } = await supabase
+    .from("vpn_keys")
+    .select("used_bytes")
+    .eq("order_id", orderId)
+    .in("status", ["active", "deleted"]);
+
+  if (error) {
+    console.error("[usage] Failed to sum order used_bytes:", error.message);
+    return 0;
+  }
+
+  return (keys || []).reduce((sum, k) => sum + Number(k.used_bytes || 0), 0);
 }
 
 function gbToBytes(gb) {
@@ -850,6 +866,9 @@ router.post("/:slug/auth", async (req, res) => {
       }
     }
 
+    const orderUsedBytes =
+      currentKeyRow && activeOrder ? await getOrderTotalUsedBytes(activeOrder.id) : 0;
+
     return res.json({
       success: true,
       message: trialCreated
@@ -878,7 +897,7 @@ router.post("/:slug/auth", async (req, res) => {
           : null,
         current_server: currentServer,
         outline_key: currentKeyRow
-          ? toPublicOutlineKey(req, slug, customerSsconfToken, currentKeyRow, label)
+          ? toPublicOutlineKey(req, slug, customerSsconfToken, currentKeyRow, label, orderUsedBytes)
           : null,
         trial: {
           created_now: trialCreated,
@@ -1351,12 +1370,13 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       existingCurrentKey?.server_id === server.id &&
       existingCurrentKey?.access_url
     ) {
+      const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
       return res.json({
         success: true,
         message: "Server already linked",
         data: {
           current_server: mapServerForMiniApp(server, true),
-          outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, existingCurrentKey, label),
+          outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, existingCurrentKey, label, totalUsedBytes),
         },
       });
     }
@@ -1408,6 +1428,33 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
     for (const oldKey of existingActiveKeys || []) {
       if (oldKey.id === insertedKey.id) continue;
 
+      // Best-effort: freeze used_bytes at the live Outline value before this key is deleted.
+      // If the metrics call fails, proceed with the last sync value — never block the switch.
+      if (
+        oldKey.outline_key_id &&
+        oldKey.vpn_servers?.outline_api_url &&
+        oldKey.vpn_servers?.outline_cert_sha256
+      ) {
+        try {
+          const metricsMap = await getOutlineTransferMetrics({
+            apiUrl: oldKey.vpn_servers.outline_api_url,
+            certSha256: oldKey.vpn_servers.outline_cert_sha256,
+          });
+          const liveBytes = metricsMap[String(oldKey.outline_key_id)];
+          if (liveBytes !== undefined) {
+            await supabase
+              .from("vpn_keys")
+              .update({ used_bytes: liveBytes })
+              .eq("id", oldKey.id);
+          }
+        } catch (snapshotErr) {
+          console.warn(
+            `[link] Usage snapshot failed for key ${oldKey.id}, using last sync value:`,
+            snapshotErr.message
+          );
+        }
+      }
+
       try {
         if (
           oldKey.outline_key_id &&
@@ -1443,12 +1490,13 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
         .eq("id", oldKey.id);
     }
 
+    const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
     return res.json({
       success: true,
       message: "Server linked successfully",
       data: {
         current_server: mapServerForMiniApp(server, true),
-        outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, insertedKey, label),
+        outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, insertedKey, label, totalUsedBytes),
       },
     });
   } catch (err) {
@@ -1932,7 +1980,7 @@ router.post("/:slug/orders", async (req, res) => {
           plan: createdOrder.vpn_plans,
         },
         current_server: mapServerForMiniApp(defaultServer, true),
-        outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, insertedKey, label),
+        outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, insertedKey, label, 0),
       },
     });
   } catch (err) {
