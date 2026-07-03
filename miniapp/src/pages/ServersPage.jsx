@@ -1,39 +1,32 @@
 import { useMemo, useState } from "react";
-import KeyboardArrowDownRoundedIcon from "@mui/icons-material/KeyboardArrowDownRounded";
-import KeyboardArrowRightRoundedIcon from "@mui/icons-material/KeyboardArrowRightRounded";
-import BoltRoundedIcon from "@mui/icons-material/BoltRounded";
-import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
-import WorkspacePremiumRoundedIcon from "@mui/icons-material/WorkspacePremiumRounded";
+import { Check, ChevronDown, Search, Zap } from "lucide-react";
+import { Dialog } from "@base-ui/react/dialog";
 import {
-  Box,
-  Button,
-  CardContent,
+  BrandBar,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  Stack,
-  Typography,
-} from "@mui/material";
-import PageContainer from "../components/layout/PageContainer";
-import EmptyState from "../components/common/EmptyState";
-import { AuroraButton, GhostButton, GlassCard, SectionTitle } from "../components/ui/vpnPrimitives";
+  GlassCard,
+  LatencyBadge,
+  PrimaryButton,
+  SecondaryButton,
+} from "../components/ui/primitives";
+import { cn } from "@/lib/utils";
 import { useLinkServer } from "../features/access/hooks";
+
+// ── Helpers (logic unchanged from MUI version) ────────────────────────────────
 
 function groupServers(servers) {
   const groups = new Map();
 
   for (const server of servers || []) {
     const country = server?.country || server?.region || "Servers";
-    const key = `${server?.flag || "VPN"} ${country}`;
+    // flag_emoji is the real column name; flag is a fallback alias some API shapes use
+    const key = `${server?.flag_emoji ?? server?.flag ?? "🌐"} ${country}`;
 
     if (!groups.has(key)) {
       groups.set(key, {
         key,
         country,
-        flag: server?.flag || "VPN",
+        flag: server?.flag_emoji ?? server?.flag ?? "🌐",
         servers: [],
       });
     }
@@ -44,74 +37,59 @@ function groupServers(servers) {
   return Array.from(groups.values());
 }
 
-function getLatency(server) {
+// Returns raw ms number (or null if not available) — used for LatencyBadge.
+function getLatencyMs(server) {
   const value = server?.latency_ms ?? server?.latency ?? server?.ping_ms ?? null;
   if (value == null || value === "") return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? `${Math.round(number)} ms` : String(value);
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.round(n) : null;
 }
 
-function getBestLatency(servers) {
+// Returns the lowest latency across a group's servers, or null if none have data.
+function getBestLatencyMs(servers) {
   const latencies = (servers || [])
-    .map((server) => Number(server?.latency_ms ?? server?.latency ?? server?.ping_ms))
-    .filter((value) => Number.isFinite(value));
-  if (!latencies.length) return "Ready";
-  return `${Math.min(...latencies)} ms best`;
+    .map((s) => Number(s?.latency_ms ?? s?.latency ?? s?.ping_ms))
+    .filter((v) => Number.isFinite(v));
+  if (!latencies.length) return null;
+  return Math.round(Math.min(...latencies));
 }
+
+// ── Filter constants ───────────────────────────────────────────────────────────
+
+const FILTERS = ["All", "Premium", "Low Latency"];
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
 function CurrentServerSummary({ server }) {
   if (!server) return null;
 
-  const location = [server?.country, server?.city || server?.name].filter(Boolean).join(" / ");
+  const location = [server?.country, server?.city || server?.name]
+    .filter(Boolean)
+    .join(" / ");
+  const ms = getLatencyMs(server);
 
   return (
-    <GlassCard
-      glow
-      sx={{
-        background:
-          "radial-gradient(circle at 100% 0%, rgba(34,211,238,0.14), transparent 34%), linear-gradient(180deg, rgba(15,23,42,0.86), rgba(8,13,28,0.92))",
-      }}
-    >
-      <CardContent sx={{ p: 1.45 }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1.2}>
-          <Stack direction="row" spacing={1} alignItems="center" minWidth={0}>
-            <Stack
-              alignItems="center"
-              justifyContent="center"
-              sx={{
-                width: 42,
-                height: 42,
-                borderRadius: 3,
-                bgcolor: "rgba(148,163,184,0.1)",
-                border: "1px solid rgba(148,163,184,0.14)",
-                fontSize: 23,
-              }}
-            >
-              {server?.flag || "VPN"}
-            </Stack>
-            <Box minWidth={0}>
-              <Typography fontWeight={950} noWrap sx={{ fontSize: 14.5 }}>
-                {location || server?.region || "Current server"}
-              </Typography>
-              <Typography color="text.secondary" sx={{ fontSize: 11.5 }}>
-                Server {server?.server_number ? `#${server.server_number}` : "linked"}
-              </Typography>
-            </Box>
-          </Stack>
-
-          <Chip
-            label="Current"
-            size="small"
-            sx={{
-              height: 25,
-              color: "#86efac",
-              bgcolor: "rgba(34,197,94,0.12)",
-              border: "1px solid rgba(34,197,94,0.2)",
-              "& .MuiChip-label": { fontSize: 11, fontWeight: 900 },
-            }}
-          />
-        </Stack>
-      </CardContent>
+    <GlassCard glow className="aurora-glow p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Current
+        </span>
+        {ms !== null && <LatencyBadge ms={ms} />}
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="text-2xl" aria-hidden="true">
+          {server?.flag_emoji ?? server?.flag ?? "🌐"}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-semibold text-foreground">
+            {location || server?.region || "Current server"}
+          </p>
+          <p className="text-[12px] text-muted-foreground">
+            Server {server?.server_number ? `#${server.server_number}` : "linked"}
+          </p>
+        </div>
+        <Chip tone="success">Current</Chip>
+      </div>
     </GlassCard>
   );
 }
@@ -119,106 +97,177 @@ function CurrentServerSummary({ server }) {
 function ServerRow({ server, linking, onSelect }) {
   const isCurrent = Boolean(server?.is_current);
   const canAccess = Boolean(server?.can_access);
-  const latency = getLatency(server);
+  const ms = getLatencyMs(server);
   const serverLabel = server?.city || server?.name || server?.region || "Server";
 
   return (
-    <Box
-      role="button"
-      tabIndex={0}
-      onClick={() => canAccess && onSelect(server)}
-      onKeyDown={(event) => {
-        if ((event.key === "Enter" || event.key === " ") && canAccess) {
-          onSelect(server);
-        }
-      }}
-      sx={{
-        display: "grid",
-        gridTemplateColumns: "1fr auto",
-        alignItems: "center",
-        gap: 1,
-        px: 1,
-        py: 1,
-        borderRadius: 3,
-        opacity: canAccess ? 1 : 0.48,
-        cursor: canAccess ? "pointer" : "not-allowed",
-        bgcolor: isCurrent ? "rgba(37,99,235,0.16)" : "rgba(148,163,184,0.06)",
-        border: isCurrent ? "1px solid rgba(96,165,250,0.24)" : "1px solid transparent",
-      }}
+    <div
+      className={cn(
+        "flex items-center gap-3 rounded-2xl px-2.5 py-2.5 transition-colors",
+        isCurrent && "bg-primary/10",
+        !canAccess && "opacity-50",
+      )}
     >
-      <Box minWidth={0}>
-        <Stack direction="row" spacing={0.7} alignItems="center" minWidth={0}>
-          <Typography fontWeight={900} noWrap sx={{ fontSize: 14.5 }}>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-[14px] font-medium text-foreground">
             {serverLabel}
-          </Typography>
-          {server?.server_number ? (
-            <Typography sx={{ color: "#facc15", fontSize: 12, fontWeight: 900 }}>
-              #{server.server_number}
-            </Typography>
-          ) : null}
-        </Stack>
+            {server?.server_number ? (
+              <span className="ml-1 text-[12px] font-bold text-warning">
+                #{server.server_number}
+              </span>
+            ) : null}
+          </p>
+          {ms !== null && <LatencyBadge ms={ms} />}
+        </div>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          <Chip tone="violet">Premium</Chip>
+          {ms !== null ? (
+            <Chip tone="cyan" icon={<Zap size={10} />}>
+              {ms} ms
+            </Chip>
+          ) : (
+            <Chip tone="cyan">High-speed</Chip>
+          )}
+        </div>
+      </div>
 
-        <Stack direction="row" spacing={0.6} alignItems="center" sx={{ mt: 0.7, flexWrap: "wrap" }}>
-          <Chip
-            icon={<WorkspacePremiumRoundedIcon sx={{ color: "inherit !important" }} />}
-            label="Premium"
-            size="small"
-            sx={{
-              height: 23,
-              color: "#ddd6fe",
-              bgcolor: "rgba(124,58,237,0.14)",
-              "& .MuiChip-label": { fontSize: 10.5, px: 0.75 },
-            }}
-          />
-          <Chip
-            icon={<BoltRoundedIcon sx={{ color: "inherit !important" }} />}
-            label={latency || "High-speed"}
-            size="small"
-            sx={{
-              height: 23,
-              color: "#a5f3fc",
-              bgcolor: "rgba(6,182,212,0.12)",
-              "& .MuiChip-label": { fontSize: 10.5, px: 0.75 },
-            }}
-          />
-        </Stack>
-      </Box>
-
-      <Button
-        size="small"
-        disabled={!canAccess || linking || isCurrent}
-        onClick={(event) => {
-          event.stopPropagation();
-          onSelect(server);
-        }}
-        sx={{
-          minHeight: 34,
-          px: 1.1,
-          borderRadius: 999,
-          color: isCurrent ? "#86efac" : "#fff",
-          bgcolor: isCurrent ? "rgba(34,197,94,0.12)" : "var(--brand-primary, #2563eb)",
-          "&:hover": { bgcolor: isCurrent ? "rgba(34,197,94,0.16)" : "#2563eb" },
-          "&.Mui-disabled": {
-            color: isCurrent ? "#86efac" : "rgba(255,255,255,0.46)",
-            bgcolor: isCurrent ? "rgba(34,197,94,0.12)" : "rgba(148,163,184,0.12)",
-          },
-        }}
-      >
-        {isCurrent ? "Current" : "Select"}
-      </Button>
-    </Box>
+      {isCurrent ? (
+        <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/20 px-2.5 py-1 text-[11px] font-semibold text-primary">
+          <Check size={13} /> Current
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => canAccess && !linking && onSelect(server)}
+          disabled={!canAccess || linking}
+          className="shrink-0 rounded-full border border-border bg-secondary/60 px-3.5 py-1.5 text-[12px] font-semibold text-foreground transition-colors hover:bg-secondary active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Select
+        </button>
+      )}
+    </div>
   );
 }
 
+function CountryGroup({ group, expanded, onToggle, linking, onSelect }) {
+  const best = getBestLatencyMs(group.servers);
+  const hasCurrentServer = group.servers.some((s) => s?.is_current);
+
+  return (
+    <div className="glass overflow-hidden rounded-[20px]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
+      >
+        <span className="text-2xl" aria-hidden="true">
+          {group.flag}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-semibold text-foreground">{group.country}</p>
+          <p className="text-[12px] text-muted-foreground">
+            {group.servers.length} server{group.servers.length === 1 ? "" : "s"}
+            {best !== null ? ` · ${best} ms best` : ""}
+          </p>
+        </div>
+        {hasCurrentServer && (
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success/20 text-success">
+            <Check size={12} strokeWidth={2.5} />
+          </span>
+        )}
+        {best !== null && <LatencyBadge ms={best} />}
+        <ChevronDown
+          size={18}
+          className={cn(
+            "shrink-0 text-muted-foreground transition-transform duration-200",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
+
+      {expanded && (
+        <div className="space-y-1 border-t border-border px-2 pb-2 pt-2">
+          {group.servers.map((server) => (
+            <ServerRow
+              key={server.id || `${server.region}-${server.server_number}`}
+              server={server}
+              linking={linking}
+              onSelect={onSelect}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Inline empty-state — doesn't touch the shared MUI EmptyState.jsx
+function EmptyStateCard({ icon, title, description, children }) {
+  return (
+    <GlassCard className="p-5">
+      <div className="flex flex-col gap-4">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/20 to-violet/15 text-primary">
+          {icon}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[18px] font-semibold leading-tight text-foreground">{title}</p>
+          {description && (
+            <p className="text-[13px] leading-relaxed text-muted-foreground">{description}</p>
+          )}
+        </div>
+        {children && <div className="flex flex-col gap-2">{children}</div>}
+      </div>
+    </GlassCard>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
 export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange }) {
+  // ── Data (unchanged from MUI version) ──────────────────────────────────────
   const servers = useMemo(() => data?.servers || [], [data?.servers]);
   const telegramUserId = data?.user?.telegram_user_id;
   const hasActivePackage = Boolean(data?.subscription);
   const currentServer = data?.current_server || null;
-  const groups = useMemo(() => groupServers(servers), [servers]);
+  const brand = data?.config?.brand || null;
+
+  // ── UI state ───────────────────────────────────────────────────────────────
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("All");
   const [openGroups, setOpenGroups] = useState({});
   const [selectedServer, setSelectedServer] = useState(null);
 
+  // ── Derived data (unchanged grouping logic + new filter layer) ─────────────
+  const groups = useMemo(() => groupServers(servers), [servers]);
+
+  const filteredGroups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return groups
+      .map((group) => ({
+        ...group,
+        servers: group.servers.filter((s) => {
+          if (q) {
+            const label = (s.city || s.name || s.region || "").toLowerCase();
+            const country = group.country.toLowerCase();
+            const num = String(s.server_number || "");
+            if (!country.includes(q) && !label.includes(q) && !num.includes(q)) {
+              return false;
+            }
+          }
+          if (filter === "Premium") return Boolean(s.can_access);
+          if (filter === "Low Latency") {
+            const ms = Number(s?.latency_ms ?? s?.latency ?? s?.ping_ms ?? Infinity);
+            return Number.isFinite(ms) && ms <= 30;
+          }
+          return true;
+        }),
+      }))
+      .filter((g) => g.servers.length > 0);
+  }, [groups, query, filter]);
+
+  // ── Mutation (payload and callbacks UNCHANGED — these touch key provisioning)
   const linkMutation = useLinkServer({
     onSuccess: async () => {
       onToast("Server linked successfully", "success");
@@ -234,138 +283,143 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange 
   });
 
   const toggleGroup = (key) => {
-    setOpenGroups((prev) => {
-      const current = prev[key] ?? false;
-      return {
-        ...prev,
-        [key]: !current,
-      };
-    });
+    setOpenGroups((prev) => ({ ...prev, [key]: !(prev[key] ?? false) }));
   };
 
+  // ── Empty state (no active package) ───────────────────────────────────────
   if (!hasActivePackage) {
     return (
-      <PageContainer>
-        <EmptyState
+      <div className="flex flex-col gap-4 px-4 pt-2 pb-6">
+        <BrandBar brandName={brand?.name || "VPN"} subtitle="Secure private access" />
+        <EmptyStateCard
+          icon={<Search size={20} />}
           title="No active package"
           description="Buy a package or use your trial before connecting a server."
-          action={<AuroraButton onClick={() => onTabChange?.("packages")}>View Packages</AuroraButton>}
-        />
-      </PageContainer>
+        >
+          <PrimaryButton onClick={() => onTabChange?.("packages")}>
+            View Packages
+          </PrimaryButton>
+        </EmptyStateCard>
+      </div>
     );
   }
 
   return (
-    <PageContainer>
-      <SectionTitle title="Choose Server" subtitle="Select the best server for you" />
+    <>
+      <div className="flex flex-col gap-4 px-4 pt-2 pb-6">
+        <BrandBar brandName={brand?.name || "VPN"} subtitle="Secure private access" />
 
-      <CurrentServerSummary server={currentServer} />
+        <div>
+          <h2 className="text-[18px] font-semibold text-foreground">Choose Server</h2>
+          <p className="text-[13px] text-muted-foreground">Select the best server for you</p>
+        </div>
 
-      <Stack spacing={1.1}>
-        {groups.map((group, index) => {
-          const isOpen = openGroups[group.key] ?? index === 0;
-          const currentCount = group.servers.filter((server) => server?.is_current).length;
+        <CurrentServerSummary server={currentServer} />
 
-          return (
-            <GlassCard key={group.key}>
-              <CardContent sx={{ p: 1.15 }}>
-                <Box
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => toggleGroup(group.key)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") toggleGroup(group.key);
-                  }}
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: "auto 1fr auto",
-                    alignItems: "center",
-                    gap: 1,
-                    px: 0.7,
-                    py: 0.65,
-                    cursor: "pointer",
-                  }}
-                >
-                  <Stack
-                    alignItems="center"
-                    justifyContent="center"
-                    sx={{
-                      width: 42,
-                      height: 42,
-                      borderRadius: 3,
-                      bgcolor: "rgba(148,163,184,0.1)",
-                      border: "1px solid rgba(148,163,184,0.14)",
-                      fontSize: 24,
-                    }}
-                  >
-                    {group.flag}
-                  </Stack>
+        {/* Search */}
+        <div className="relative">
+          <Search
+            size={16}
+            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search country or server"
+            className="h-11 w-full rounded-2xl border border-border bg-secondary/50 pl-10 pr-4 text-[14px] text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
+          />
+        </div>
 
-                  <Box minWidth={0}>
-                    <Typography fontWeight={950} noWrap sx={{ fontSize: 15 }}>
-                      {group.country}
-                    </Typography>
-                    <Typography color="text.secondary" sx={{ fontSize: 12 }}>
-                      {group.servers.length} server{group.servers.length === 1 ? "" : "s"} · {getBestLatency(group.servers)}
-                    </Typography>
-                  </Box>
+        {/* Filter chips */}
+        <div className="flex gap-2">
+          {FILTERS.map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFilter(f)}
+              className={cn(
+                "rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors",
+                filter === f
+                  ? "border-primary/40 bg-primary/15 text-primary"
+                  : "border-border bg-secondary/50 text-muted-foreground",
+              )}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
 
-                  <Stack direction="row" spacing={0.4} alignItems="center">
-                    {currentCount ? (
-                      <CheckCircleRoundedIcon sx={{ color: "#22c55e", fontSize: 18 }} />
-                    ) : null}
-                    {isOpen ? <KeyboardArrowDownRoundedIcon /> : <KeyboardArrowRightRoundedIcon />}
-                  </Stack>
-                </Box>
+        {/* Country groups */}
+        <div className="flex flex-col gap-3">
+          {filteredGroups.map((group, index) => {
+            const isOpen = openGroups[group.key] ?? index === 0;
+            return (
+              <CountryGroup
+                key={group.key}
+                group={group}
+                expanded={isOpen}
+                onToggle={() => toggleGroup(group.key)}
+                linking={linkMutation.isPending}
+                onSelect={setSelectedServer}
+              />
+            );
+          })}
+          {filteredGroups.length === 0 && (
+            <p className="py-8 text-center text-[13px] text-muted-foreground">
+              No servers found
+            </p>
+          )}
+        </div>
+      </div>
 
-                {isOpen ? (
-                  <Stack spacing={0.75} sx={{ mt: 0.85 }}>
-                    <Divider />
-                    {group.servers.map((server) => (
-                      <ServerRow
-                        key={server.id || `${server.region}-${server.server_number}`}
-                        server={server}
-                        linking={linkMutation.isPending}
-                        onSelect={setSelectedServer}
-                      />
-                    ))}
-                  </Stack>
-                ) : null}
-              </CardContent>
-            </GlassCard>
-          );
-        })}
-      </Stack>
-
-      <Dialog
+      {/* Confirmation dialog — @base-ui/react Dialog for correct focus trapping */}
+      <Dialog.Root
         open={Boolean(selectedServer)}
-        onClose={linkMutation.isPending ? undefined : () => setSelectedServer(null)}
-        fullWidth
-        maxWidth="xs"
+        onOpenChange={(open) => {
+          if (!open && !linkMutation.isPending) setSelectedServer(null);
+        }}
       >
-        <DialogTitle fontWeight={950} sx={{ fontSize: 18, pb: 0.5 }}>
-          Link this server?
-        </DialogTitle>
-        <DialogContent>
-          <Typography color="text.secondary" sx={{ fontSize: 13.5 }}>
-            Your Outline key will be connected to {selectedServer?.city || selectedServer?.name || "this server"}.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ p: 2, gap: 1 }}>
-          <GhostButton
-            onClick={() => setSelectedServer(null)}
-            disabled={linkMutation.isPending}
-          >
-            Cancel
-          </GhostButton>
-          <AuroraButton
-            onClick={() => linkMutation.mutate({ server_id: selectedServer.id, telegram_user_id: telegramUserId })}
-            disabled={linkMutation.isPending}
-          >
-            {linkMutation.isPending ? "Connecting..." : "Connect"}
-          </AuroraButton>
-        </DialogActions>
-      </Dialog>
-    </PageContainer>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
+          <Dialog.Popup className="glass fixed inset-x-4 bottom-8 z-50 rounded-3xl p-6 shadow-2xl outline-none">
+            <Dialog.Title className="text-[18px] font-semibold text-foreground">
+              Link this server?
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 mb-6 text-[13px] text-muted-foreground">
+              Your Outline key will be connected to{" "}
+              <strong className="font-semibold text-foreground">
+                {selectedServer?.city || selectedServer?.name || "this server"}
+              </strong>
+              . Your existing key usage is preserved.
+            </Dialog.Description>
+
+            <div className="flex flex-col gap-2">
+              <PrimaryButton
+                onClick={() =>
+                  linkMutation.mutate({
+                    server_id: selectedServer.id,
+                    telegram_user_id: telegramUserId,
+                  })
+                }
+                disabled={linkMutation.isPending}
+              >
+                {linkMutation.isPending ? "Connecting…" : "Connect"}
+              </PrimaryButton>
+              <Dialog.Close
+                className={cn(
+                  "flex h-12 w-full items-center justify-center gap-2 rounded-2xl",
+                  "border border-border bg-secondary/60 text-[15px] font-semibold text-foreground",
+                  "transition-all hover:bg-secondary active:scale-[0.98]",
+                  linkMutation.isPending && "pointer-events-none opacity-50",
+                )}
+                disabled={linkMutation.isPending}
+              >
+                Cancel
+              </Dialog.Close>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </>
   );
 }
