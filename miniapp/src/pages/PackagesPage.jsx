@@ -1,4 +1,7 @@
 import { useMemo, useRef, useState } from "react";
+
+// ── MUI imports — used ONLY by PurchaseDialog and its helpers.
+//    Phase 6 (checkout full screen) removes this entire block.
 import CameraAltRoundedIcon from "@mui/icons-material/CameraAltRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
@@ -19,35 +22,32 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import PageContainer from "../components/layout/PageContainer";
-import EmptyState from "../components/common/EmptyState";
-import { AuroraButton, GhostButton, GlassCard, SectionTitle } from "../components/ui/vpnPrimitives";
+import {
+  AuroraButton,
+  GhostButton,
+  GlassCard as MuiGlassCard,
+} from "../components/ui/vpnPrimitives";
+// ── end Phase 6 removal block ──────────────────────────────────────────────
+
+// Tailwind / new design-system imports (listing layer)
+import { Hourglass, Package } from "lucide-react";
+import {
+  BrandBar,
+  Chip,
+  GlassCard,
+  PrimaryButton,
+  SecondaryButton,
+} from "../components/ui/primitives";
+
 import { openTelegramNativeLink } from "../lib/telegram";
+import { formatCurrencyMmk, formatDate } from "../lib/format";
 import { useSubmitPurchase } from "../features/access/hooks";
 import { uploadPaymentScreenshot } from "../features/access/api";
 import PackageCard from "../features/packages/PackageCard";
 import SupportCard from "../features/support/SupportCard";
-import { formatCurrencyMmk } from "../lib/format";
 
-function PendingReviewCard() {
-  return (
-    <GlassCard sx={{ borderColor: "rgba(245,158,11,0.28)" }}>
-      <CardContent sx={{ p: 1.75 }}>
-        <Stack direction="row" spacing={1.1} alignItems="flex-start">
-          <HourglassTopRoundedIcon sx={{ color: "#fbbf24", mt: 0.1 }} />
-          <Box>
-            <Typography fontWeight={950} sx={{ fontSize: 15.5 }}>
-              Purchase waiting for review
-            </Typography>
-            <Typography color="text.secondary" sx={{ fontSize: 12.8, mt: 0.35, lineHeight: 1.5 }}>
-              Premium access is active. Your reseller will review the payment screenshot.
-            </Typography>
-          </Box>
-        </Stack>
-      </CardContent>
-    </GlassCard>
-  );
-}
+// ── PurchaseDialog (MUI — kept unchanged until Phase 6) ────────────────────
+// Sub-components: PaymentInfoCard, ScreenshotUpload are only used here.
 
 function PaymentInfoCard({ methods, onCopy }) {
   if (!Array.isArray(methods) || methods.length === 0) return null;
@@ -55,7 +55,7 @@ function PaymentInfoCard({ methods, onCopy }) {
   return (
     <Stack spacing={1}>
       {methods.map((method, i) => (
-        <GlassCard
+        <MuiGlassCard
           key={i}
           sx={{
             background:
@@ -103,7 +103,7 @@ function PaymentInfoCard({ methods, onCopy }) {
               </Stack>
             </Stack>
           </CardContent>
-        </GlassCard>
+        </MuiGlassCard>
       ))}
     </Stack>
   );
@@ -239,10 +239,7 @@ function PurchaseDialog({
     setPreviewSrc(URL.createObjectURL(file));
 
     try {
-      const result = await uploadPaymentScreenshot({
-        file,
-        telegramUserId,
-      });
+      const result = await uploadPaymentScreenshot({ file, telegramUserId });
       setUploadedPath(result.path);
     } catch (err) {
       setUploadError(err.message || "Upload failed. Please try again.");
@@ -271,7 +268,7 @@ function PurchaseDialog({
 
       <DialogContent dividers sx={{ borderColor: "rgba(148,163,184,0.14)", px: 2 }}>
         <Stack spacing={1.5}>
-          <GlassCard
+          <MuiGlassCard
             glow
             sx={{
               background:
@@ -296,7 +293,7 @@ function PurchaseDialog({
                 </Typography>
               </Stack>
             </CardContent>
-          </GlassCard>
+          </MuiGlassCard>
 
           <PaymentInfoCard methods={paymentMethods} onCopy={handleCopyAccountNumber} />
 
@@ -316,7 +313,10 @@ function PurchaseDialog({
 
           <Stack spacing={0.8}>
             <Typography fontWeight={900} sx={{ fontSize: 13.5 }}>
-              Payment note <Box component="span" sx={{ color: "text.secondary", fontWeight: 500 }}>(optional)</Box>
+              Payment note{" "}
+              <Box component="span" sx={{ color: "text.secondary", fontWeight: 500 }}>
+                (optional)
+              </Box>
             </Typography>
             <TextField
               fullWidth
@@ -352,31 +352,102 @@ function PurchaseDialog({
     </Dialog>
   );
 }
+// ── end PurchaseDialog ─────────────────────────────────────────────────────
 
-export default function PackagesPage({
-  data,
-  onToast,
-  onTabChange,
-  onRefreshAuth,
-}) {
+// ── Tailwind sub-components (listing layer) ────────────────────────────────
+
+function PendingReviewCard() {
+  return (
+    <GlassCard className="border-warning/30 p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning">
+          <Hourglass size={16} />
+        </div>
+        <div>
+          <p className="text-[15px] font-semibold text-foreground">
+            Purchase waiting for review
+          </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            Premium access is active. Your reseller will review the payment screenshot.
+          </p>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+function EmptyStateCard({ icon, title, description, children }) {
+  return (
+    <GlassCard className="p-5">
+      <div className="flex flex-col gap-4">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/20 to-violet/15 text-primary">
+          {icon}
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <p className="text-[18px] font-semibold leading-tight text-foreground">{title}</p>
+          {description && (
+            <p className="text-[13px] leading-relaxed text-muted-foreground">{description}</p>
+          )}
+        </div>
+        {children && <div className="flex flex-col gap-2">{children}</div>}
+      </div>
+    </GlassCard>
+  );
+}
+
+// Compact current-plan summary shown at the top when user has a confirmed purchase.
+function CurrentPlanCard({ subscription }) {
+  const planName = subscription?.plan_name || "Premium Plan";
+  const expiry = subscription?.expiry_date ? formatDate(subscription.expiry_date) : null;
+
+  return (
+    <GlassCard className="flex items-center justify-between p-3.5">
+      <div>
+        <p className="text-[14px] font-semibold text-foreground">{planName}</p>
+        {expiry && (
+          <p className="text-[12px] text-muted-foreground">Valid until {expiry}</p>
+        )}
+      </div>
+      <Chip tone="success" icon={<span className="h-1.5 w-1.5 rounded-full bg-success" />}>
+        Active
+      </Chip>
+    </GlassCard>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────────
+
+export default function PackagesPage({ data, onToast, onTabChange, onRefreshAuth }) {
+  // ── Data (logic unchanged) ─────────────────────────────────────────────────
   const plans = useMemo(() => data?.plans || [], [data?.plans]);
   const subscription = data?.subscription || null;
   const paymentMethods = data?.config?.payment || [];
-  const rawSupportHandle = data?.config?.brand?.support_username
-    ? String(data.config.brand.support_username).replace(/^@/, "")
+  const brand = data?.config?.brand || null;
+
+  const rawSupportHandle = brand?.support_username
+    ? String(brand.support_username).replace(/^@/, "")
     : null;
   const supportUsername = rawSupportHandle ? `@${rawSupportHandle}` : "";
   const handleSupportContact = rawSupportHandle
     ? () => openTelegramNativeLink(`https://t.me/${rawSupportHandle}`)
     : null;
+
   const pendingReviewOrder =
     subscription?.type === "purchase" && subscription?.review_status === "pending_review"
       ? subscription
       : null;
 
+  // Show compact current-plan banner for confirmed active purchases.
+  const confirmedActivePurchase =
+    subscription?.type === "purchase" && subscription?.review_status !== "pending_review"
+      ? subscription
+      : null;
+
+  // ── Dialog state ───────────────────────────────────────────────────────────
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  // ── Mutation (payload UNCHANGED) ───────────────────────────────────────────
   const submitMutation = useSubmitPurchase({
     onSuccess: async () => {
       onToast("Premium access created. Waiting for reseller review.", "success");
@@ -390,9 +461,10 @@ export default function PackagesPage({
     },
   });
 
+  // ── Plan grouping (logic unchanged) ───────────────────────────────────────
   const visiblePlans = useMemo(
     () => (plans || []).filter((plan) => !String(plan?.name || "").toLowerCase().includes("trial")),
-    [plans]
+    [plans],
   );
 
   const groupedPlans = useMemo(() => {
@@ -410,11 +482,14 @@ export default function PackagesPage({
     return Array.from(map.entries()).sort(([a], [b]) => a - b);
   }, [visiblePlans]);
 
+  // ── Handlers (logic unchanged) ─────────────────────────────────────────────
   const isActivePlan = (plan) => {
     if (!subscription || subscription?.type !== "purchase") return false;
     return (
       plan?.id === subscription?.plan_id ||
-      (plan?.name && subscription?.plan_name && String(plan.name) === String(subscription.plan_name))
+      (plan?.name &&
+        subscription?.plan_name &&
+        String(plan.name) === String(subscription.plan_name))
     );
   };
 
@@ -440,50 +515,66 @@ export default function PackagesPage({
     });
   };
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <PageContainer>
-      <SectionTitle title="Choose Your Plan" subtitle="Secure private access with this reseller" />
+    <>
+      <div className="flex flex-col gap-4 px-4 pt-2 pb-6">
+        <BrandBar brandName={brand?.name || "VPN"} subtitle="Secure private access" />
 
-      <SupportCard
-        supportUsername={supportUsername}
-        onContact={handleSupportContact}
-      />
+        <div>
+          <h2 className="text-[18px] font-semibold text-foreground">Choose Your Plan</h2>
+          <p className="text-[13px] text-muted-foreground">
+            Secure private access with this reseller
+          </p>
+        </div>
 
-      {pendingReviewOrder ? <PendingReviewCard order={pendingReviewOrder} /> : null}
+        <SupportCard supportUsername={supportUsername} onContact={handleSupportContact} />
 
-      {visiblePlans.length > 0 ? (
-        groupedPlans.map(([days, groupPlans]) => (
-          <Stack key={days} spacing={1}>
-            <Typography fontWeight={950} sx={{ color: "#fff", px: 0.2, fontSize: 15.5 }}>
-              {days} Days
-            </Typography>
-            {groupPlans.map((plan) => (
-              <PackageCard
-                key={plan.id}
-                plan={plan}
-                onBuy={openBuyDialog}
-                active={isActivePlan(plan)}
-              />
-            ))}
-          </Stack>
-        ))
-      ) : (
-        <EmptyState
-          title="No packages available"
-          description="Please check back later or contact support for manual activation."
-        />
-      )}
+        {/* Confirmed active purchase — compact banner */}
+        {confirmedActivePurchase && (
+          <CurrentPlanCard subscription={confirmedActivePurchase} />
+        )}
 
+        {/* Pending review warning */}
+        {pendingReviewOrder && <PendingReviewCard />}
+
+        {/* Plan listing grouped by duration */}
+        {visiblePlans.length > 0 ? (
+          groupedPlans.map(([days, groupPlans]) => (
+            <div key={days} className="flex flex-col gap-3">
+              <p className="px-0.5 text-[15px] font-bold text-foreground">{days} Days</p>
+              {groupPlans.map((plan) => (
+                <PackageCard
+                  key={plan.id}
+                  plan={plan}
+                  onBuy={openBuyDialog}
+                  active={isActivePlan(plan)}
+                />
+              ))}
+            </div>
+          ))
+        ) : (
+          <EmptyStateCard
+            icon={<Package size={20} />}
+            title="No packages available"
+            description="Please check back later or contact support for manual activation."
+          />
+        )}
+      </div>
+
+      {/* MUI PurchaseDialog — unchanged until Phase 6 converts checkout to full screen */}
       <PurchaseDialog
         open={dialogOpen}
         plan={selectedPlan}
         paymentMethods={paymentMethods}
         telegramUserId={data?.user?.telegram_user_id}
         submitting={submitMutation.isPending}
-        onClose={() => { if (!submitMutation.isPending) setDialogOpen(false); }}
+        onClose={() => {
+          if (!submitMutation.isPending) setDialogOpen(false);
+        }}
         onSubmit={handleSubmit}
         onToast={onToast}
       />
-    </PageContainer>
+    </>
   );
 }

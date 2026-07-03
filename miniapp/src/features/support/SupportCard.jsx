@@ -1,48 +1,29 @@
-import HeadsetMicRoundedIcon from "@mui/icons-material/HeadsetMicRounded";
-import TelegramIcon from "@mui/icons-material/Telegram";
-import { CardContent, Stack, Typography } from "@mui/material";
-import { GhostButton, GlassCard } from "../../components/ui/vpnPrimitives";
+import { Headphones } from "lucide-react";
+import { GlassCard, SecondaryButton } from "../../components/ui/primitives";
 
 export default function SupportCard({ supportUsername, onContact }) {
   return (
-    <GlassCard>
-      <CardContent sx={{ p: 1.75 }}>
-        <Stack direction="row" spacing={1.2} alignItems="center">
-          <Stack
-            alignItems="center"
-            justifyContent="center"
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: 3,
-              color: "#a5f3fc",
-              bgcolor: "rgba(6,182,212,0.12)",
-              border: "1px solid rgba(6,182,212,0.18)",
-            }}
-          >
-            <HeadsetMicRoundedIcon fontSize="small" />
-          </Stack>
+    <GlassCard className="flex items-center gap-3 p-3.5">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] border border-cyan/20 bg-cyan/12 text-cyan">
+        <Headphones size={18} />
+      </div>
 
-          <Stack spacing={0.25} minWidth={0} flex={1}>
-            <Typography fontWeight={950} sx={{ fontSize: 15.5 }}>
-              Need help?
-            </Typography>
-            <Typography color="text.secondary" sx={{ fontSize: 12.5 }} noWrap>
-              {supportUsername ? `Chat with ${supportUsername}` : "Contact support for manual help"}
-            </Typography>
-          </Stack>
+      <div className="min-w-0 flex-1">
+        <p className="text-[15px] font-semibold text-foreground">Need help?</p>
+        <p className="truncate text-[12px] text-muted-foreground">
+          {supportUsername ? `Chat with ${supportUsername}` : "Contact support for manual help"}
+        </p>
+      </div>
 
-          {onContact && (
-            <GhostButton
-              startIcon={<TelegramIcon />}
-              onClick={onContact}
-              sx={{ width: "auto", height: 38, minHeight: 38, px: 1.35 }}
-            >
-              Chat
-            </GhostButton>
-          )}
-        </Stack>
-      </CardContent>
+      {onContact && (
+        <SecondaryButton
+          fullWidth={false}
+          onClick={onContact}
+          className="h-9 shrink-0 rounded-xl px-3.5 text-[13px]"
+        >
+          Chat
+        </SecondaryButton>
+      )}
     </GlassCard>
   );
 }

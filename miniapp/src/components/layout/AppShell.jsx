@@ -92,8 +92,8 @@ export default function AppShell() {
       }}
     >
       <Box flex={1} pb="82px">
-        {/* Converted pages (home, servers) render their own BrandBar; others still need the MUI header */}
-        {tab !== "home" && tab !== "servers" && (
+        {/* Converted pages render their own BrandBar; once all tabs are done this block goes away */}
+        {tab !== "home" && tab !== "servers" && tab !== "packages" && (
           <Box sx={{ px: 2, pt: 2 }}>
             <Header brand={brand} />
           </Box>

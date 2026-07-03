@@ -106,37 +106,41 @@ textarea {
 }
 
 /* ── Layout utility classes used by converted screens ────────────────────── */
+/* In @layer components so Tailwind utilities (border-warning/30 etc.) can    */
+/* override individual properties on a per-element basis.                     */
 
-.aurora-stage {
-  background-color: oklch(0.11 0.02 264);
-  background-image:
-    radial-gradient(closest-side at 15% 10%, oklch(0.5 0.2 250 / 25%), transparent),
-    radial-gradient(closest-side at 85% 20%, oklch(0.55 0.18 200 / 20%), transparent),
-    radial-gradient(closest-side at 50% 100%, oklch(0.5 0.2 285 / 18%), transparent);
-}
+@layer components {
+  .aurora-stage {
+    background-color: oklch(0.11 0.02 264);
+    background-image:
+      radial-gradient(closest-side at 15% 10%, oklch(0.5 0.2 250 / 25%), transparent),
+      radial-gradient(closest-side at 85% 20%, oklch(0.55 0.18 200 / 20%), transparent),
+      radial-gradient(closest-side at 50% 100%, oklch(0.5 0.2 285 / 18%), transparent);
+  }
 
-.aurora-glow {
-  background-image:
-    radial-gradient(120% 90% at 10% -10%, oklch(0.55 0.2 250 / 22%), transparent 60%),
-    radial-gradient(120% 90% at 100% 0%, oklch(0.6 0.16 200 / 16%), transparent 55%),
-    radial-gradient(140% 120% at 80% 120%, oklch(0.55 0.2 285 / 16%), transparent 60%);
-}
+  .aurora-glow {
+    background-image:
+      radial-gradient(120% 90% at 10% -10%, oklch(0.55 0.2 250 / 22%), transparent 60%),
+      radial-gradient(120% 90% at 100% 0%, oklch(0.6 0.16 200 / 16%), transparent 55%),
+      radial-gradient(140% 120% at 80% 120%, oklch(0.55 0.2 285 / 16%), transparent 60%);
+  }
 
-.glass {
-  background: linear-gradient(
-    180deg,
-    oklch(0.28 0.035 264 / 65%),
-    oklch(0.22 0.03 264 / 55%)
-  );
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid oklch(0.85 0.03 258 / 10%);
-}
+  .glass {
+    background: linear-gradient(
+      180deg,
+      oklch(0.28 0.035 264 / 65%),
+      oklch(0.22 0.03 264 / 55%)
+    );
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid oklch(0.85 0.03 258 / 10%);
+  }
 
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }
