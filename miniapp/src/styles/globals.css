@@ -4,9 +4,14 @@
 
 html,
 body {
-  background: #030712;
+  background: #020617;
 }
 
 a {
   color: inherit;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.28) transparent;
 }

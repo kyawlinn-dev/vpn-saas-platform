@@ -15,10 +15,10 @@ export default function ErrorPage({ error, supportUsername }) {
     <PageContainer>
       <EmptyState
         icon={<ErrorOutlineRoundedIcon />}
-        title="Unable to load Mini App"
+        title="Unable to load"
         description={message}
         action={
-          <Stack spacing={1.25} width="100%">
+          <Stack spacing={1} width="100%">
             <PrimaryButton
               startIcon={<RefreshRoundedIcon />}
               onClick={() => window.location.reload()}

@@ -1,37 +1,48 @@
 import HeadsetMicRoundedIcon from "@mui/icons-material/HeadsetMicRounded";
 import TelegramIcon from "@mui/icons-material/Telegram";
-import { Card, CardContent, Stack, Typography } from "@mui/material";
-import PrimaryButton from "../../components/common/PrimaryButton";
+import { CardContent, Stack, Typography } from "@mui/material";
+import { GhostButton, GlassCard } from "../../components/ui/vpnPrimitives";
 
 export default function SupportCard({ supportUsername, onContact }) {
   return (
-    <Card
-      sx={{
-        background: "#0f172a",
-      }}
-    >
-      <CardContent sx={{ p: 2.3 }}>
-        <Stack spacing={2}>
-          <Stack direction="row" spacing={1.25} alignItems="center">
-            <HeadsetMicRoundedIcon sx={{ color: "#c4b5fd" }} />
-            <Typography variant="h5" fontWeight={900} sx={{ letterSpacing: "-0.03em" }}>
-              Need support?
+    <GlassCard>
+      <CardContent sx={{ p: 1.75 }}>
+        <Stack direction="row" spacing={1.2} alignItems="center">
+          <Stack
+            alignItems="center"
+            justifyContent="center"
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: 3,
+              color: "#a5f3fc",
+              bgcolor: "rgba(6,182,212,0.12)",
+              border: "1px solid rgba(6,182,212,0.18)",
+            }}
+          >
+            <HeadsetMicRoundedIcon fontSize="small" />
+          </Stack>
+
+          <Stack spacing={0.25} minWidth={0} flex={1}>
+            <Typography fontWeight={950} sx={{ fontSize: 15.5 }}>
+              Need help?
+            </Typography>
+            <Typography color="text.secondary" sx={{ fontSize: 12.5 }} noWrap>
+              {supportUsername ? `Chat with ${supportUsername}` : "Contact support for manual help"}
             </Typography>
           </Stack>
 
-          <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
-            {supportUsername
-              ? `Want to buy plan or need support? Chat with ${supportUsername} on Telegram.`
-              : "Want to buy a plan or need help? Contact our support team."}
-          </Typography>
-
           {onContact && (
-            <PrimaryButton startIcon={<TelegramIcon />} onClick={onContact}>
-              Contact Us
-            </PrimaryButton>
+            <GhostButton
+              startIcon={<TelegramIcon />}
+              onClick={onContact}
+              sx={{ width: "auto", height: 38, minHeight: 38, px: 1.35 }}
+            >
+              Chat
+            </GhostButton>
           )}
         </Stack>
       </CardContent>
-    </Card>
+    </GlassCard>
   );
 }

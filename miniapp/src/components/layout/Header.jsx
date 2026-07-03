@@ -1,76 +1,52 @@
-import ShieldRoundedIcon from "@mui/icons-material/ShieldRounded";
 import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
+import ShieldRoundedIcon from "@mui/icons-material/ShieldRounded";
 import { Avatar, Box, IconButton, Stack, Typography } from "@mui/material";
 import { APP_NAME } from "../../constants/app";
 
 export default function Header({ brand }) {
-  const brandName = brand?.name || APP_NAME || "NEXA VPN";
+  const brandName = brand?.name || APP_NAME || "VPN";
   const logoUrl = brand?.logo_url || "";
 
   return (
-    <Stack
-      direction="row"
-      alignItems="center"
-      justifyContent="space-between"
-      sx={{ mb: 2, minHeight: 48 }}
-    >
+    <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
       <Avatar
         src={logoUrl}
         alt={brandName}
         sx={{
           width: 40,
           height: 40,
-          bgcolor: "#0f172a",
-          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 3,
+          color: "#eff6ff",
+          bgcolor: "var(--brand-primary, #2563eb)",
+          boxShadow: "0 0 20px -3px var(--brand-primary, #2563eb)",
         }}
       >
-        <ShieldRoundedIcon sx={{ color: "#3b82f6" }} />
+        <ShieldRoundedIcon fontSize="small" />
       </Avatar>
 
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={0.8}
-        sx={{
-          minWidth: 0,
-          px: 1.25,
-          py: 0.65,
-          borderRadius: 999,
-          bgcolor: "rgba(15,23,42,0.82)",
-          border: "1px solid rgba(255,255,255,0.07)",
-        }}
-      >
-        <Box
-          sx={{
-            width: 22,
-            height: 22,
-            borderRadius: "50%",
-            display: "grid",
-            placeItems: "center",
-            background: "linear-gradient(135deg, #2563eb, #06b6d4)",
-          }}
-        >
-          <ShieldRoundedIcon sx={{ fontSize: 15, color: "#fff" }} />
-        </Box>
-        <Typography
-          variant="subtitle1"
-          fontWeight={900}
-          noWrap
-          sx={{ color: "#fff", letterSpacing: 0 }}
-        >
+      <Box minWidth={0} flex={1}>
+        <Typography sx={{ color: "#f8fafc", fontSize: 15, fontWeight: 850, lineHeight: 1.15 }} noWrap>
           {brandName}
         </Typography>
-      </Stack>
+        <Typography sx={{ color: "#9aa8bd", fontSize: 12, lineHeight: 1.15 }} noWrap>
+          Secure private access
+        </Typography>
+      </Box>
 
       <IconButton
-        size="small"
         aria-label="Settings"
+        size="small"
+        disabled
         sx={{
           width: 40,
           height: 40,
-          bgcolor: "#0f172a",
-          color: "#cbd5e1",
-          border: "1px solid rgba(255,255,255,0.08)",
+          color: "#9aa8bd",
+          border: "1px solid rgba(226,232,240,0.11)",
+          bgcolor: "rgba(30,41,59,0.55)",
+          "&.Mui-disabled": {
+            color: "#9aa8bd",
+            opacity: 0.75,
+          },
         }}
       >
         <SettingsRoundedIcon fontSize="small" />

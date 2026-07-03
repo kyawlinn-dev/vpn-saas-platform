@@ -3,11 +3,10 @@ import CameraAltRoundedIcon from "@mui/icons-material/CameraAltRounded";
 import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
 import ContentCopyRoundedIcon from "@mui/icons-material/ContentCopyRounded";
 import HourglassTopRoundedIcon from "@mui/icons-material/HourglassTopRounded";
+import PaymentsRoundedIcon from "@mui/icons-material/PaymentsRounded";
 import {
   Alert,
   Box,
-  Button,
-  Card,
   CardContent,
   CircularProgress,
   Dialog,
@@ -22,36 +21,31 @@ import {
 } from "@mui/material";
 import PageContainer from "../components/layout/PageContainer";
 import EmptyState from "../components/common/EmptyState";
+import { AuroraButton, GhostButton, GlassCard, SectionTitle } from "../components/ui/vpnPrimitives";
 import { openTelegramNativeLink } from "../lib/telegram";
 import { useSubmitPurchase } from "../features/access/hooks";
 import { uploadPaymentScreenshot } from "../features/access/api";
 import PackageCard from "../features/packages/PackageCard";
 import SupportCard from "../features/support/SupportCard";
+import { formatCurrencyMmk } from "../lib/format";
 
-function PendingReviewCard({ order }) {
+function PendingReviewCard() {
   return (
-    <Card
-      sx={{
-        border: "1px solid rgba(245,158,11,0.22)",
-        background:
-          "linear-gradient(180deg, rgba(245,158,11,0.12) 0%, rgba(18,20,36,0.98) 100%)",
-      }}
-    >
-      <CardContent sx={{ p: 2.2 }}>
-        <Stack spacing={1.25}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <HourglassTopRoundedIcon sx={{ color: "#fbbf24" }} />
-            <Typography variant="h6" fontWeight={800}>
-              Purchase Waiting for Review
+    <GlassCard sx={{ borderColor: "rgba(245,158,11,0.28)" }}>
+      <CardContent sx={{ p: 1.75 }}>
+        <Stack direction="row" spacing={1.1} alignItems="flex-start">
+          <HourglassTopRoundedIcon sx={{ color: "#fbbf24", mt: 0.1 }} />
+          <Box>
+            <Typography fontWeight={950} sx={{ fontSize: 15.5 }}>
+              Purchase waiting for review
             </Typography>
-          </Stack>
-
-          <Typography variant="body2" color="text.secondary">
-            Your premium access is already active. The reseller will review your payment screenshot later.
-          </Typography>
+            <Typography color="text.secondary" sx={{ fontSize: 12.8, mt: 0.35, lineHeight: 1.5 }}>
+              Premium access is active. Your reseller will review the payment screenshot.
+            </Typography>
+          </Box>
         </Stack>
       </CardContent>
-    </Card>
+    </GlassCard>
   );
 }
 
@@ -59,40 +53,49 @@ function PaymentInfoCard({ methods, onCopy }) {
   if (!Array.isArray(methods) || methods.length === 0) return null;
 
   return (
-    <Stack spacing={1.25}>
+    <Stack spacing={1}>
       {methods.map((method, i) => (
-        <Card
+        <GlassCard
           key={i}
           sx={{
             background:
-              "linear-gradient(180deg, rgba(99,102,241,0.1) 0%, rgba(18,20,36,0.98) 100%)",
-            border: "1px solid rgba(99,102,241,0.2)",
+              "linear-gradient(180deg, rgba(37,99,235,0.12) 0%, rgba(8,13,28,0.9) 100%)",
           }}
         >
-          <CardContent sx={{ p: 2 }}>
-            <Stack spacing={1.1}>
-              <Typography variant="caption" color="text.secondary" fontWeight={700} sx={{ letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                Pay with {method.method}
-              </Typography>
-
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Account Name</Typography>
-                  <Typography fontWeight={800}>{method.account_name}</Typography>
-                </Box>
+          <CardContent sx={{ p: 1.45 }}>
+            <Stack spacing={1}>
+              <Stack direction="row" spacing={0.8} alignItems="center">
+                <PaymentsRoundedIcon sx={{ color: "#93c5fd", fontSize: 18 }} />
+                <Typography sx={{ fontSize: 12, color: "text.secondary", fontWeight: 900, textTransform: "uppercase" }}>
+                  Pay with {method.method}
+                </Typography>
               </Stack>
 
-              <Stack direction="row" justifyContent="space-between" alignItems="center">
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Account Number</Typography>
-                  <Typography fontWeight={800} sx={{ fontSize: "1.05rem", letterSpacing: "0.04em" }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
+                <Box minWidth={0}>
+                  <Typography color="text.secondary" sx={{ fontSize: 11.5 }}>
+                    Account name
+                  </Typography>
+                  <Typography fontWeight={900} noWrap sx={{ fontSize: 14 }}>
+                    {method.account_name}
+                  </Typography>
+                  <Typography color="text.secondary" sx={{ fontSize: 11.5, mt: 0.75 }}>
+                    Account number
+                  </Typography>
+                  <Typography fontWeight={950} sx={{ fontSize: 16, letterSpacing: "0.03em" }}>
                     {method.account_number}
                   </Typography>
                 </Box>
                 <IconButton
                   size="small"
                   onClick={() => onCopy(method.account_number)}
-                  sx={{ color: "#6366f1" }}
+                  sx={{
+                    width: 38,
+                    height: 38,
+                    color: "#bfdbfe",
+                    bgcolor: "rgba(148,163,184,0.12)",
+                    border: "1px solid rgba(148,163,184,0.16)",
+                  }}
                   aria-label="Copy account number"
                 >
                   <ContentCopyRoundedIcon fontSize="small" />
@@ -100,7 +103,7 @@ function PaymentInfoCard({ methods, onCopy }) {
               </Stack>
             </Stack>
           </CardContent>
-        </Card>
+        </GlassCard>
       ))}
     </Stack>
   );
@@ -113,7 +116,6 @@ function ScreenshotUpload({ previewSrc, isUploading, error, onSelect }) {
 
   const handleChange = (e) => {
     const file = e.target.files?.[0];
-    // Reset so the same file can be re-selected after a change
     e.target.value = "";
     if (file) onSelect(file);
   };
@@ -129,23 +131,22 @@ function ScreenshotUpload({ previewSrc, isUploading, error, onSelect }) {
       />
 
       {isUploading ? (
-        <Box
+        <Stack
+          alignItems="center"
+          justifyContent="center"
           sx={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            border: "2px dashed rgba(255,255,255,0.18)",
-            borderRadius: 2,
-            py: 3.5,
-            gap: 1.25,
+            border: "1.5px dashed rgba(147,197,253,0.28)",
+            borderRadius: 4,
+            py: 3,
+            gap: 1,
+            bgcolor: "rgba(37,99,235,0.06)",
           }}
         >
-          <CircularProgress size={28} />
-          <Typography variant="body2" color="text.secondary">
-            Uploading…
+          <CircularProgress size={26} />
+          <Typography color="text.secondary" sx={{ fontSize: 13 }}>
+            Uploading...
           </Typography>
-        </Box>
+        </Stack>
       ) : previewSrc ? (
         <Stack spacing={1}>
           <Box
@@ -156,46 +157,45 @@ function ScreenshotUpload({ previewSrc, isUploading, error, onSelect }) {
               width: "100%",
               maxHeight: 220,
               objectFit: "contain",
-              borderRadius: 2,
-              border: "1px solid rgba(255,255,255,0.1)",
-              bgcolor: "rgba(0,0,0,0.3)",
+              borderRadius: 4,
+              border: "1px solid rgba(148,163,184,0.16)",
+              bgcolor: "rgba(0,0,0,0.32)",
             }}
           />
-          <Button size="small" onClick={handleClick} sx={{ alignSelf: "flex-start", color: "#6366f1" }}>
+          <GhostButton onClick={handleClick} sx={{ width: "auto", height: 38, minHeight: 38, px: 1.4 }}>
             Change screenshot
-          </Button>
+          </GhostButton>
         </Stack>
       ) : (
-        <Box
+        <Stack
           role="button"
           tabIndex={0}
           onClick={handleClick}
           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleClick(); }}
+          alignItems="center"
+          justifyContent="center"
           sx={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            border: "2px dashed rgba(255,255,255,0.18)",
-            borderRadius: 2,
-            py: 3.5,
-            gap: 1,
+            border: "1.5px dashed rgba(147,197,253,0.28)",
+            borderRadius: 4,
+            py: 3,
+            gap: 0.7,
             cursor: "pointer",
-            "&:hover": { borderColor: "rgba(99,102,241,0.5)", bgcolor: "rgba(99,102,241,0.04)" },
+            bgcolor: "rgba(37,99,235,0.06)",
+            "&:hover": { borderColor: "rgba(34,211,238,0.52)", bgcolor: "rgba(6,182,212,0.08)" },
           }}
         >
-          <CameraAltRoundedIcon sx={{ color: "text.secondary", fontSize: 32 }} />
-          <Typography variant="body2" color="text.secondary">
-            Tap to upload payment screenshot
+          <CameraAltRoundedIcon sx={{ color: "#93c5fd", fontSize: 30 }} />
+          <Typography sx={{ fontSize: 13.5, fontWeight: 850 }}>
+            Upload payment screenshot
           </Typography>
-          <Typography variant="caption" color="text.secondary" sx={{ opacity: 0.6 }}>
-            JPEG · PNG · WebP · max 5 MB
+          <Typography color="text.secondary" sx={{ fontSize: 11.5 }}>
+            JPEG, PNG, WebP · max 5 MB
           </Typography>
-        </Box>
+        </Stack>
       )}
 
       {error ? (
-        <Alert severity="error" sx={{ mt: 1, borderRadius: 2 }}>
+        <Alert severity="error" sx={{ mt: 1, borderRadius: 3, fontSize: 12.5 }}>
           {error}
         </Alert>
       ) : null}
@@ -257,7 +257,7 @@ function PurchaseDialog({
       await navigator.clipboard.writeText(number);
       onToast("Account number copied", "success");
     } catch {
-      onToast("Could not copy — please copy manually", "warning");
+      onToast("Could not copy. Please copy manually", "warning");
     }
   };
 
@@ -265,34 +265,46 @@ function PurchaseDialog({
 
   return (
     <Dialog open={open} onClose={handleClose} fullWidth maxWidth="sm">
-      <DialogTitle sx={{ fontWeight: 800 }}>
-        Buy {plan?.name || "Package"}
+      <DialogTitle sx={{ fontWeight: 950, fontSize: 18, pb: 0.5 }}>
+        Checkout
       </DialogTitle>
 
-      <DialogContent dividers>
-        <Stack spacing={2.5}>
-          {/* Plan summary */}
-          <Card sx={{ background: "linear-gradient(180deg, rgba(124,58,237,0.12) 0%, rgba(18,20,36,0.98) 100%)" }}>
-            <CardContent sx={{ p: 2 }}>
-              <Stack spacing={0.7}>
-                <Typography variant="body2" color="text.secondary">Selected Plan</Typography>
-                <Typography variant="h6" fontWeight={800}>{plan?.name || "-"}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Submit payment screenshot and premium access will be created immediately.
+      <DialogContent dividers sx={{ borderColor: "rgba(148,163,184,0.14)", px: 2 }}>
+        <Stack spacing={1.5}>
+          <GlassCard
+            glow
+            sx={{
+              background:
+                "radial-gradient(circle at 100% 0%, rgba(34,211,238,0.15), transparent 34%), linear-gradient(180deg, rgba(15,23,42,0.9), rgba(8,13,28,0.9))",
+            }}
+          >
+            <CardContent sx={{ p: 1.6 }}>
+              <Stack direction="row" justifyContent="space-between" gap={1.4}>
+                <Box minWidth={0}>
+                  <Typography color="text.secondary" sx={{ fontSize: 11.5, fontWeight: 800 }}>
+                    Selected plan
+                  </Typography>
+                  <Typography fontWeight={950} noWrap sx={{ fontSize: 17, mt: 0.25 }}>
+                    {plan?.name || "Package"}
+                  </Typography>
+                  <Typography color="text.secondary" sx={{ fontSize: 12.5, mt: 0.4 }}>
+                    {plan?.data_limit_gb ? `${plan.data_limit_gb} GB` : "Unlimited"} · {plan?.duration_days || "-"} days
+                  </Typography>
+                </Box>
+                <Typography fontWeight={950} sx={{ color: "#facc15", fontSize: 17, whiteSpace: "nowrap" }}>
+                  {formatCurrencyMmk(plan?.price_mmk)}
                 </Typography>
               </Stack>
             </CardContent>
-          </Card>
+          </GlassCard>
 
-          {/* Payment info */}
           <PaymentInfoCard methods={paymentMethods} onCopy={handleCopyAccountNumber} />
 
           <Divider />
 
-          {/* Screenshot upload */}
-          <Stack spacing={1}>
-            <Typography variant="subtitle2" fontWeight={800}>
-              Payment Screenshot <Box component="span" sx={{ color: "#ef4444" }}>*</Box>
+          <Stack spacing={0.8}>
+            <Typography fontWeight={900} sx={{ fontSize: 13.5 }}>
+              Payment screenshot <Box component="span" sx={{ color: "#f87171" }}>*</Box>
             </Typography>
             <ScreenshotUpload
               previewSrc={previewSrc}
@@ -302,10 +314,9 @@ function PurchaseDialog({
             />
           </Stack>
 
-          {/* Optional note */}
-          <Stack spacing={1}>
-            <Typography variant="subtitle2" fontWeight={800}>
-              Payment Note <Box component="span" sx={{ color: "text.secondary", fontWeight: 400 }}>(optional)</Box>
+          <Stack spacing={0.8}>
+            <Typography fontWeight={900} sx={{ fontSize: 13.5 }}>
+              Payment note <Box component="span" sx={{ color: "text.secondary", fontWeight: 500 }}>(optional)</Box>
             </Typography>
             <TextField
               fullWidth
@@ -314,23 +325,29 @@ function PurchaseDialog({
               placeholder="Example: Paid with KBZPay at 3:10 PM"
               value={paymentNote}
               onChange={(e) => setPaymentNote(e.target.value)}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: 3,
+                  bgcolor: "rgba(148,163,184,0.08)",
+                  fontSize: 13.5,
+                },
+              }}
             />
           </Stack>
         </Stack>
       </DialogContent>
 
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={handleClose} disabled={submitting || isUploading}>
+      <DialogActions sx={{ p: 2, gap: 1 }}>
+        <GhostButton onClick={handleClose} disabled={submitting || isUploading}>
           Cancel
-        </Button>
-        <Button
-          variant="contained"
+        </GhostButton>
+        <AuroraButton
           onClick={() => onSubmit({ uploadedPath, paymentNote: paymentNote.trim() || undefined })}
           disabled={!canSubmit}
           startIcon={<CheckCircleRoundedIcon />}
         >
-          {submitting ? "Submitting…" : "Submit & Activate"}
-        </Button>
+          {submitting ? "Submitting..." : "Submit Payment"}
+        </AuroraButton>
       </DialogActions>
     </Dialog>
   );
@@ -338,12 +355,11 @@ function PurchaseDialog({
 
 export default function PackagesPage({
   data,
-  initData,
   onToast,
   onTabChange,
   onRefreshAuth,
 }) {
-  const plans = data?.plans || [];
+  const plans = useMemo(() => data?.plans || [], [data?.plans]);
   const subscription = data?.subscription || null;
   const paymentMethods = data?.config?.payment || [];
   const rawSupportHandle = data?.config?.brand?.support_username
@@ -394,6 +410,14 @@ export default function PackagesPage({
     return Array.from(map.entries()).sort(([a], [b]) => a - b);
   }, [visiblePlans]);
 
+  const isActivePlan = (plan) => {
+    if (!subscription || subscription?.type !== "purchase") return false;
+    return (
+      plan?.id === subscription?.plan_id ||
+      (plan?.name && subscription?.plan_name && String(plan.name) === String(subscription.plan_name))
+    );
+  };
+
   const openBuyDialog = (plan) => {
     if (!data?.user?.telegram_user_id) {
       onToast("Telegram user is not ready yet", "warning");
@@ -418,6 +442,8 @@ export default function PackagesPage({
 
   return (
     <PageContainer>
+      <SectionTitle title="Choose Your Plan" subtitle="Secure private access with this reseller" />
+
       <SupportCard
         supportUsername={supportUsername}
         onContact={handleSupportContact}
@@ -427,16 +453,19 @@ export default function PackagesPage({
 
       {visiblePlans.length > 0 ? (
         groupedPlans.map(([days, groupPlans]) => (
-          <Box key={days}>
-            <Typography variant="h6" fontWeight={950} sx={{ color: "#fff", px: 0.4 }}>
-              {days} Days packages:
+          <Stack key={days} spacing={1}>
+            <Typography fontWeight={950} sx={{ color: "#fff", px: 0.2, fontSize: 15.5 }}>
+              {days} Days
             </Typography>
             {groupPlans.map((plan) => (
-              <Box key={plan.id}>
-                <PackageCard plan={plan} onBuy={openBuyDialog} />
-              </Box>
+              <PackageCard
+                key={plan.id}
+                plan={plan}
+                onBuy={openBuyDialog}
+                active={isActivePlan(plan)}
+              />
             ))}
-          </Box>
+          </Stack>
         ))
       ) : (
         <EmptyState

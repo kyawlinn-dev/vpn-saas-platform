@@ -8,8 +8,12 @@
  * URL builder note: buildDynamicAccessUrl accepts a plain backendBaseUrl string
  * instead of an Express req object, since bot handlers have no request context.
  * In bot handlers, pass process.env.WEBHOOK_BASE_URL as backendBaseUrl.
+ *
+ * Trial creation is NOT duplicated here — both the bot and the miniapp auth route
+ * import from backend/src/services/trialService.js for that logic.
  */
 
+import crypto from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 
 // ── Customer resolution ────────────────────────────────────────────────────────
@@ -108,6 +112,121 @@ export async function resolveActiveKey(customerId, resellerId, orderId) {
 
   if (error) throw new Error(`vpn_keys lookup failed: ${error.message}`);
   return key || null;
+}
+
+// ── Customer upsert (bot /start) ──────────────────────────────────────────────
+
+/**
+ * Ensures a vpn_customers + telegram_links row exists for this Telegram user.
+ * Called on every /start — creates the rows if they're missing (brand-new users
+ * who have never opened the miniapp), no-ops if they already exist.
+ *
+ * @returns {{ customerId: string, telegramLinkId: string, trial_used_at: string|null, isNew: boolean }}
+ */
+export async function ensureCustomerAndLink(telegramUserId, telegramUsername, fullName, resellerId) {
+  // Fast path: existing link
+  const { data: existingLink, error: linkErr } = await supabase
+    .from("telegram_links")
+    .select(`
+      id,
+      customer_id,
+      trial_used_at,
+      vpn_customers ( id, status )
+    `)
+    .eq("reseller_id", resellerId)
+    .eq("telegram_user_id", telegramUserId)
+    .maybeSingle();
+
+  if (linkErr) throw new Error(`telegram_links lookup failed: ${linkErr.message}`);
+
+  if (existingLink) {
+    return {
+      customerId: existingLink.customer_id,
+      telegramLinkId: existingLink.id,
+      trial_used_at: existingLink.trial_used_at,
+      isNew: false,
+    };
+  }
+
+  // New user: create customer row first
+  const { data: customer, error: customerErr } = await supabase
+    .from("vpn_customers")
+    .insert({
+      reseller_id: resellerId,
+      full_name: fullName,
+      telegram_username: telegramUsername,
+      status: "active",
+    })
+    .select("id")
+    .single();
+
+  if (customerErr || !customer) {
+    throw new Error(`Failed to create customer: ${customerErr?.message}`);
+  }
+
+  // Create telegram_links row
+  const { data: link, error: linkCreateErr } = await supabase
+    .from("telegram_links")
+    .insert({
+      reseller_id: resellerId,
+      customer_id: customer.id,
+      telegram_user_id: telegramUserId,
+      telegram_username: telegramUsername,
+    })
+    .select("id, trial_used_at")
+    .single();
+
+  if (linkCreateErr || !link) {
+    throw new Error(`Failed to create telegram_links: ${linkCreateErr?.message}`);
+  }
+
+  return {
+    customerId: customer.id,
+    telegramLinkId: link.id,
+    trial_used_at: link.trial_used_at,
+    isNew: true,
+  };
+}
+
+/**
+ * Ensures the customer has a permanent ssconf_token so dynamic access URLs can
+ * be built. Race-safe: uses a conditional UPDATE then re-fetches.
+ * Mirror of ensureCustomerSsconfToken() in resellerMiniappRoutes.js.
+ *
+ * @returns {string} ssconf_token
+ */
+export async function ensureCustomerSsconfToken(customerId) {
+  const { data: existing, error: readErr } = await supabase
+    .from("vpn_customers")
+    .select("ssconf_token")
+    .eq("id", customerId)
+    .single();
+
+  if (readErr) throw new Error(readErr.message);
+  if (existing?.ssconf_token) return existing.ssconf_token;
+
+  const newToken = crypto.randomUUID().replaceAll("-", "");
+
+  const { error: updateErr } = await supabase
+    .from("vpn_customers")
+    .update({ ssconf_token: newToken })
+    .eq("id", customerId)
+    .is("ssconf_token", null);
+
+  if (updateErr) throw new Error(updateErr.message);
+
+  // Re-fetch in case a concurrent request won the race and set a different token
+  const { data: updated, error: refetchErr } = await supabase
+    .from("vpn_customers")
+    .select("ssconf_token")
+    .eq("id", customerId)
+    .single();
+
+  if (refetchErr || !updated?.ssconf_token) {
+    throw new Error("Failed to ensure customer ssconf token");
+  }
+
+  return updated.ssconf_token;
 }
 
 // ── URL builders ───────────────────────────────────────────────────────────────

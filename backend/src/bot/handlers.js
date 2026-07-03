@@ -26,7 +26,10 @@ import {
   getBestActiveOrder,
   resolveActiveKey,
   buildDynamicAccessUrl,
+  ensureCustomerAndLink,
+  ensureCustomerSsconfToken,
 } from "./botCustomerService.js";
+import { createTrialOrder, provisionTrialKey } from "../services/trialService.js";
 
 /**
  * Builds the WebApp URL for a reseller's miniapp.
@@ -63,6 +66,7 @@ export function setupHandlers(bot, {
   miniappSlug,
   miniappBaseUrl,
   supportUsername,
+  trialEnabled,
 }) {
   const homeUrl     = buildWebAppUrl(miniappBaseUrl, miniappSlug);
   const packagesUrl = buildWebAppUrl(miniappBaseUrl, miniappSlug, "/packages");
@@ -79,14 +83,71 @@ export function setupHandlers(bot, {
   }
 
   // ── /start ───────────────────────────────────────────────────────────────────
+  // FIX A: upsert customer + telegram_links, then call the shared trialService
+  // to create a trial order and immediately provision a key on the default server.
+  // Idempotent — safe to call on every /start (existing users are no-ops).
+  //
   // Two messages: (1) branded Burmese welcome + persistent reply keyboard,
-  // (2) inline CTA buttons (Buy/Extend, Admin) — Telegram only allows one
-  // reply_markup type per message, so the two keyboards must be separate messages.
+  // (2) inline CTA buttons — Telegram only allows one reply_markup type per message.
 
   bot.start(async (ctx) => {
     try {
-      await ctx.replyWithHTML(startWelcome(brandName), mainKeyboard());
+      const telegramUserId = ctx.from?.id;
+      if (!telegramUserId) return;
 
+      const telegramUsername = ctx.from?.username || null;
+      const fullName =
+        [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") ||
+        `Telegram User ${telegramUserId}`;
+
+      // 1. Upsert vpn_customers + telegram_links (no-op for returning users)
+      const { customerId, telegramLinkId, trial_used_at } =
+        await ensureCustomerAndLink(telegramUserId, telegramUsername, fullName, resellerId);
+
+      // 2. Ensure ssconf_token exists (needed by KEY handler's URL builder)
+      await ensureCustomerSsconfToken(customerId);
+
+      // 3. Auto-create trial if eligible
+      let trialJustCreated = false;
+      if (trialEnabled && !trial_used_at) {
+        const existingOrder = await getBestActiveOrder(customerId, resellerId);
+        if (!existingOrder) {
+          const { order, plan, created } = await createTrialOrder({
+            customerId,
+            resellerId,
+            telegramLinkId,
+            telegramUsername,
+          });
+
+          if (created && order) {
+            trialJustCreated = true;
+            // Provision key on default server (non-fatal — trial order stands on failure)
+            const label = [brandName, telegramUsername].filter(Boolean).join("-");
+            try {
+              await provisionTrialKey({
+                customerId,
+                resellerId,
+                orderId: order.id,
+                plan,
+                customerFullName: fullName,
+                keyName: label,
+              });
+            } catch (provErr) {
+              console.warn(`[bot:${resellerId}] /start trial key provision failed:`, provErr.message);
+            }
+          }
+        }
+      }
+
+      // 4. Welcome message; append trial-ready line if we just created one
+      const welcomeText = trialJustCreated
+        ? startWelcome(brandName) +
+          "\n\n✅ Trial Package ကို အလိုအလျောက် ဖန်တီးပြီးပါပြီ! 🔑 Outline Key ရယူရန် ကို နှိပ်ပါ"
+        : startWelcome(brandName);
+
+      await ctx.replyWithHTML(welcomeText, mainKeyboard());
+
+      // 5. CTA inline buttons (second message)
       const ctaButtons = [];
       if (packagesUrl) {
         ctaButtons.push([Markup.button.webApp(START_BTN_BUY, packagesUrl)]);

@@ -34,7 +34,7 @@ async function registerWebhook(bot, resellerId) {
 }
 
 async function startBotForReseller(row) {
-  const { reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username } = row;
+  const { reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled } = row;
   const miniappBaseUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").replace(/\/$/, "");
 
   const plainToken = decrypt(bot_token_encrypted);
@@ -46,6 +46,7 @@ async function startBotForReseller(row) {
     miniappSlug: miniapp_slug || "",
     miniappBaseUrl,
     supportUsername: support_username || "",
+    trialEnabled: trial_enabled ?? false,
   });
 
   bot.catch((err) => {
@@ -93,7 +94,7 @@ async function stopBotForReseller(resellerId) {
 export async function start() {
   const { data, error } = await supabase
     .from("reseller_miniapps")
-    .select("reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username")
+    .select("reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled")
     .eq("is_enabled", true)
     .not("bot_token_encrypted", "is", null);
 
@@ -120,7 +121,7 @@ export async function restartBot(resellerId) {
 
   const { data, error } = await supabase
     .from("reseller_miniapps")
-    .select("reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username")
+    .select("reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled")
     .eq("reseller_id", resellerId)
     .eq("is_enabled", true)
     .not("bot_token_encrypted", "is", null)

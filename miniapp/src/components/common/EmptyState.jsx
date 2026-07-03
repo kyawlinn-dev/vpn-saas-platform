@@ -5,16 +5,18 @@ export default function EmptyState({ title, description, action, icon }) {
   return (
     <Card>
       <CardContent sx={{ p: 2.4 }}>
-        <Stack spacing={2} alignItems="flex-start">
+        <Stack spacing={1.55} alignItems="flex-start">
           <Stack
             alignItems="center"
             justifyContent="center"
             sx={{
-              width: 46,
-              height: 46,
-              borderRadius: 999,
-              background: "rgba(124,58,237,0.12)",
-              border: "1px solid rgba(124,58,237,0.18)",
+              width: 42,
+              height: 42,
+              borderRadius: 3,
+              color: "#bfdbfe",
+              background:
+                "linear-gradient(135deg, rgba(37,99,235,0.18), rgba(124,58,237,0.14))",
+              border: "1px solid rgba(147,197,253,0.16)",
             }}
           >
             {icon || <SentimentDissatisfiedRoundedIcon />}
@@ -26,7 +28,7 @@ export default function EmptyState({ title, description, action, icon }) {
             </Typography>
 
             {description ? (
-              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
+              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.55, fontSize: 13.5 }}>
                 {description}
               </Typography>
             ) : null}

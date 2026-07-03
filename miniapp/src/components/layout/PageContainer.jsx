@@ -5,11 +5,11 @@ export default function PageContainer({ children }) {
     <Container
       maxWidth="sm"
       sx={{
-        px: { xs: 2, sm: 2 },
-        pb: 2,
+        px: 2,
+        pb: 1.6,
       }}
     >
-      <Box display="grid" gap={1.6}>
+      <Box display="grid" gap={2}>
         {children}
       </Box>
     </Container>

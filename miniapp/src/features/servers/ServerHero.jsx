@@ -8,21 +8,21 @@ export default function ServerHero({ server }) {
 
   return (
     <Card>
-      <CardContent sx={{ p: 2.3 }}>
-        <Stack spacing={1.6}>
-          <Typography variant="body1" color="text.secondary" fontWeight={700}>
-            Current Server :
+      <CardContent sx={{ p: 2 }}>
+        <Stack spacing={1.2}>
+          <Typography color="text.secondary" fontWeight={800} sx={{ fontSize: 11.5, textTransform: "uppercase" }}>
+            Current server
           </Typography>
 
           <Stack direction="row" alignItems="center" spacing={1.2} minWidth={0}>
-            <Typography sx={{ fontSize: 34, lineHeight: 1 }}>
-              {server?.flag || "🌐"}
+            <Typography sx={{ fontSize: 30, lineHeight: 1 }}>
+              {server?.flag || "VPN"}
             </Typography>
             <Box minWidth={0}>
-              <Typography variant="h6" fontWeight={900} noWrap sx={{ color: "#fff" }}>
+              <Typography fontWeight={950} noWrap sx={{ color: "#fff", fontSize: 17 }}>
                 {location || server?.region || "Choose server"}
               </Typography>
-              <Typography variant="body2" fontWeight={900} sx={{ color: "#facc15" }}>
+              <Typography fontWeight={900} sx={{ color: "#facc15", fontSize: 12.5 }}>
                 {serverNumber || "Not linked"}
               </Typography>
             </Box>

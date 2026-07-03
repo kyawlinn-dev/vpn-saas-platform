@@ -1,13 +1,15 @@
-import IosShareRoundedIcon from "@mui/icons-material/IosShareRounded";
+import ArrowForwardRoundedIcon from "@mui/icons-material/ArrowForwardRounded";
+import HeadsetMicRoundedIcon from "@mui/icons-material/HeadsetMicRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
+import IosShareRoundedIcon from "@mui/icons-material/IosShareRounded";
 import StorageRoundedIcon from "@mui/icons-material/StorageRounded";
-import VerifiedRoundedIcon from "@mui/icons-material/VerifiedRounded";
-import { Box, Card, CardContent, LinearProgress, Stack, Typography } from "@mui/material";
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
+import WifiRoundedIcon from "@mui/icons-material/WifiRounded";
+import { Box, CardContent, Stack, Typography } from "@mui/material";
 import EmptyState from "../components/common/EmptyState";
-import SecondaryButton from "../components/common/SecondaryButton";
-import PageContainer from "../components/layout/PageContainer";
 import AddKeyButton from "../features/servers/AddKeyButton";
-import ServerHero from "../features/servers/ServerHero";
+import { DataRing, GhostButton, GlassCard, SuccessDotIcon, VpnChip } from "../components/ui/vpnPrimitives";
+import PageContainer from "../components/layout/PageContainer";
 import { formatDate } from "../lib/format";
 import { getShareUrl } from "../lib/links";
 import {
@@ -18,101 +20,178 @@ import {
 
 function formatGb(value) {
   const number = Number(value || 0);
-  if (!number) return "0 GB";
-  return `${Number.isInteger(number) ? number : number.toFixed(1)} GB`;
+  if (!number) return "0";
+  return Number.isInteger(number) ? String(number) : number.toFixed(1);
 }
 
 function getPlanTitle(subscription) {
   const type = String(subscription?.type || "");
   if (type === "trial" || String(subscription?.plan_name || "").toLowerCase().includes("trial")) {
-    return "Trial";
+    return "Trial Access";
   }
-  return "Premium";
+  return subscription?.plan_name || "Premium Access";
 }
 
-function UsageCard({ subscription, outlineKey }) {
+function AccessHero({ subscription, outlineKey, keyForActions, hasImportLink, onToast }) {
   const usedGb = Number(outlineKey?.used_bytes || 0) / 1024 / 1024 / 1024;
   const limitGb = Number(subscription?.data_limit_gb || 0);
-  const progress = limitGb > 0 ? Math.min(100, (usedGb / limitGb) * 100) : 0;
+  const percent = limitGb > 0 ? Math.min(100, (usedGb / limitGb) * 100) : 0;
+  const validUntil = subscription?.expiry_date ? formatDate(subscription.expiry_date) : "No expiry shown";
+  const secondary = limitGb ? `${formatGb(usedGb)} / ${formatGb(limitGb)} GB` : `${formatGb(usedGb)} GB`;
 
   return (
-    <Card>
-      <CardContent sx={{ p: 2.2 }}>
-        <Stack spacing={1.6}>
-          <Typography variant="h6" fontWeight={900}>
-            {getPlanTitle(subscription)}
-          </Typography>
+    <GlassCard glow>
+      <CardContent sx={{ p: 1.75 }}>
+        <Stack spacing={1.65}>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1.2}>
+            <Stack direction="row" spacing={1.1} alignItems="center" minWidth={0}>
+              <Stack
+                alignItems="center"
+                justifyContent="center"
+                sx={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  color: "#86efac",
+                  bgcolor: "rgba(34,197,94,0.14)",
+                }}
+              >
+                <WifiRoundedIcon fontSize="small" />
+              </Stack>
+              <Box minWidth={0}>
+                <Stack direction="row" spacing={0.55} alignItems="center" minWidth={0}>
+                  <Typography sx={{ color: "#f8fafc", fontSize: 15.5, fontWeight: 850 }} noWrap>
+                    VPN Access
+                  </Typography>
+                  <Typography sx={{ color: "#86efac", fontSize: 15.5, fontWeight: 850 }}>
+                    Active
+                  </Typography>
+                </Stack>
+                <Typography sx={{ color: "#9aa8bd", fontSize: 12, mt: 0.2 }} noWrap>
+                  {getPlanTitle(subscription)}
+                </Typography>
+              </Box>
+            </Stack>
 
-          <Stack direction="row" justifyContent="space-between">
-            <Typography variant="body2" color="text.secondary">
-              {formatGb(usedGb)} used
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              of {limitGb ? `${limitGb} GB` : "Unlimited"}
+            <VpnChip tone="success" icon={<SuccessDotIcon />}>
+              Active
+            </VpnChip>
+          </Stack>
+
+          <Stack alignItems="center" spacing={1.15}>
+            <DataRing
+              percent={percent}
+              primary={`${Math.round(percent)}%`}
+              secondary={secondary}
+              size={136}
+            />
+            <Typography sx={{ color: "#9aa8bd", fontSize: 12 }}>
+              Data used this month
             </Typography>
           </Stack>
 
-          <LinearProgress
-            variant="determinate"
-            value={progress}
-            sx={{
-              height: 10,
-              borderRadius: 999,
-              bgcolor: "rgba(255,255,255,0.08)",
-              "& .MuiLinearProgress-bar": {
-                borderRadius: 999,
-                background: "linear-gradient(90deg, #2563eb, #38bdf8)",
-              },
-            }}
+          <Stack direction="row" spacing={0.8} alignItems="center" justifyContent="center">
+            <Box sx={{ width: 4, height: 4, borderRadius: "50%", bgcolor: "#9aa8bd" }} />
+            <Typography sx={{ color: "#9aa8bd", fontSize: 12 }}>
+              Valid until {validUntil}
+            </Typography>
+          </Stack>
+
+          <AddKeyButton
+            outlineKey={keyForActions}
+            disabled={!hasImportLink}
+            onError={(message) => onToast(message, "warning")}
           />
         </Stack>
       </CardContent>
-    </Card>
+    </GlassCard>
   );
 }
 
-function ActivePackageCard({ subscription }) {
-  const planLabel = subscription?.plan_name || "Active Package";
-  const duration = subscription?.expiry_date ? `Valid until ${formatDate(subscription.expiry_date)}` : "Valid package";
-  const dataLimit = subscription?.data_limit_gb ? `${subscription.data_limit_gb} GB` : "Unlimited";
+function CurrentServerCard({ server, onChange }) {
+  const location = [server?.country, server?.city || server?.name].filter(Boolean).join(" / ");
 
   return (
-    <Card>
-      <CardContent sx={{ p: 2.2 }}>
-        <Stack spacing={1.5}>
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Box
-              sx={{
-                px: 1.25,
-                py: 0.6,
-                borderRadius: 999,
-                bgcolor: "rgba(34,197,94,0.14)",
-                color: "#22c55e",
-                fontSize: 13,
-                fontWeight: 900,
-              }}
+    <GlassCard>
+      <CardContent sx={{ p: 1.75 }}>
+        <Stack spacing={1.3}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Typography sx={{ color: "#9aa8bd", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Current Server
+            </Typography>
+            <GhostButton
+              onClick={onChange}
+              endIcon={<ArrowForwardRoundedIcon sx={{ fontSize: 15 }} />}
+              sx={{ width: "auto", height: 30, minHeight: 30, px: 1.15, borderRadius: 999, fontSize: 12 }}
             >
-              Active Packages
+              Change
+            </GhostButton>
+          </Stack>
+
+          <Stack direction="row" spacing={1.15} alignItems="center">
+            <Typography sx={{ fontSize: 24, lineHeight: 1 }}>
+              {server?.flag || "VPN"}
+            </Typography>
+            <Box minWidth={0} flex={1}>
+              <Typography sx={{ color: "#f8fafc", fontSize: 15.5, fontWeight: 850 }} noWrap>
+                {location || server?.region || "Choose server"}
+              </Typography>
+              <Typography sx={{ color: "#9aa8bd", fontSize: 12, mt: 0.2 }}>
+                {server?.server_number ? `Server #${server.server_number}` : server ? "Server linked" : "Not linked"}
+              </Typography>
             </Box>
           </Stack>
 
-          <Stack direction="row" spacing={1.1} alignItems="flex-start">
-            <VerifiedRoundedIcon sx={{ color: "#22c55e", mt: 0.2 }} />
-            <Box>
-              <Typography variant="h6" fontWeight={900}>
-                {planLabel}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {duration}
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.65 }}>
-                {dataLimit} premium servers, private high-speed access, no-log policy.
-              </Typography>
-            </Box>
+          <Stack direction="row" spacing={0.75} sx={{ flexWrap: "wrap" }}>
+            <VpnChip tone="violet">Premium</VpnChip>
+            <VpnChip tone="cyan">High Speed</VpnChip>
           </Stack>
         </Stack>
       </CardContent>
-    </Card>
+    </GlassCard>
+  );
+}
+
+function QuickAction({ icon, label, helper, onClick, disabled }) {
+  return (
+    <GlassCard
+      component="button"
+      onClick={onClick}
+      disabled={disabled}
+      sx={{
+        width: "100%",
+        p: 0,
+        border: "1px solid rgba(226,232,240,0.1)",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.55 : 1,
+        textAlign: "left",
+        color: "inherit",
+      }}
+    >
+      <Stack direction="row" spacing={1.1} alignItems="center" sx={{ p: 1.35 }}>
+        <Stack
+          alignItems="center"
+          justifyContent="center"
+          sx={{
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            color: "var(--brand-primary, #38bdf8)",
+            bgcolor: "rgba(56,189,248,0.14)",
+          }}
+        >
+          {icon}
+        </Stack>
+        <Box minWidth={0}>
+          <Typography sx={{ color: "#f8fafc", fontSize: 13.5, fontWeight: 800 }} noWrap>
+            {label}
+          </Typography>
+          <Typography sx={{ color: "#9aa8bd", fontSize: 11.5 }} noWrap>
+            {helper}
+          </Typography>
+        </Box>
+      </Stack>
+    </GlassCard>
   );
 }
 
@@ -161,34 +240,53 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
   if (hasActivePackage) {
     return (
       <PageContainer>
-        {currentServer ? <ServerHero server={currentServer} /> : null}
-        <UsageCard subscription={subscription} outlineKey={outlineKey} />
-        <ActivePackageCard subscription={subscription} />
+        <AccessHero
+          subscription={subscription}
+          outlineKey={outlineKey}
+          keyForActions={keyForActions}
+          hasImportLink={hasImportLink}
+          onToast={onToast}
+        />
+        <CurrentServerCard server={currentServer} onChange={() => onTabChange("servers")} />
 
         {hasLinkedKey && currentServer ? (
-          <Stack spacing={1.2}>
-            <AddKeyButton
-              outlineKey={keyForActions}
-              disabled={!hasImportLink}
-              onError={(message) => onToast(message, "warning")}
-            />
-            <SecondaryButton
-              startIcon={<IosShareRoundedIcon />}
-              onClick={handleShare}
-              disabled={!hasImportLink}
-            >
-              Share Key
-            </SecondaryButton>
+          <Stack spacing={1.1}>
+            <Typography sx={{ color: "#f8fafc", fontSize: 13, fontWeight: 850 }}>
+              Quick Actions
+            </Typography>
+            <Stack direction="row" spacing={1}>
+              <QuickAction
+                icon={<IosShareRoundedIcon fontSize="small" />}
+                label="Share Key"
+                helper="Send access"
+                onClick={handleShare}
+                disabled={!hasImportLink}
+              />
+              {handleSupportContact ? (
+                <QuickAction
+                  icon={<HeadsetMicRoundedIcon fontSize="small" />}
+                  label="Support"
+                  helper="Get help"
+                  onClick={handleSupportContact}
+                />
+              ) : null}
+            </Stack>
           </Stack>
         ) : (
           <EmptyState
             icon={<StorageRoundedIcon />}
-            title="Choose Server"
-            description="Your package is active. Choose one server to create your Outline key."
+            title="Choose server"
+            description="Your package is active. Select one premium server to create your Outline key."
             action={
-              <Stack spacing={1.2}>
-                <SecondaryButton onClick={() => onTabChange("servers")}>Choose Server</SecondaryButton>
-                {handleSupportContact && <SecondaryButton onClick={handleSupportContact}>Contact Support</SecondaryButton>}
+              <Stack spacing={1} width="100%">
+                <GhostButton startIcon={<TuneRoundedIcon />} onClick={() => onTabChange("servers")}>
+                  Choose Server
+                </GhostButton>
+                {handleSupportContact && (
+                  <GhostButton startIcon={<HeadsetMicRoundedIcon />} onClick={handleSupportContact}>
+                    Contact Support
+                  </GhostButton>
+                )}
               </Stack>
             }
           />
@@ -205,12 +303,16 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
         description={
           recentRejection
             ? `Your${recentRejection.plan_name ? ` ${recentRejection.plan_name}` : ""} payment was rejected. Please contact support or submit a new payment.`
-            : "Your account is linked, but there is no active VPN package yet."
+            : "Your account is linked. Choose a package to start secure VPN access."
         }
         action={
-          <Stack spacing={1.2}>
-            <SecondaryButton onClick={() => onTabChange("packages")}>View Packages</SecondaryButton>
-            {handleSupportContact && <SecondaryButton onClick={handleSupportContact}>Contact Support</SecondaryButton>}
+          <Stack spacing={1} width="100%">
+            <GhostButton onClick={() => onTabChange("packages")}>View Packages</GhostButton>
+            {handleSupportContact && (
+              <GhostButton startIcon={<HeadsetMicRoundedIcon />} onClick={handleSupportContact}>
+                Contact Support
+              </GhostButton>
+            )}
           </Stack>
         }
       />

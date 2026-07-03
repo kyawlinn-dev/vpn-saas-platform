@@ -77,6 +77,7 @@ export default function AppShell() {
   }
 
   const brand = data?.config?.brand || null;
+  const brandPrimary = brand?.primary_color || "#3b82f6";
 
   return (
     <Box
@@ -84,12 +85,14 @@ export default function AppShell() {
       display="flex"
       flexDirection="column"
       sx={{
-        background: "#030712",
+        "--brand-primary": brandPrimary,
+        background:
+          "radial-gradient(closest-side at 15% 8%, rgba(37,99,235,0.22), transparent), radial-gradient(closest-side at 88% 12%, rgba(34,211,238,0.16), transparent), radial-gradient(closest-side at 50% 100%, rgba(124,58,237,0.12), transparent), #0b1020",
         color: "#fff",
       }}
     >
-      <Box flex={1} pb="96px">
-        <Box sx={{ px: 1.75, pt: 1.75 }}>
+      <Box flex={1} pb="82px">
+        <Box sx={{ px: 2, pt: 2 }}>
           <Header brand={brand} />
         </Box>
 

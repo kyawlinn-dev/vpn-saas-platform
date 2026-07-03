@@ -18,6 +18,7 @@ import {
   clearServerError,
 } from "../../services/serverService.js";
 import { deleteProvisionedKeysForOrder } from "../../services/subscriptionProvisionService.js";
+import { createTrialOrder, provisionTrialKey } from "../../services/trialService.js";
 
 const router = express.Router();
 
@@ -697,102 +698,35 @@ router.post("/:slug/auth", async (req, res) => {
     }
 
     if (!activeOrder && miniapp.trial_enabled && !telegramLink.trial_used_at) {
-      const { data: trialPlan, error: trialPlanError } = await supabase
-        .from("vpn_plans")
-        .select("id, name, price_mmk, data_limit_gb, duration_days")
-        .eq("is_trial", true)
-        .eq("is_active", true)
-        .order("sort_order", { ascending: true })
-        .limit(1)
-        .maybeSingle();
+      // Delegate to shared trialService — handles atomic claim, TOCTOU guard,
+      // rollback on failure, and immediate key provisioning on the default server.
+      const { order, plan, created } = await createTrialOrder({
+        customerId: customer.id,
+        resellerId: miniapp.reseller_id,
+        telegramLinkId: telegramLink.id,
+        telegramUsername,
+      });
 
-      if (trialPlanError || !trialPlan) {
-        console.error("Trial plan lookup error:", trialPlanError);
-        return res.status(500).json({
-          success: false,
-          message: "Trial plan is not configured",
-        });
+      if (order) {
+        if (created) {
+          // FIX B: provision a key on the default server immediately so the
+          // customer has a working key on first open (non-fatal if server unavailable).
+          try {
+            await provisionTrialKey({
+              customerId: customer.id,
+              resellerId: miniapp.reseller_id,
+              orderId: order.id,
+              plan,
+              customerFullName: customer.full_name,
+              keyName: label,
+            });
+          } catch (provErr) {
+            console.warn("[auth] trial key auto-provision failed (non-fatal):", provErr.message);
+          }
+          trialCreated = true;
+        }
+        activeOrder = order;
       }
-
-      const startDate = new Date();
-      const expiryDate = new Date();
-      expiryDate.setDate(startDate.getDate() + trialPlan.duration_days);
-
-      const startDateText = startDate.toISOString().slice(0, 10);
-      const expiryDateText = expiryDate.toISOString().slice(0, 10);
-
-      const { data: createdTrialOrder, error: trialOrderError } = await supabase
-        .from("vpn_orders")
-        .insert({
-          customer_id: customer.id,
-          reseller_id: miniapp.reseller_id,
-          plan_id: trialPlan.id,
-          status: "active",
-          price_mmk: 0,
-          commission_percent: 0,
-          commission_amount_mmk: 0,
-          start_date: startDateText,
-          expiry_date: expiryDateText,
-          payment_status: "paid",
-          activated_at: new Date().toISOString(),
-          total_paid_mmk: 0,
-          order_type: "trial",
-          review_status: "confirmed",
-          source: "miniapp",
-        })
-        .select(`
-          id,
-          customer_id,
-          reseller_id,
-          plan_id,
-          status,
-          order_type,
-          payment_status,
-          review_status,
-          start_date,
-          expiry_date,
-          created_at,
-          vpn_plans (
-            id,
-            name,
-            price_mmk,
-            data_limit_gb,
-            duration_days,
-            max_devices,
-            allowed_regions,
-            is_trial
-          )
-        `)
-        .single();
-
-      if (trialOrderError) {
-        console.error("Trial order create error:", trialOrderError);
-        return res.status(500).json({
-          success: false,
-          message: "Failed to create trial package",
-        });
-      }
-
-      const { error: updateTrialLinkError } = await supabase
-        .from("telegram_links")
-        .update({
-          trial_used_at: new Date().toISOString(),
-          trial_order_id: createdTrialOrder.id,
-          telegram_username: telegramUsername,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", telegramLink.id);
-
-      if (updateTrialLinkError) {
-        console.error("Trial link update error:", updateTrialLinkError);
-        return res.status(500).json({
-          success: false,
-          message: "Failed to mark trial as used",
-        });
-      }
-
-      activeOrder = createdTrialOrder;
-      trialCreated = true;
     }
 
     // When no active order exists, check whether the customer's most recent

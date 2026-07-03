@@ -1,5 +1,5 @@
 import DownloadRoundedIcon from "@mui/icons-material/DownloadRounded";
-import PrimaryButton from "../../components/common/PrimaryButton";
+import { AuroraButton } from "../../components/ui/vpnPrimitives";
 import { openOutlineKey } from "../../lib/links";
 
 export default function AddKeyButton({ outlineKey, server, disabled, onError }) {
@@ -12,12 +12,12 @@ export default function AddKeyButton({ outlineKey, server, disabled, onError }) 
   };
 
   return (
-    <PrimaryButton
+    <AuroraButton
       startIcon={<DownloadRoundedIcon />}
       onClick={handleAddKey}
       disabled={disabled}
     >
       Add Key To Outline
-    </PrimaryButton>
+    </AuroraButton>
   );
 }

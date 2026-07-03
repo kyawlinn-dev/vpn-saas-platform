@@ -5,17 +5,44 @@ import { BottomNavigation, BottomNavigationAction, Box, Paper } from "@mui/mater
 import { TAB_KEYS } from "../../constants/routes";
 
 export default function BottomTabs({ value, onChange }) {
+  const actionSx = {
+    minWidth: 0,
+    gap: 0.35,
+    color: "#8b9ab0",
+    "& .MuiBottomNavigationAction-label": {
+      fontSize: 11,
+      fontWeight: 650,
+      opacity: 1,
+    },
+    "& .MuiSvgIcon-root": {
+      p: 0.65,
+      width: 34,
+      height: 30,
+      borderRadius: 999,
+      transition: "background-color 160ms ease, color 160ms ease",
+    },
+    "&.Mui-selected": {
+      color: "var(--brand-primary, #38bdf8)",
+      "& .MuiSvgIcon-root": {
+        bgcolor: "rgba(56,189,248,0.14)",
+      },
+      "& .MuiBottomNavigationAction-label": {
+        fontSize: 11,
+        fontWeight: 800,
+      },
+    },
+  };
+
   return (
     <Box
       sx={{
-        px: 0,
-        pb: 0,
-        pt: 0,
         position: "fixed",
-        bottom: 0,
         left: 0,
         right: 0,
+        bottom: 0,
         zIndex: 20,
+        px: 2,
+        pb: "max(10px, env(safe-area-inset-bottom, 0px))",
       }}
     >
       <Paper
@@ -23,56 +50,36 @@ export default function BottomTabs({ value, onChange }) {
         sx={{
           mx: "auto",
           maxWidth: 600,
-          border: "1px solid rgba(255,255,255,0.08)",
-          borderBottom: 0,
-          background: "rgba(15,23,42,0.98)",
-          backdropFilter: "blur(18px)",
-          borderRadius: "22px 22px 0 0",
+          height: 64,
           overflow: "hidden",
-          boxShadow: "0 -14px 30px rgba(0,0,0,0.36)",
-          pb: "env(safe-area-inset-bottom, 0px)",
+          borderRadius: 5,
+          border: "1px solid rgba(226,232,240,0.12)",
+          background: "rgba(11,16,32,0.82)",
+          backdropFilter: "blur(18px)",
         }}
       >
         <BottomNavigation
           value={value}
           onChange={(_, next) => onChange(next)}
-          sx={{ height: 74 }}
+          sx={{ height: "100%", bgcolor: "transparent" }}
         >
           <BottomNavigationAction
             label="Home"
             value={TAB_KEYS.HOME}
             icon={<HomeRoundedIcon />}
-            sx={{
-              py: 0.95,
-              minWidth: 0,
-              "&.Mui-selected": {
-                background: "rgba(59,130,246,0.12)",
-              },
-            }}
+            sx={actionSx}
           />
           <BottomNavigationAction
             label="Servers"
             value={TAB_KEYS.SERVERS}
             icon={<DnsRoundedIcon />}
-            sx={{
-              py: 0.95,
-              minWidth: 0,
-              "&.Mui-selected": {
-                background: "rgba(59,130,246,0.12)",
-              },
-            }}
+            sx={actionSx}
           />
           <BottomNavigationAction
             label="Packages"
             value={TAB_KEYS.PACKAGES}
             icon={<Inventory2RoundedIcon />}
-            sx={{
-              py: 0.95,
-              minWidth: 0,
-              "&.Mui-selected": {
-                background: "rgba(59,130,246,0.12)",
-              },
-            }}
+            sx={actionSx}
           />
         </BottomNavigation>
       </Paper>

@@ -16,6 +16,7 @@ export default function ToastMessage({ open, message, severity = "info", onClose
           borderRadius: 3,
           fontWeight: 700,
           boxShadow: "0 14px 30px rgba(0,0,0,0.3)",
+          fontSize: 13,
         }}
       >
         {message}

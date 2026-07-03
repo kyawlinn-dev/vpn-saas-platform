@@ -13,8 +13,8 @@ const palette = {
     contrastText: "#06131a",
   },
   background: {
-    default: "#030712",
-    paper: "#0f172a",
+    default: "#020617",
+    paper: "#0b1224",
   },
   success: {
     main: "#22c55e",
@@ -27,9 +27,9 @@ const palette = {
   },
   text: {
     primary: "#ffffff",
-    secondary: "#94a3b8",
+    secondary: "#9aa8bd",
   },
-  divider: "rgba(255,255,255,0.08)",
+  divider: "rgba(148,163,184,0.16)",
 };
 
 export default palette;
