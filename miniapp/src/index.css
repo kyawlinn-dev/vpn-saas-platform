@@ -99,6 +99,12 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Thin scrollbars globally (merged from styles/globals.css). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.28) transparent;
+}
+
 button,
 input,
 textarea {

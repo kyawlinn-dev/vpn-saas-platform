@@ -1,35 +1,36 @@
-import { Card, CardContent, Skeleton, Stack } from "@mui/material";
-import PageContainer from "../components/layout/PageContainer";
+import { cn } from "@/lib/utils";
 
-function CompactCardSkeleton({ tall = false }) {
+function Shimmer({ className }) {
   return (
-    <Card>
-      <CardContent sx={{ p: 1.8 }}>
-        <Stack spacing={1.25}>
-          <Stack direction="row" spacing={1.2} alignItems="center">
-            <Skeleton variant="circular" width={46} height={46} />
-            <Stack spacing={0.5} flex={1}>
-              <Skeleton variant="text" width="48%" height={18} />
-              <Skeleton variant="text" width="72%" height={24} />
-            </Stack>
-          </Stack>
-          <Skeleton variant="rounded" height={tall ? 92 : 46} sx={{ borderRadius: 3 }} />
-          <Skeleton variant="rounded" height={38} sx={{ borderRadius: 3 }} />
-        </Stack>
-      </CardContent>
-    </Card>
+    <div className={cn("animate-pulse rounded-2xl bg-secondary/60", className)} />
+  );
+}
+
+function CardSkeleton({ tall = false }) {
+  return (
+    <div className="glass rounded-[22px] p-4">
+      <div className="mb-3 flex items-center gap-3">
+        <Shimmer className="h-11 w-11 shrink-0 rounded-full" />
+        <div className="flex-1 space-y-2">
+          <Shimmer className="h-3 w-1/2" />
+          <Shimmer className="h-4 w-3/4" />
+        </div>
+      </div>
+      <Shimmer className={tall ? "h-24" : "h-12"} />
+      <Shimmer className="mt-3 h-10" />
+    </div>
   );
 }
 
 export default function LoadingPage() {
   return (
-    <PageContainer>
-      <CompactCardSkeleton tall />
-      <CompactCardSkeleton />
-      <Stack direction="row" spacing={1}>
-        <Skeleton variant="rounded" height={47} sx={{ borderRadius: 3, flex: 1 }} />
-        <Skeleton variant="rounded" height={47} sx={{ borderRadius: 3, flex: 1 }} />
-      </Stack>
-    </PageContainer>
+    <div className="grid gap-4 px-4 pt-4">
+      <CardSkeleton tall />
+      <CardSkeleton />
+      <div className="grid grid-cols-2 gap-3">
+        <Shimmer className="h-12" />
+        <Shimmer className="h-12" />
+      </div>
+    </div>
   );
 }

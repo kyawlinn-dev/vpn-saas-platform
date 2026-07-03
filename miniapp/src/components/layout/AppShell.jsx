@@ -1,7 +1,7 @@
-import { Box } from "@mui/material";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import BottomTabs from "./BottomTabs";
+import { BottomNav } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 import LoadingPage from "../../pages/LoadingPage";
 import ErrorPage from "../../pages/ErrorPage";
 import ToastMessage from "../common/ToastMessage";
@@ -11,14 +11,12 @@ import { useMiniAppAuth } from "../../hooks/useMiniAppAuth";
 import { getMiniAppConfig } from "../../features/auth/api";
 import { renderPage } from "../../app/router";
 
-// Sub-screens (checkout, payment_status) hide the BottomTabs and take full height.
+// Sub-screens hide the BottomNav and take full page height.
 const SUB_SCREENS = new Set([TAB_KEYS.CHECKOUT, TAB_KEYS.PAYMENT_STATUS]);
 
 export default function AppShell() {
   const [tab, setTab] = useState(DEFAULT_TAB);
   const [toast, setToast] = useState({ open: false, message: "", severity: "info" });
-
-  // Selected plan passed from PackagesPage → CheckoutPage → PaymentStatusPage.
   const [checkoutPlan, setCheckoutPlan] = useState(null);
 
   const {
@@ -43,15 +41,12 @@ export default function AppShell() {
   const supportUsername =
     (data?.config ?? configData)?.brand?.support_username ?? null;
 
-  const showToast = (message, severity = "info") => {
+  const showToast = (message, severity = "info") =>
     setToast({ open: true, message, severity });
-  };
 
-  const closeToast = () => {
+  const closeToast = () =>
     setToast((prev) => ({ ...prev, open: false }));
-  };
 
-  // Navigate to checkout carrying the selected plan.
   const navigateToCheckout = (plan) => {
     setCheckoutPlan(plan);
     setTab(TAB_KEYS.CHECKOUT);
@@ -83,25 +78,23 @@ export default function AppShell() {
   const brandPrimary = brand?.primary_color || "#3b82f6";
 
   return (
-    <Box
-      minHeight="100vh"
-      display="flex"
-      flexDirection="column"
-      sx={{
+    <div
+      className="flex min-h-screen flex-col text-white"
+      style={{
         "--brand-primary": brandPrimary,
         background:
-          "radial-gradient(closest-side at 15% 8%, rgba(37,99,235,0.22), transparent), radial-gradient(closest-side at 88% 12%, rgba(34,211,238,0.16), transparent), radial-gradient(closest-side at 50% 100%, rgba(124,58,237,0.12), transparent), #0b1020",
-        color: "#fff",
+          "radial-gradient(closest-side at 15% 8%, rgba(37,99,235,0.22), transparent), " +
+          "radial-gradient(closest-side at 88% 12%, rgba(34,211,238,0.16), transparent), " +
+          "radial-gradient(closest-side at 50% 100%, rgba(124,58,237,0.12), transparent), " +
+          "#0b1020",
       }}
     >
-      {/* Sub-screens (checkout / payment_status) use full height; main tabs pad for BottomTabs. */}
-      <Box flex={1} pb={isSubScreen ? 0 : "82px"}>
+      <div className={cn("flex-1", !isSubScreen && "pb-[82px]")}>
         {content}
-      </Box>
+      </div>
 
-      {/* BottomTabs hidden on checkout / payment_status sub-screens. */}
       {!isSubScreen && (
-        <BottomTabs value={tab} onChange={setTab} />
+        <BottomNav active={tab} onChange={setTab} />
       )}
 
       <ToastMessage
@@ -110,6 +103,6 @@ export default function AppShell() {
         severity={toast.severity}
         onClose={closeToast}
       />
-    </Box>
+    </div>
   );
 }
