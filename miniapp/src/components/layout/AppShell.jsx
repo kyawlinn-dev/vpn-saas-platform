@@ -92,9 +92,12 @@ export default function AppShell() {
       }}
     >
       <Box flex={1} pb="82px">
-        <Box sx={{ px: 2, pt: 2 }}>
-          <Header brand={brand} />
-        </Box>
+        {/* Home page renders its own BrandBar; all other tabs still need the MUI header */}
+        {tab !== "home" && (
+          <Box sx={{ px: 2, pt: 2 }}>
+            <Header brand={brand} />
+          </Box>
+        )}
 
         {content}
       </Box>

@@ -13,6 +13,7 @@
 import { useId } from "react";
 import { cva } from "class-variance-authority";
 import {
+  ArrowRight,
   ChevronLeft,
   Home,
   Package,
@@ -376,6 +377,7 @@ export function QuickAction({ icon, label, onClick, disabled }) {
         </span>
         <span className="text-[14px] font-medium text-foreground">{label}</span>
       </span>
+      <ArrowRight size={16} className="text-muted-foreground" />
     </button>
   );
 }
