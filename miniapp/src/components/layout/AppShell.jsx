@@ -1,23 +1,25 @@
 import { Box } from "@mui/material";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import Header from "./Header";
 import BottomTabs from "./BottomTabs";
 import LoadingPage from "../../pages/LoadingPage";
 import ErrorPage from "../../pages/ErrorPage";
 import ToastMessage from "../common/ToastMessage";
 import { DEFAULT_TAB } from "../../constants/app";
+import { TAB_KEYS } from "../../constants/routes";
 import { useMiniAppAuth } from "../../hooks/useMiniAppAuth";
 import { getMiniAppConfig } from "../../features/auth/api";
 import { renderPage } from "../../app/router";
 
+// Sub-screens (checkout, payment_status) hide the BottomTabs and take full height.
+const SUB_SCREENS = new Set([TAB_KEYS.CHECKOUT, TAB_KEYS.PAYMENT_STATUS]);
+
 export default function AppShell() {
   const [tab, setTab] = useState(DEFAULT_TAB);
-  const [toast, setToast] = useState({
-    open: false,
-    message: "",
-    severity: "info",
-  });
+  const [toast, setToast] = useState({ open: false, message: "", severity: "info" });
+
+  // Selected plan passed from PackagesPage → CheckoutPage → PaymentStatusPage.
+  const [checkoutPlan, setCheckoutPlan] = useState(null);
 
   const {
     data,
@@ -31,10 +33,6 @@ export default function AppShell() {
     refreshAuth,
   } = useMiniAppAuth();
 
-  // Fetched independently so ErrorPage can show the reseller's support handle
-  // even when the main auth query fails (e.g. auth error after config succeeded).
-  // If config itself fails (bad/missing slug), configData is undefined and
-  // ErrorPage hides the support button entirely.
   const { data: configData } = useQuery({
     queryKey: ["miniapp-config"],
     queryFn: getMiniAppConfig,
@@ -46,19 +44,22 @@ export default function AppShell() {
     (data?.config ?? configData)?.brand?.support_username ?? null;
 
   const showToast = (message, severity = "info") => {
-    setToast({
-      open: true,
-      message,
-      severity,
-    });
+    setToast({ open: true, message, severity });
   };
 
   const closeToast = () => {
     setToast((prev) => ({ ...prev, open: false }));
   };
 
-  let content = null;
+  // Navigate to checkout carrying the selected plan.
+  const navigateToCheckout = (plan) => {
+    setCheckoutPlan(plan);
+    setTab(TAB_KEYS.CHECKOUT);
+  };
 
+  const isSubScreen = SUB_SCREENS.has(tab);
+
+  let content = null;
   if (isLoading) {
     content = <LoadingPage />;
   } else if (isError) {
@@ -70,9 +71,11 @@ export default function AppShell() {
       hasLinkedKey,
       hasActiveAccess,
       initData,
+      checkoutPlan,
       onToast: showToast,
       onTabChange: setTab,
       onRefreshAuth: refreshAuth,
+      onNavigateToCheckout: navigateToCheckout,
     });
   }
 
@@ -91,18 +94,15 @@ export default function AppShell() {
         color: "#fff",
       }}
     >
-      <Box flex={1} pb="82px">
-        {/* Converted pages render their own BrandBar; once all tabs are done this block goes away */}
-        {tab !== "home" && tab !== "servers" && tab !== "packages" && (
-          <Box sx={{ px: 2, pt: 2 }}>
-            <Header brand={brand} />
-          </Box>
-        )}
-
+      {/* Sub-screens (checkout / payment_status) use full height; main tabs pad for BottomTabs. */}
+      <Box flex={1} pb={isSubScreen ? 0 : "82px"}>
         {content}
       </Box>
 
-      <BottomTabs value={tab} onChange={setTab} />
+      {/* BottomTabs hidden on checkout / payment_status sub-screens. */}
+      {!isSubScreen && (
+        <BottomTabs value={tab} onChange={setTab} />
+      )}
 
       <ToastMessage
         open={toast.open}
