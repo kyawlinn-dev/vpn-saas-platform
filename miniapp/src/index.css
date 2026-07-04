@@ -48,6 +48,9 @@
 :root {
   color-scheme: dark;
 
+  --app-safe-top: env(safe-area-inset-top, 0px);
+  --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+
   --background: oklch(0.16 0.028 264);
   --foreground: oklch(0.97 0.006 250);
 

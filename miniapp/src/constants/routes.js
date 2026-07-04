@@ -4,6 +4,7 @@ export const TAB_KEYS = {
   PACKAGES: "packages",
   CHECKOUT: "checkout",
   PAYMENT_STATUS: "payment_status",
+  SETTINGS: "settings",
 };
 
 // Only the three main tabs appear in BottomTabs.

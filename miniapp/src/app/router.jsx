@@ -3,6 +3,7 @@ import ServersPage from "../pages/ServersPage";
 import PackagesPage from "../pages/PackagesPage";
 import CheckoutPage from "../pages/CheckoutPage";
 import PaymentStatusPage from "../pages/PaymentStatusPage";
+import SettingsPage from "../pages/SettingsPage";
 import { TAB_KEYS } from "../constants/routes";
 
 export function renderPage(tab, props) {
@@ -15,6 +16,8 @@ export function renderPage(tab, props) {
       return <CheckoutPage {...props} />;
     case TAB_KEYS.PAYMENT_STATUS:
       return <PaymentStatusPage {...props} />;
+    case TAB_KEYS.SETTINGS:
+      return <SettingsPage {...props} />;
     case TAB_KEYS.HOME:
     default:
       return <HomePage {...props} />;

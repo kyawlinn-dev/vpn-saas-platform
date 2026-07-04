@@ -40,14 +40,13 @@ export default function ToastMessage({ open, message, severity = "info", onClose
       role="status"
       aria-live="polite"
       className={cn(
-        // Position: above BottomTabs (which sits at bottom 0, height ~82px)
-        "fixed inset-x-4 bottom-24 z-50 mx-auto max-w-sm",
+        "fixed inset-x-4 top-[calc(var(--app-safe-top)_+_1rem)] z-50 mx-auto max-w-sm",
         "glass flex items-center gap-3 rounded-2xl border px-4 py-3 shadow-2xl",
         tone.wrap,
         "transition-all duration-200",
         open
           ? "translate-y-0 opacity-100"
-          : "pointer-events-none translate-y-3 opacity-0",
+          : "pointer-events-none -translate-y-3 opacity-0",
       )}
     >
       <Icon size={17} className="shrink-0" />

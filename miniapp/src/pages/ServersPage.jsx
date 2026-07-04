@@ -7,7 +7,6 @@ import {
   GlassCard,
   LatencyBadge,
   PrimaryButton,
-  SecondaryButton,
 } from "../components/ui/primitives";
 import { cn } from "@/lib/utils";
 import { useLinkServer } from "../features/access/hooks";
@@ -19,7 +18,6 @@ function groupServers(servers) {
 
   for (const server of servers || []) {
     const country = server?.country || server?.region || "Servers";
-    // flag_emoji is the real column name; flag is a fallback alias some API shapes use
     const key = `${server?.flag_emoji ?? server?.flag ?? "🌐"} ${country}`;
 
     if (!groups.has(key)) {
@@ -37,7 +35,6 @@ function groupServers(servers) {
   return Array.from(groups.values());
 }
 
-// Returns raw ms number (or null if not available) — used for LatencyBadge.
 function getLatencyMs(server) {
   const value = server?.latency_ms ?? server?.latency ?? server?.ping_ms ?? null;
   if (value == null || value === "") return null;
@@ -45,7 +42,6 @@ function getLatencyMs(server) {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 
-// Returns the lowest latency across a group's servers, or null if none have data.
 function getBestLatencyMs(servers) {
   const latencies = (servers || [])
     .map((s) => Number(s?.latency_ms ?? s?.latency ?? s?.ping_ms))
@@ -53,10 +49,6 @@ function getBestLatencyMs(servers) {
   if (!latencies.length) return null;
   return Math.round(Math.min(...latencies));
 }
-
-// ── Filter constants ───────────────────────────────────────────────────────────
-
-const FILTERS = ["All", "Premium", "Low Latency"];
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
@@ -88,15 +80,17 @@ function CurrentServerSummary({ server }) {
             Server {server?.server_number ? `#${server.server_number}` : "linked"}
           </p>
         </div>
-        <Chip tone="success">Current</Chip>
       </div>
     </GlassCard>
   );
 }
 
-function ServerRow({ server, linking, onSelect }) {
-  const isCurrent = Boolean(server?.is_current);
-  const canAccess = Boolean(server?.can_access);
+// locked=true: bypass can_access gating and hide the "Current" chip so every
+// row shows an enabled Select button that opens the upgrade dialog instead of
+// triggering the link mutation.
+function ServerRow({ server, linking, onSelect, locked = false }) {
+  const isCurrent = !locked && Boolean(server?.is_current);
+  const canAccess = locked || Boolean(server?.can_access);
   const ms = getLatencyMs(server);
   const serverLabel = server?.city || server?.name || server?.region || "Server";
 
@@ -109,7 +103,7 @@ function ServerRow({ server, linking, onSelect }) {
       )}
     >
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex flex-wrap items-center gap-2">
           <p className="text-[14px] font-medium text-foreground">
             {serverLabel}
             {server?.server_number ? (
@@ -133,7 +127,7 @@ function ServerRow({ server, linking, onSelect }) {
       </div>
 
       {isCurrent ? (
-        <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/20 px-2.5 py-1 text-[11px] font-semibold text-primary">
+        <span className="flex shrink-0 items-center gap-1 rounded-xl bg-primary/20 px-2.5 py-1 text-[11px] font-semibold text-primary">
           <Check size={13} /> Current
         </span>
       ) : (
@@ -150,9 +144,10 @@ function ServerRow({ server, linking, onSelect }) {
   );
 }
 
-function CountryGroup({ group, expanded, onToggle, linking, onSelect }) {
+function CountryGroup({ group, expanded, onToggle, linking, onSelect, locked = false }) {
   const best = getBestLatencyMs(group.servers);
-  const hasCurrentServer = group.servers.some((s) => s?.is_current);
+  // In locked mode there is no current server — suppress the green indicator.
+  const hasCurrentServer = !locked && group.servers.some((s) => s?.is_current);
 
   return (
     <div className="glass overflow-hidden rounded-[20px]">
@@ -195,6 +190,7 @@ function CountryGroup({ group, expanded, onToggle, linking, onSelect }) {
               server={server}
               linking={linking}
               onSelect={onSelect}
+              locked={locked}
             />
           ))}
         </div>
@@ -203,43 +199,24 @@ function CountryGroup({ group, expanded, onToggle, linking, onSelect }) {
   );
 }
 
-// Inline empty-state — doesn't touch the shared MUI EmptyState.jsx
-function EmptyStateCard({ icon, title, description, children }) {
-  return (
-    <GlassCard className="p-5">
-      <div className="flex flex-col gap-4">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/20 to-violet/15 text-primary">
-          {icon}
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <p className="text-[18px] font-semibold leading-tight text-foreground">{title}</p>
-          {description && (
-            <p className="text-[13px] leading-relaxed text-muted-foreground">{description}</p>
-          )}
-        </div>
-        {children && <div className="flex flex-col gap-2">{children}</div>}
-      </div>
-    </GlassCard>
-  );
-}
-
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange }) {
-  // ── Data (unchanged from MUI version) ──────────────────────────────────────
+export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange, onOpenSettings }) {
   const servers = useMemo(() => data?.servers || [], [data?.servers]);
   const telegramUserId = data?.user?.telegram_user_id;
   const hasActivePackage = Boolean(data?.subscription);
   const currentServer = data?.current_server || null;
   const brand = data?.config?.brand || null;
 
-  // ── UI state ───────────────────────────────────────────────────────────────
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("All");
   const [openGroups, setOpenGroups] = useState({});
   const [selectedServer, setSelectedServer] = useState(null);
+  const [noPackageDialogOpen, setNoPackageDialogOpen] = useState(false);
 
-  // ── Derived data (unchanged grouping logic + new filter layer) ─────────────
+  // When no active package: show the full server list but gate linking behind
+  // the upgrade dialog instead of running the mutation.
+  const lockedMode = !hasActivePackage;
+
   const groups = useMemo(() => groupServers(servers), [servers]);
 
   const filteredGroups = useMemo(() => {
@@ -256,18 +233,13 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange 
               return false;
             }
           }
-          if (filter === "Premium") return Boolean(s.can_access);
-          if (filter === "Low Latency") {
-            const ms = Number(s?.latency_ms ?? s?.latency ?? s?.ping_ms ?? Infinity);
-            return Number.isFinite(ms) && ms <= 30;
-          }
           return true;
         }),
       }))
       .filter((g) => g.servers.length > 0);
-  }, [groups, query, filter]);
+  }, [groups, query]);
 
-  // ── Mutation (payload and callbacks UNCHANGED — these touch key provisioning)
+  // ── Mutation (payload and callbacks UNCHANGED) ────────────────────────────────
   const linkMutation = useLinkServer({
     onSuccess: async () => {
       onToast("Server linked successfully", "success");
@@ -286,35 +258,20 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange 
     setOpenGroups((prev) => ({ ...prev, [key]: !(prev[key] ?? false) }));
   };
 
-  // ── Empty state (no active package) ───────────────────────────────────────
-  if (!hasActivePackage) {
-    return (
-      <div className="flex flex-col gap-4 px-4 pt-2 pb-6">
-        <BrandBar brandName={brand?.name || "VPN"} subtitle="Secure private access" />
-        <EmptyStateCard
-          icon={<Search size={20} />}
-          title="No active package"
-          description="Buy a package or use your trial before connecting a server."
-        >
-          <PrimaryButton onClick={() => onTabChange?.("packages")}>
-            View Packages
-          </PrimaryButton>
-        </EmptyStateCard>
-      </div>
-    );
-  }
-
   return (
     <>
-      <div className="flex flex-col gap-4 px-4 pt-2 pb-6">
-        <BrandBar brandName={brand?.name || "VPN"} subtitle="Secure private access" />
+      <div className="flex flex-col gap-4 px-4 pb-6">
+        <div className="sticky top-[var(--app-safe-top)] z-20 -mx-4 px-4 py-3 glass">
+          <BrandBar brandName={brand?.name || "VPN"} subtitle="Secure private access" onOpenSettings={onOpenSettings} />
+        </div>
 
         <div>
           <h2 className="text-[18px] font-semibold text-foreground">Choose Server</h2>
           <p className="text-[13px] text-muted-foreground">Select the best server for you</p>
         </div>
 
-        <CurrentServerSummary server={currentServer} />
+        {/* Current server summary — only visible with an active package */}
+        {!lockedMode && <CurrentServerSummary server={currentServer} />}
 
         {/* Search */}
         <div className="relative">
@@ -330,37 +287,19 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange 
           />
         </div>
 
-        {/* Filter chips */}
-        <div className="flex gap-2">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={cn(
-                "rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors",
-                filter === f
-                  ? "border-primary/40 bg-primary/15 text-primary"
-                  : "border-border bg-secondary/50 text-muted-foreground",
-              )}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-
         {/* Country groups */}
         <div className="flex flex-col gap-3">
-          {filteredGroups.map((group, index) => {
-            const isOpen = openGroups[group.key] ?? index === 0;
+          {filteredGroups.map((group) => {
+            const isOpen = openGroups[group.key] ?? false;
             return (
               <CountryGroup
                 key={group.key}
                 group={group}
                 expanded={isOpen}
                 onToggle={() => toggleGroup(group.key)}
-                linking={linkMutation.isPending}
-                onSelect={setSelectedServer}
+                linking={lockedMode ? false : linkMutation.isPending}
+                onSelect={lockedMode ? () => setNoPackageDialogOpen(true) : setSelectedServer}
+                locked={lockedMode}
               />
             );
           })}
@@ -372,9 +311,9 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange 
         </div>
       </div>
 
-      {/* Confirmation dialog — @base-ui/react Dialog for correct focus trapping */}
+      {/* ── Link confirmation dialog (active package only) ────────────────────── */}
       <Dialog.Root
-        open={Boolean(selectedServer)}
+        open={!lockedMode && Boolean(selectedServer)}
         onOpenChange={(open) => {
           if (!open && !linkMutation.isPending) setSelectedServer(null);
         }}
@@ -413,6 +352,40 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange 
                   linkMutation.isPending && "pointer-events-none opacity-50",
                 )}
                 disabled={linkMutation.isPending}
+              >
+                Cancel
+              </Dialog.Close>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* ── No active package upgrade dialog ─────────────────────────────────── */}
+      <Dialog.Root open={noPackageDialogOpen} onOpenChange={setNoPackageDialogOpen}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
+          <Dialog.Popup className="glass fixed inset-x-4 bottom-8 z-50 rounded-3xl p-6 shadow-2xl outline-none">
+            <Dialog.Title className="text-[18px] font-semibold text-foreground">
+              No active package
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 mb-6 text-[13px] text-muted-foreground">
+              You need an active package to connect to a server. Choose a package to get started.
+            </Dialog.Description>
+            <div className="flex flex-col gap-2">
+              <PrimaryButton
+                onClick={() => {
+                  setNoPackageDialogOpen(false);
+                  onTabChange?.("packages");
+                }}
+              >
+                Buy Package
+              </PrimaryButton>
+              <Dialog.Close
+                className={cn(
+                  "flex h-12 w-full items-center justify-center gap-2 rounded-2xl",
+                  "border border-border bg-secondary/60 text-[15px] font-semibold text-foreground",
+                  "transition-all hover:bg-secondary active:scale-[0.98]",
+                )}
               >
                 Cancel
               </Dialog.Close>

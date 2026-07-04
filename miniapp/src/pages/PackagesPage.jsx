@@ -6,10 +6,8 @@ import {
   GlassCard,
   PrimaryButton,
 } from "../components/ui/primitives";
-import { openTelegramNativeLink } from "../lib/telegram";
 import { formatDate } from "../lib/format";
 import PackageCard from "../features/packages/PackageCard";
-import SupportCard from "../features/support/SupportCard";
 
 // ── Inline sub-components ──────────────────────────────────────────────────────
 
@@ -77,28 +75,11 @@ export default function PackagesPage({
   onToast,
   onTabChange,
   onNavigateToCheckout,
+  onOpenSettings,
 }) {
   const plans = useMemo(() => data?.plans || [], [data?.plans]);
   const subscription = data?.subscription || null;
   const brand = data?.config?.brand || null;
-
-  const rawSupportHandle = brand?.support_username
-    ? String(brand.support_username).replace(/^@/, "")
-    : null;
-  const supportUsername = rawSupportHandle ? `@${rawSupportHandle}` : "";
-  const handleSupportContact = rawSupportHandle
-    ? () => openTelegramNativeLink(`https://t.me/${rawSupportHandle}`)
-    : null;
-
-  const pendingReviewOrder =
-    subscription?.type === "purchase" && subscription?.review_status === "pending_review"
-      ? subscription
-      : null;
-
-  const confirmedActivePurchase =
-    subscription?.type === "purchase" && subscription?.review_status !== "pending_review"
-      ? subscription
-      : null;
 
   // ── Plan grouping (unchanged) ──────────────────────────────────────────────
   const visiblePlans = useMemo(
@@ -124,12 +105,7 @@ export default function PackagesPage({
   // ── Handlers ──────────────────────────────────────────────────────────────
   const isActivePlan = (plan) => {
     if (!subscription || subscription?.type !== "purchase") return false;
-    return (
-      plan?.id === subscription?.plan_id ||
-      (plan?.name &&
-        subscription?.plan_name &&
-        String(plan.name) === String(subscription.plan_name))
-    );
+    return plan?.id === subscription?.plan_id;
   };
 
   const handleBuy = (plan) => {
@@ -146,8 +122,10 @@ export default function PackagesPage({
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-4 px-4 pt-2 pb-6">
-      <BrandBar brandName={brand?.name || "VPN"} subtitle="Secure private access" />
+    <div className="flex flex-col gap-4 px-4 pb-6">
+      <div className="sticky top-[var(--app-safe-top)] z-20 -mx-4 px-4 py-3 glass">
+        <BrandBar brandName={brand?.name || "VPN"} subtitle="Secure private access" onOpenSettings={onOpenSettings} />
+      </div>
 
       <div>
         <h2 className="text-[18px] font-semibold text-foreground">Choose Your Plan</h2>
@@ -155,14 +133,6 @@ export default function PackagesPage({
           Secure private access with this reseller
         </p>
       </div>
-
-      <SupportCard supportUsername={supportUsername} onContact={handleSupportContact} />
-
-      {confirmedActivePurchase && (
-        <CurrentPlanCard subscription={confirmedActivePurchase} />
-      )}
-
-      {pendingReviewOrder && <PendingReviewCard />}
 
       {visiblePlans.length > 0 ? (
         groupedPlans.map(([days, groupPlans]) => (

@@ -1,4 +1,4 @@
-import { ChevronRight, Download, LifeBuoy, Package, Server, Share2, Wifi } from "lucide-react";
+import { ArrowUp, ChevronRight, Download, Package, Send, Server, Share2, Wifi } from "lucide-react";
 import {
   BrandBar,
   Chip,
@@ -8,6 +8,7 @@ import {
   QuickAction,
   SecondaryButton,
 } from "../components/ui/primitives";
+import { cn } from "@/lib/utils";
 import { formatDate } from "../lib/format";
 import { getShareUrl, openOutlineKey } from "../lib/links";
 import {
@@ -121,7 +122,7 @@ function CurrentServerCard({ server, onChangeServer }) {
 
       <div className="flex items-center gap-3">
         <span className="text-2xl" aria-hidden="true">
-          {server?.flag_emoji || "🌐"}
+          {server?.flag_emoji ?? server?.flag ?? "🌐"}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[15px] font-semibold text-foreground">
@@ -143,15 +144,26 @@ function CurrentServerCard({ server, onChangeServer }) {
 
 // Inline empty-state card — doesn't touch the shared MUI EmptyState.jsx that
 // other pages (Servers, Packages) still use.
-function EmptyStateCard({ icon, title, description, children }) {
+// danger=true applies red/destructive coloring for the rejection case.
+function EmptyStateCard({ icon, title, description, children, danger = false }) {
   return (
     <GlassCard className="p-5">
       <div className="flex flex-col gap-4">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/15 bg-gradient-to-br from-primary/20 to-violet/15 text-primary">
+        <div className={cn(
+          "flex h-11 w-11 items-center justify-center rounded-2xl border",
+          danger
+            ? "border-destructive/15 bg-destructive/12 text-red-400"
+            : "border-primary/15 bg-gradient-to-br from-primary/20 to-violet/15 text-primary",
+        )}>
           {icon}
         </div>
         <div className="flex flex-col gap-1.5">
-          <p className="text-[18px] font-semibold leading-tight text-foreground">{title}</p>
+          <p className={cn(
+            "text-[18px] font-semibold leading-tight",
+            danger ? "text-red-400" : "text-foreground",
+          )}>
+            {title}
+          </p>
           {description && (
             <p className="text-[13px] leading-relaxed text-muted-foreground">{description}</p>
           )}
@@ -164,7 +176,7 @@ function EmptyStateCard({ icon, title, description, children }) {
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast, onTabChange }) {
+export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast, onTabChange, onOpenSettings }) {
   const subscription = data?.subscription || null;
   const currentServer = data?.current_server || null;
   const outlineKey = data?.outline_key || null;
@@ -210,11 +222,14 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
   };
 
   return (
-    <div className="flex flex-col gap-4 px-4 pt-2 pb-6">
-      <BrandBar
-        brandName={brand?.name || "VPN"}
-        subtitle="Secure private access"
-      />
+    <div className="flex flex-col gap-4 px-4 pb-6">
+      <div className="sticky top-[var(--app-safe-top)] z-20 -mx-4 px-4 py-3 glass">
+        <BrandBar
+          brandName={brand?.name || "VPN"}
+          subtitle="Secure private access"
+          onOpenSettings={onOpenSettings}
+        />
+      </div>
 
       {hasActivePackage ? (
         <>
@@ -240,10 +255,11 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
                   label="Share Key"
                   onClick={handleShare}
                   disabled={!hasImportLink}
+                  trailingIcon={<ArrowUp size={16} className="text-muted-foreground" />}
                 />
                 {handleSupportContact && (
                   <QuickAction
-                    icon={<LifeBuoy size={18} />}
+                    icon={<Send size={18} />}
                     label="Support"
                     onClick={handleSupportContact}
                   />
@@ -276,6 +292,7 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
               ? `Your${recentRejection.plan_name ? ` ${recentRejection.plan_name}` : ""} payment was rejected. Please contact support or submit a new payment.`
               : "Your account is linked. Choose a package to start secure VPN access."
           }
+          danger={Boolean(recentRejection)}
         >
           <SecondaryButton onClick={() => onTabChange("packages")}>
             View Packages

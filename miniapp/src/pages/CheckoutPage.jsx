@@ -13,6 +13,9 @@ import { uploadPaymentScreenshot } from "../features/access/api";
 import { useSubmitPurchase } from "../features/access/hooks";
 import { TAB_KEYS } from "../constants/routes";
 
+const BRAND_KBZ = "#0A50A1";
+const BRAND_WAVE = "#FDD100";
+
 // ── Spinner ────────────────────────────────────────────────────────────────────
 function Spinner({ size = "md" }) {
   return (
@@ -36,33 +39,64 @@ function InlineError({ message }) {
   );
 }
 
+// ── Brand detection ────────────────────────────────────────────────────────────
+function getMethodBrand(name) {
+  const lower = (name || "").toLowerCase();
+  if (lower.includes("kbz")) {
+    return {
+      icon: <img src="/kbzpay.png" alt="KBZ" className="h-[18px] w-[18px] rounded-md object-contain" />,
+      color: BRAND_KBZ,
+    };
+  }
+  if (lower.includes("wave")) {
+    return {
+      icon: <img src="/wave.png" alt="Wave" className="h-[18px] w-[18px] rounded-md object-contain" />,
+      color: BRAND_WAVE,
+    };
+  }
+  return {
+    icon: <CreditCard size={14} />,
+    color: null,
+  };
+}
+
 // ── MethodPills ────────────────────────────────────────────────────────────────
 function MethodPills({ methods, selectedIdx, onSelect }) {
   return (
     <div className="no-scrollbar flex gap-2 overflow-x-auto pb-0.5">
-      {methods.map((m, i) => (
-        <button
-          key={i}
-          type="button"
-          onClick={() => onSelect(i)}
-          className={cn(
-            "flex shrink-0 items-center gap-1.5 rounded-2xl border px-4 py-2 text-[13px] font-medium transition-colors",
-            i === selectedIdx
-              ? "border-primary/40 bg-primary/15 text-primary"
-              : "glass border-border text-muted-foreground hover:border-border/60 hover:text-foreground",
-          )}
-        >
-          <CreditCard size={14} />
-          {m.method}
-        </button>
-      ))}
+      {methods.map((m, i) => {
+        const brand = getMethodBrand(m.method);
+        const isSelected = i === selectedIdx;
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onSelect(i)}
+            className={cn(
+              "flex shrink-0 items-center gap-1.5 rounded-2xl border px-4 py-2 text-[13px] font-medium transition-colors",
+              isSelected
+                ? brand.color ? "" : "border-primary/40 bg-primary/15 text-primary"
+                : "glass border-border text-muted-foreground hover:border-border/60 hover:text-foreground",
+            )}
+            style={
+              isSelected && brand.color
+                ? { borderColor: `${brand.color}99`, backgroundColor: `${brand.color}26`, color: brand.color }
+                : undefined
+            }
+          >
+            {brand.icon}
+            {m.method}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 // ── AccountCard ────────────────────────────────────────────────────────────────
-function AccountCard({ method, onCopy }) {
+function AccountCard({ method, brand, onCopy }) {
   const [copied, setCopied] = useState(false);
+  const accentColor = brand?.color || null;
 
   const handleCopy = async () => {
     try {
@@ -76,40 +110,50 @@ function AccountCard({ method, onCopy }) {
   };
 
   return (
-    <GlassCard className="p-4" style={{ background: "linear-gradient(180deg, oklch(0.28 0.06 250 / 65%), oklch(0.22 0.03 264 / 55%))" }}>
-      <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-primary/70">
+    <GlassCard
+      className="p-3"
+      style={{
+        background: "linear-gradient(180deg, oklch(0.28 0.06 250 / 65%), oklch(0.22 0.03 264 / 55%))",
+        borderLeftColor: accentColor ? `${accentColor}70` : undefined,
+        borderLeftWidth: accentColor ? "3px" : undefined,
+      }}
+    >
+      <p
+        className={cn("mb-2 text-[11px] font-bold uppercase tracking-widest", !accentColor && "text-primary/70")}
+        style={accentColor ? { color: `${accentColor}cc` } : undefined}
+      >
         Pay with {method.method}
       </p>
 
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11.5px] text-muted-foreground">Account name</p>
-          <p className="truncate text-[15px] font-bold text-foreground">{method.account_name}</p>
+      <div className="min-w-0">
+        <p className="text-[10.5px] text-muted-foreground">Account name</p>
+        <p className="truncate text-[14px] font-bold text-foreground">{method.account_name}</p>
 
-          <p className="mt-2.5 text-[11.5px] text-muted-foreground">Account number</p>
-          <p className="text-[18px] font-black tracking-wide text-foreground" style={{ letterSpacing: "0.04em" }}>
+        <p className="mt-2 text-[10.5px] text-muted-foreground">Account number</p>
+        <div className="flex items-center gap-3">
+          <p className="flex-1 text-[16px] font-black tracking-wide text-foreground" style={{ letterSpacing: "0.04em" }}>
             {method.account_number}
           </p>
+          <button
+            type="button"
+            onClick={handleCopy}
+            aria-label="Copy account number"
+            className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all",
+              copied
+                ? "border-success/40 bg-success/15 text-success"
+                : "border-border bg-secondary/60",
+            )}
+            style={!copied && accentColor ? { color: accentColor } : undefined}
+          >
+            {copied ? <CheckCircle2 size={16} /> : <Copy size={16} />}
+          </button>
         </div>
-
-        <button
-          type="button"
-          onClick={handleCopy}
-          aria-label="Copy account number"
-          className={cn(
-            "mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border transition-all",
-            copied
-              ? "border-success/40 bg-success/15 text-success"
-              : "border-border bg-secondary/60 text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {copied ? <CheckCircle2 size={17} /> : <Copy size={17} />}
-        </button>
       </div>
 
-      <div className="mt-3 rounded-xl border border-warning/20 bg-warning/8 px-3 py-2">
+      <div className="mt-2 rounded-lg border border-success/20 bg-success/8 px-3 py-2">
         <p className="text-[12px] text-warning/80">
-          Transfer exactly{" "}
+          <span className="font-bold">!</span>{" "}Transfer exactly{" "}
           <span className="font-bold text-warning">{formatCurrencyMmk(method.total_mmk ?? undefined)}</span>
           {" "}to this account, then upload your screenshot below.
         </p>
@@ -140,37 +184,38 @@ function ScreenshotUpload({ previewSrc, isUploading, error, onSelect }) {
       />
 
       {isUploading ? (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-primary/30 bg-primary/5 py-10">
-          <Spinner />
+        <div className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3">
+          <Spinner size="sm" />
           <p className="text-[13px] text-muted-foreground">Uploading screenshot…</p>
         </div>
       ) : previewSrc ? (
-        <div className="flex flex-col gap-2">
+        <div className="flex w-full items-center gap-3 rounded-2xl border border-border bg-secondary/40 px-3 py-2.5">
           <img
             src={previewSrc}
             alt="Payment screenshot preview"
-            className="max-h-56 w-full rounded-2xl border border-border bg-black/30 object-contain"
+            className="h-10 w-10 shrink-0 rounded-lg border border-border bg-black/30 object-cover"
           />
-          <SecondaryButton
-            size="sm"
+          <p className="flex-1 truncate text-[13px] font-medium text-foreground">Screenshot ready</p>
+          <button
+            type="button"
             onClick={handleClick}
-            className="h-9 rounded-xl text-[13px]"
+            className="shrink-0 rounded-lg border border-border bg-secondary/60 px-3 py-1.5 text-[12px] font-semibold text-foreground transition-colors hover:bg-secondary"
           >
-            Change screenshot
-          </SecondaryButton>
+            Change
+          </button>
         </div>
       ) : (
         <button
           type="button"
           onClick={handleClick}
-          className="flex w-full flex-col items-center gap-2.5 rounded-2xl border border-dashed border-primary/30 bg-primary/5 py-10 transition-colors hover:border-cyan/40 hover:bg-cyan/5 active:scale-[0.99]"
+          className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3 transition-colors hover:border-cyan/40 hover:bg-cyan/5 active:scale-[0.99]"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
-            <Camera size={22} />
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+            <Camera size={18} />
           </div>
-          <div className="text-center">
-            <p className="text-[14px] font-semibold text-foreground">Upload payment screenshot</p>
-            <p className="mt-0.5 text-[12px] text-muted-foreground">JPEG, PNG, WebP · max 5 MB</p>
+          <div className="text-left">
+            <p className="text-[13px] font-semibold text-foreground">Upload payment screenshot</p>
+            <p className="text-[11px] text-muted-foreground">JPEG · PNG · WebP · max 5 MB</p>
           </div>
         </button>
       )}
@@ -186,24 +231,21 @@ function PlanSummaryCard({ plan }) {
   const daysLabel = plan?.duration_days ? `${plan.duration_days} days` : "";
 
   return (
-    <GlassCard
-      glow
-      className="aurora-glow p-5"
-    >
+    <GlassCard glow className="aurora-glow p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
             Selected plan
           </p>
-          <p className="truncate text-[20px] font-bold leading-tight text-foreground">
+          <p className="truncate text-[17px] font-bold leading-tight text-foreground">
             {plan?.name || "Premium Plan"}
           </p>
-          <p className="mt-1 text-[13px] text-muted-foreground">
+          <p className="mt-1 text-[12px] text-muted-foreground">
             {dataLabel}{daysLabel ? ` · ${daysLabel}` : ""}
           </p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-[20px] font-black text-warning leading-tight">
+          <p className="text-[17px] font-black text-warning leading-tight">
             {Number(plan?.price_mmk || 0).toLocaleString("en-US")}
           </p>
           <p className="text-[11px] text-muted-foreground">MMK</p>
@@ -216,7 +258,7 @@ function PlanSummaryCard({ plan }) {
 // ── Section label ──────────────────────────────────────────────────────────────
 function SectionLabel({ children, required }) {
   return (
-    <p className="text-[13.5px] font-semibold text-foreground">
+    <p className="text-[13px] font-semibold text-foreground">
       {children}
       {required && <span className="ml-1 text-red-400">*</span>}
     </p>
@@ -296,8 +338,8 @@ export default function CheckoutPage({
   };
 
   return (
-    <div className="flex flex-col gap-5 px-4 pt-4 pb-8">
-      <PageHeader title="Checkout" onBack={() => onTabChange(TAB_KEYS.PACKAGES)} />
+    <div className="flex flex-col gap-3 px-4 pt-4 pb-8">
+      <PageHeader title="Checkout" onBack={() => onTabChange(TAB_KEYS.PACKAGES)} centerTitle />
 
       {/* 1 — Plan summary */}
       <PlanSummaryCard plan={checkoutPlan} />
@@ -314,6 +356,7 @@ export default function CheckoutPage({
           {selectedMethod && (
             <AccountCard
               method={{ ...selectedMethod, total_mmk: checkoutPlan?.price_mmk }}
+              brand={getMethodBrand(selectedMethod.method)}
               onCopy={onToast}
             />
           )}
@@ -349,7 +392,7 @@ export default function CheckoutPage({
           value={paymentNote}
           onChange={(e) => setPaymentNote(e.target.value)}
           className={cn(
-            "w-full resize-none rounded-2xl border border-border bg-secondary/40 px-4 py-3",
+            "w-full resize-none rounded-xl border border-border bg-secondary/40 px-4 py-3",
             "text-[14px] text-foreground placeholder:text-muted-foreground",
             "outline-none transition-colors focus:border-primary/50 focus:bg-secondary/60",
           )}

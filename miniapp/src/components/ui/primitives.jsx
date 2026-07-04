@@ -10,7 +10,7 @@
  * vpnPrimitives.jsx is NOT modified until all screens are converted (Phase 7).
  */
 
-import { useId } from "react";
+import { useId, useState } from "react";
 import { cva } from "class-variance-authority";
 import {
   ArrowRight,
@@ -45,8 +45,39 @@ export function BrandLogo({ size = "md" }) {
   );
 }
 
+// ── LanguagePill ───────────────────────────────────────────────────────────────
+// Self-contained EN / MM segmented pill. Local state only — purely visual.
+
+const LANG_OPTIONS = [
+  { code: "EN", emoji: "🇬🇧", label: "English" },
+  { code: "MM", emoji: "🇲🇲", label: "Myanmar" },
+];
+
+export function LanguagePill() {
+  const [lang, setLang] = useState("EN");
+  return (
+    <div className="flex rounded-full border border-border bg-secondary/60 p-0.5" role="group" aria-label="Language">
+      {LANG_OPTIONS.map(({ code, emoji, label }) => (
+        <button
+          key={code}
+          type="button"
+          onClick={() => setLang(code)}
+          aria-pressed={lang === code}
+          aria-label={label}
+          className={cn(
+            "rounded-full px-2 py-0.5 text-[15px] leading-none transition-all",
+            lang === code ? "bg-primary/20 opacity-100" : "opacity-40",
+          )}
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── BrandBar ───────────────────────────────────────────────────────────────────
-// Top header: logo + brand name/subtitle + settings button.
+// Top header: logo + brand name/subtitle + optional language pill + settings button.
 // brandName and subtitle come from data?.config?.brand (passed by AppShell).
 
 export function BrandBar({ brandName, subtitle, onOpenSettings }) {
@@ -63,12 +94,13 @@ export function BrandBar({ brandName, subtitle, onOpenSettings }) {
           </p>
         ) : null}
       </div>
+      <LanguagePill />
       {onOpenSettings ? (
         <button
           type="button"
           onClick={onOpenSettings}
           aria-label="Open settings"
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-secondary/60 text-muted-foreground transition-colors hover:text-foreground active:scale-95"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-secondary/60 text-muted-foreground transition-colors hover:text-foreground active:scale-95"
         >
           <Settings size={18} />
         </button>
@@ -80,18 +112,26 @@ export function BrandBar({ brandName, subtitle, onOpenSettings }) {
 // ── PageHeader ─────────────────────────────────────────────────────────────────
 // Sub-page header with back chevron + title. Used on Servers / Checkout screens.
 
-export function PageHeader({ title, onBack }) {
+export function PageHeader({ title, onBack, centerTitle = false }) {
   return (
-    <header className="flex items-center gap-2">
+    <header className="flex items-center">
       <button
         type="button"
         onClick={onBack}
         aria-label="Go back"
-        className="-ml-1 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-secondary/60 text-foreground transition-colors hover:bg-secondary active:scale-95"
+        className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-secondary/60 text-foreground transition-colors hover:bg-secondary active:scale-95"
       >
         <ChevronLeft size={20} />
       </button>
-      <h1 className="text-[18px] font-semibold text-foreground">{title}</h1>
+      <h1
+        className={cn(
+          "text-[18px] font-semibold text-foreground",
+          centerTitle ? "flex-1 text-center" : "ml-2",
+        )}
+      >
+        {title}
+      </h1>
+      {centerTitle && <div className="w-10 shrink-0" aria-hidden="true" />}
     </header>
   );
 }
@@ -317,10 +357,10 @@ const NAV_TABS = [
 export function BottomNav({ active, onChange }) {
   return (
     <nav
-      className="absolute inset-x-0 bottom-0 z-20 h-16 border-t border-border bg-background/80 backdrop-blur-xl"
+      className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/80 backdrop-blur-xl"
       aria-label="Main navigation"
     >
-      <ul className="mx-auto flex h-full max-w-md items-stretch justify-around px-2">
+      <ul className="mx-auto flex h-[calc(4rem_+_var(--app-safe-bottom))] max-w-md items-stretch justify-around px-2">
         {NAV_TABS.map(({ id, label, Icon }) => {
           const isActive = active === id;
           return (
@@ -359,7 +399,7 @@ export function BottomNav({ active, onChange }) {
 // ── QuickAction ────────────────────────────────────────────────────────────────
 // Two-column action tile used in HomePage's Quick Actions section.
 
-export function QuickAction({ icon, label, onClick, disabled }) {
+export function QuickAction({ icon, label, onClick, disabled, trailingIcon }) {
   return (
     <button
       type="button"
@@ -377,7 +417,7 @@ export function QuickAction({ icon, label, onClick, disabled }) {
         </span>
         <span className="text-[14px] font-medium text-foreground">{label}</span>
       </span>
-      <ArrowRight size={16} className="text-muted-foreground" />
+      {trailingIcon ?? <ArrowRight size={16} className="text-muted-foreground" />}
     </button>
   );
 }

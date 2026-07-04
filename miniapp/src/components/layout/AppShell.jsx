@@ -12,10 +12,15 @@ import { getMiniAppConfig } from "../../features/auth/api";
 import { renderPage } from "../../app/router";
 
 // Sub-screens hide the BottomNav and take full page height.
-const SUB_SCREENS = new Set([TAB_KEYS.CHECKOUT, TAB_KEYS.PAYMENT_STATUS]);
+const SUB_SCREENS = new Set([
+  TAB_KEYS.CHECKOUT,
+  TAB_KEYS.PAYMENT_STATUS,
+  TAB_KEYS.SETTINGS,
+]);
 
 export default function AppShell() {
   const [tab, setTab] = useState(DEFAULT_TAB);
+  const [prevTab, setPrevTab] = useState(DEFAULT_TAB);
   const [toast, setToast] = useState({ open: false, message: "", severity: "info" });
   const [checkoutPlan, setCheckoutPlan] = useState(null);
 
@@ -52,6 +57,11 @@ export default function AppShell() {
     setTab(TAB_KEYS.CHECKOUT);
   };
 
+  const openSettings = () => {
+    setPrevTab(tab);
+    setTab(TAB_KEYS.SETTINGS);
+  };
+
   const isSubScreen = SUB_SCREENS.has(tab);
 
   let content = null;
@@ -67,10 +77,12 @@ export default function AppShell() {
       hasActiveAccess,
       initData,
       checkoutPlan,
+      prevTab,
       onToast: showToast,
       onTabChange: setTab,
       onRefreshAuth: refreshAuth,
       onNavigateToCheckout: navigateToCheckout,
+      onOpenSettings: openSettings,
     });
   }
 
@@ -89,7 +101,14 @@ export default function AppShell() {
           "#0b1020",
       }}
     >
-      <div className={cn("flex-1", !isSubScreen && "pb-[82px]")}>
+      <div
+        className={cn(
+          "flex-1 pt-[var(--app-safe-top)]",
+          !isSubScreen
+            ? "pb-[calc(4rem_+_var(--app-safe-bottom))]"
+            : "pb-[var(--app-safe-bottom)]",
+        )}
+      >
         {content}
       </div>
 
