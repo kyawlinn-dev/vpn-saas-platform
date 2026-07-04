@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import ChevronLeftRoundedIcon from "@mui/icons-material/ChevronLeftRounded";
-import ChevronRightRoundedIcon from "@mui/icons-material/ChevronRightRounded";
 import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import {
   Alert,
   Box,
-  Button,
+  Button as MuiButton,
   Card,
   Snackbar,
   CardContent,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -21,10 +17,8 @@ import {
   Grid,
   IconButton,
   InputAdornment,
-  LinearProgress,
   MenuItem,
   Select,
-  Skeleton,
   Stack,
   Table,
   TableBody,
@@ -39,13 +33,17 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import { Copy, Info, ChevronLeft, ChevronRight } from "lucide-react";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { UsageBar } from "@/components/ui/usage-bar";
+import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/components/ui/action-button";
 import { api } from "../lib/api";
 import {
   formatDate,
   formatDaysLeft,
   formatMMK,
   formatUsageGb,
-  getStatusColor,
   isExpiringSoon,
 } from "../lib/format";
 import type { Order, Plan, VpnKey } from "../types/api";
@@ -119,56 +117,7 @@ function mapActionError(errorData?: { error?: string; code?: string }) {
   }
 }
 
-function formatCompactNumber(value?: number | null) {
-  return Number(value || 0).toLocaleString();
-}
-
-function getUsagePercent(key?: VpnKey) {
-  const used = Number(key?.used_gb_30d || 0);
-  const limit = Number(key?.data_limit_gb || 0);
-  if (!limit || limit <= 0) return 0;
-  return Math.min((used / limit) * 100, 100);
-}
-
-function getUsageBarColor(percent: number): "primary" | "warning" | "error" {
-  if (percent >= 90) return "error";
-  if (percent >= 70) return "warning";
-  return "primary";
-}
-
-function StatusChip({ status }: { status: string }) {
-  const colors: Record<string, { bg: string; text: string; border: string }> = {
-    active: { bg: "rgba(16,185,129,0.12)", text: "#10b981", border: "rgba(16,185,129,0.35)" },
-    pending: { bg: "rgba(59,130,246,0.12)", text: "#60a5fa", border: "rgba(59,130,246,0.35)" },
-    expired: { bg: "rgba(239,68,68,0.12)", text: "#f87171", border: "rgba(239,68,68,0.35)" },
-    stopped: { bg: "rgba(107,114,128,0.12)", text: "#9ca3af", border: "rgba(107,114,128,0.35)" },
-    overdue: { bg: "rgba(245,158,11,0.12)", text: "#f59e0b", border: "rgba(245,158,11,0.35)" },
-  };
-  const c = colors[status] ?? {
-    bg: "rgba(148,163,184,0.12)",
-    text: "#94a3b8",
-    border: "rgba(148,163,184,0.35)",
-  };
-  return (
-    <Chip
-      size="small"
-      label={status}
-      sx={{
-        bgcolor: c.bg,
-        color: c.text,
-        border: `1px solid ${c.border}`,
-        fontWeight: 700,
-        fontSize: "0.72rem",
-        borderRadius: "6px",
-        height: 22,
-        textTransform: "capitalize",
-        "& .MuiChip-label": { px: 1, overflow: "visible", whiteSpace: "nowrap" },
-      }}
-    />
-  );
-}
-
-function PornhubPagination({
+function TablePagination({
   page,
   count,
   onChange,
@@ -178,9 +127,7 @@ function PornhubPagination({
   onChange: (page: number) => void;
 }) {
   const theme = useTheme();
-  const dark = theme.palette.mode === "dark";
   const mobile = useMediaQuery(theme.breakpoints.down("sm"));
-  const VIOLET = "#7c3aed";
 
   const pages = useMemo(() => {
     if (count <= 1) return [1];
@@ -198,78 +145,30 @@ function PornhubPagination({
     return items;
   }, [page, count, mobile]);
 
-  const btnH = mobile ? 34 : 36;
-  const btnBase = {
-    minWidth: 0,
-    height: btnH,
-    borderRadius: "6px",
-    fontWeight: 700,
-    fontSize: mobile ? "0.8rem" : "0.85rem",
-    px: mobile ? 0.9 : 1,
-    border: "none",
-    transition: "all 0.15s ease",
-  };
-
   return (
-    <Stack direction="row" spacing={0.4} alignItems="center">
+    <div className="flex items-center gap-1 overflow-x-auto">
       <Button
+        variant="outline"
+        size="sm"
         disabled={page === 1}
         onClick={() => onChange(page - 1)}
-        startIcon={<ChevronLeftRoundedIcon sx={{ fontSize: "1rem !important", mr: -0.5 }} />}
-        sx={{
-          ...btnBase,
-          px: mobile ? 1.2 : 1.5,
-          color:
-            page === 1
-              ? dark
-                ? alpha("#e8eaf6", 0.2)
-                : alpha("#0f0f23", 0.2)
-              : dark
-                ? alpha("#e8eaf6", 0.8)
-                : alpha("#0f0f23", 0.7),
-          bgcolor: dark ? alpha("#fff", 0.05) : alpha("#000", 0.04),
-          "&:hover:not(:disabled)": {
-            bgcolor: alpha(VIOLET, 0.12),
-            color: VIOLET,
-          },
-          "&.Mui-disabled": { opacity: 1 },
-        }}
       >
-        {"Prev"}
+        <ChevronLeft size={16} />
+        Prev
       </Button>
 
       {pages.map((p, i) =>
         p === "..." ? (
-          <Typography
-            key={`dots-${i}`}
-            sx={{
-              px: 0.5,
-              fontSize: "0.85rem",
-              fontWeight: 700,
-              color: dark ? alpha("#e8eaf6", 0.3) : alpha("#0f0f23", 0.3),
-              userSelect: "none",
-              lineHeight: `${btnH}px`,
-            }}
-          >
+          <span key={`dots-${i}`} className="px-1 text-sm text-muted-foreground select-none">
             …
-          </Typography>
+          </span>
         ) : (
           <Button
             key={p}
+            size="sm"
+            variant={page === p ? "primary" : "outline"}
+            className="min-w-9"
             onClick={() => onChange(p as number)}
-            sx={{
-              ...btnBase,
-              minWidth: btnH,
-              color: page === p ? "#fff" : dark ? alpha("#e8eaf6", 0.7) : alpha("#0f0f23", 0.6),
-              bgcolor: page === p ? VIOLET : dark ? alpha("#fff", 0.05) : alpha("#000", 0.04),
-              boxShadow: page === p ? `0 3px 12px ${alpha(VIOLET, 0.45)}` : "none",
-              transform: page === p ? "scale(1.08)" : "scale(1)",
-              "&:hover": {
-                bgcolor: page === p ? "#9f67ff" : alpha(VIOLET, 0.1),
-                color: page === p ? "#fff" : VIOLET,
-                transform: "scale(1.05)",
-              },
-            }}
           >
             {p}
           </Button>
@@ -277,53 +176,33 @@ function PornhubPagination({
       )}
 
       <Button
+        variant="outline"
+        size="sm"
         disabled={page === count || count <= 1}
         onClick={() => onChange(page + 1)}
-        endIcon={<ChevronRightRoundedIcon sx={{ fontSize: "1rem !important", ml: -0.5 }} />}
-        sx={{
-          ...btnBase,
-          px: mobile ? 1.2 : 1.5,
-          color:
-            page === count || count <= 1
-              ? dark
-                ? alpha("#e8eaf6", 0.2)
-                : alpha("#0f0f23", 0.2)
-              : dark
-                ? alpha("#e8eaf6", 0.8)
-                : alpha("#0f0f23", 0.7),
-          bgcolor: dark ? alpha("#fff", 0.05) : alpha("#000", 0.04),
-          "&:hover:not(:disabled)": {
-            bgcolor: alpha(VIOLET, 0.12),
-            color: VIOLET,
-          },
-          "&.Mui-disabled": { opacity: 1 },
-        }}
       >
-        {"Next"}
+        Next
+        <ChevronRight size={16} />
       </Button>
-    </Stack>
+    </div>
   );
 }
 
 function LoadingView() {
   return (
-    <Card sx={{ borderRadius: 2 }}>
-      <CardContent>
-        <Stack spacing={2}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Skeleton variant="text" width={180} height={36} />
-            <Skeleton variant="rounded" width={130} height={38} sx={{ borderRadius: 2 }} />
-          </Stack>
-          <Skeleton variant="rounded" height={40} sx={{ borderRadius: 1.5 }} />
-          <Stack direction="row" spacing={1}>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} variant="rounded" width={90} height={32} sx={{ borderRadius: 2 }} />
-            ))}
-          </Stack>
-          <Skeleton variant="rounded" height={320} sx={{ borderRadius: 1.5 }} />
-        </Stack>
-      </CardContent>
-    </Card>
+    <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="h-8 w-44 rounded bg-secondary animate-pulse" />
+        <div className="h-9 w-32 rounded-md bg-secondary animate-pulse" />
+      </div>
+      <div className="h-10 rounded-md bg-secondary animate-pulse" />
+      <div className="flex gap-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="h-8 w-20 rounded-full bg-secondary animate-pulse" />
+        ))}
+      </div>
+      <div className="h-80 rounded-md bg-secondary animate-pulse" />
+    </div>
   );
 }
 
@@ -617,122 +496,93 @@ export function OrdersTable({
   };
 
   const renderUsageCompact = (key?: VpnKey) => {
-    if (!key) return <Typography color="text.secondary">-</Typography>;
-    const used = Number(key.used_gb_30d || 0);
-    const limit = Number(key.data_limit_gb || 0);
-    const remaining = key.remaining_gb_30d == null ? null : Number(key.remaining_gb_30d);
-    const percent = getUsagePercent(key);
-
+    if (!key) return <span className="text-muted-foreground">-</span>;
     return (
-      <Stack spacing={1}>
-        <Stack direction="row" justifyContent="space-between">
-          <Typography fontWeight={700}>{formatUsageGb(used)}</Typography>
-          <Typography variant="body2" color="text.secondary">
-            / {formatUsageGb(limit)}
-          </Typography>
-        </Stack>
-        <LinearProgress
-          variant="determinate"
-          value={percent}
-          color={getUsageBarColor(percent)}
-          sx={{ height: 6, borderRadius: 1, bgcolor: "action.hover" }}
-        />
-        <Typography variant="body2" color="text.secondary">
-          {percent.toFixed(0)}% • Rem: {remaining == null ? "-" : formatUsageGb(remaining)} • Conn:{" "}
-          {formatCompactNumber(key.recent_connections_24h)}
-        </Typography>
-      </Stack>
+      <UsageBar
+        used={Number(key.used_gb_30d || 0)}
+        limit={Number(key.data_limit_gb || 0)}
+        remaining={key.remaining_gb_30d == null ? null : Number(key.remaining_gb_30d)}
+        connections={Number(key.recent_connections_24h || 0)}
+      />
     );
   };
 
   const renderAccess = (order: Order) => {
     const key = activeKeyByOrderId[order.id];
-    if (!key?.access_url) return <Typography color="text.secondary">-</Typography>;
+    if (!key?.access_url) return <span className="text-muted-foreground">-</span>;
     return (
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Typography>Active key</Typography>
-        <Tooltip title="Copy access URL">
-          <IconButton size="small" onClick={() => void copyText(key.access_url!, "Access URL")}>
-            <ContentCopyIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Stack>
+      <div className="flex items-center gap-2">
+        <span className="text-sm">Active key</span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7"
+          title="Copy access URL"
+          onClick={() => void copyText(key.access_url!, "Access URL")}
+        >
+          <Copy size={15} />
+        </Button>
+      </div>
     );
   };
 
   const renderActions = (order: Order) => (
-    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
+    <div className="flex flex-wrap items-center gap-1.5">
       {order.status === "pending" && (
-        <Button
-          variant="contained"
-          color="secondary"
-          size="small"
+        <ActionButton
+          variant="secondary"
           onClick={() => void runActivate(order)}
-          disabled={loadingId === `${order.id}:activate`}
-          sx={{ minHeight: 30, fontSize: "0.75rem", px: 1.2, borderRadius: 1.5, whiteSpace: "nowrap" }}
+          loading={loadingId === `${order.id}:activate`}
+          loadingText="Activating…"
         >
-          {loadingId === `${order.id}:activate` ? "Activating…" : "Activate"}
-        </Button>
+          Activate
+        </ActionButton>
       )}
 
       {order.status === "active" && (
         <>
-          <Button
-            variant="contained"
-            size="small"
+          <ActionButton
+            variant="primary"
             onClick={() =>
-              setRenewDialog({
-                open: true,
-                order,
-                planId: order.plan_id,
-                action: "extend",
-              })
+              setRenewDialog({ open: true, order, planId: order.plan_id, action: "extend" })
             }
-            disabled={loadingId === `${order.id}:extend`}
-            sx={{ minHeight: 30, fontSize: "0.75rem", px: 1.2, borderRadius: 1.5, whiteSpace: "nowrap" }}
+            loading={loadingId === `${order.id}:extend`}
+            loadingText="Extending…"
           >
-            {loadingId === `${order.id}:extend` ? "Extending…" : "Extend"}
-          </Button>
-
-          <Button
-            variant="outlined"
-            color="error"
-            size="small"
+            Extend
+          </ActionButton>
+          <ActionButton
+            variant="destructiveOutline"
             onClick={() => setStopDialog({ open: true, order })}
-            sx={{ minHeight: 30, fontSize: "0.75rem", px: 1.2, borderRadius: 1.5, whiteSpace: "nowrap" }}
           >
             Stop
-          </Button>
+          </ActionButton>
         </>
       )}
 
       {(order.status === "stopped" || order.status === "expired") && (
-        <Button
-          variant="contained"
-          size="small"
+        <ActionButton
+          variant="primary"
           onClick={() =>
-            setRenewDialog({
-              open: true,
-              order,
-              planId: order.plan_id,
-              action: "renew",
-            })
+            setRenewDialog({ open: true, order, planId: order.plan_id, action: "renew" })
           }
-          disabled={loadingId === `${order.id}:renew`}
-          sx={{ minHeight: 30, fontSize: "0.75rem", px: 1.2, borderRadius: 1.5, whiteSpace: "nowrap" }}
+          loading={loadingId === `${order.id}:renew`}
+          loadingText="Renewing…"
         >
-          {loadingId === `${order.id}:renew` ? "Renewing…" : "Renew"}
-        </Button>
+          Renew
+        </ActionButton>
       )}
 
-      <IconButton
-        size="small"
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8"
+        title="Details"
         onClick={() => setDetailsDialog({ open: true, order })}
-        sx={{ width: 30, height: 30, borderRadius: 1.5, color: "text.secondary", "&:hover": { color: "primary.main" } }}
       >
-        <InfoOutlinedIcon sx={{ fontSize: 18 }} />
-      </IconButton>
-    </Stack>
+        <Info size={18} />
+      </Button>
+    </div>
   );
 
   if (loading) return <LoadingView />;
@@ -768,7 +618,7 @@ export function OrdersTable({
               </Box>
 
               {headerAction ? (
-                <Button
+                <MuiButton
                   variant="contained"
                   startIcon={headerAction.icon || <AddRoundedIcon />}
                   onClick={headerAction.onClick}
@@ -783,7 +633,7 @@ export function OrdersTable({
                   }}
                 >
                   {headerAction.label}
-                </Button>
+                </MuiButton>
               ) : null}
             </Stack>
 
@@ -828,7 +678,7 @@ export function OrdersTable({
                 ] as { value: OrderFilter; label: string }[]).map((item) => {
                   const active = filter === item.value;
                   return (
-                    <Button
+                    <MuiButton
                       key={item.value}
                       onClick={() => setFilter(item.value)}
                       disableElevation
@@ -859,7 +709,7 @@ export function OrdersTable({
                       }}
                     >
                       {item.label} ({filterCounts[item.value]})
-                    </Button>
+                    </MuiButton>
                   );
                 })}
               </Box>
@@ -896,7 +746,7 @@ export function OrdersTable({
                               {order.customer?.telegram_username || order.customer?.phone || "-"}
                             </Typography>
                           </Box>
-                          <StatusChip status={order.status} />
+                          <StatusBadge status={order.status} />
                         </Stack>
 
                         <Stack direction="row" spacing={2} sx={{ mb: 1.25 }}>
@@ -1015,22 +865,10 @@ export function OrdersTable({
                               </Typography>
                             </TableCell>
                             <TableCell>
-                              <StatusChip status={order.status} />
+                              <StatusBadge status={order.status} />
                             </TableCell>
                             <TableCell>
-                              <Chip
-                                size="small"
-                                label={order.payment_status}
-                                color={getStatusColor(order.payment_status) as any}
-                                variant="outlined"
-                                sx={{
-                                  height: 22,
-                                  fontSize: "0.68rem",
-                                  fontWeight: 700,
-                                  borderRadius: "6px",
-                                  "& .MuiChip-label": { px: 0.8 },
-                                }}
-                              />
+                              <StatusBadge status={order.payment_status} />
                             </TableCell>
                             <TableCell>
                               <Typography sx={{ fontSize: "0.82rem" }}>{formatDate(order.expiry_date)}</Typography>
@@ -1106,7 +944,7 @@ export function OrdersTable({
                 </Typography>
               </Stack>
 
-              <PornhubPagination page={currentPage} count={totalPages} onChange={handlePageChange} />
+              <TablePagination page={currentPage} count={totalPages} onChange={handlePageChange} />
             </Stack>
           </Stack>
         </CardContent>
@@ -1223,15 +1061,15 @@ export function OrdersTable({
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, pt: 0.5, gap: 1 }}>
-          <Button
+          <MuiButton
             variant="outlined"
             color="inherit"
             onClick={() => setRenewDialog({ open: false, order: null, planId: "", action: "renew" })}
             sx={{ borderRadius: 2, flex: 1, fontWeight: 700, whiteSpace: "nowrap" }}
           >
             Cancel
-          </Button>
-          <Button
+          </MuiButton>
+          <MuiButton
             variant="contained"
             onClick={() => void confirmRenew()}
             disabled={!renewDialog.order || loadingId === `${renewDialog.order?.id}:${renewDialog.action}`}
@@ -1244,7 +1082,7 @@ export function OrdersTable({
               : renewDialog.action === "extend"
                 ? "Confirm Extend"
                 : "Confirm Renew"}
-          </Button>
+          </MuiButton>
         </DialogActions>
       </Dialog>
 
@@ -1326,15 +1164,15 @@ export function OrdersTable({
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5, pt: 0.5, gap: 1 }}>
-          <Button
+          <MuiButton
             variant="outlined"
             color="inherit"
             onClick={() => setStopDialog({ open: false, order: null })}
             sx={{ borderRadius: 2, flex: 1, fontWeight: 700, whiteSpace: "nowrap" }}
           >
             Cancel
-          </Button>
-          <Button
+          </MuiButton>
+          <MuiButton
             variant="contained"
             color="error"
             onClick={() => void confirmStop()}
@@ -1350,7 +1188,7 @@ export function OrdersTable({
             }}
           >
             {stopDialog.order && loadingId === `${stopDialog.order.id}:stop` ? "Stopping…" : "Confirm Stop"}
-          </Button>
+          </MuiButton>
         </DialogActions>
       </Dialog>
 
@@ -1377,7 +1215,7 @@ export function OrdersTable({
                           "No contact info"}
                       </Typography>
                     </Box>
-                    <StatusChip status={detailsDialog.order.status} />
+                    <StatusBadge status={detailsDialog.order.status} />
                   </Stack>
 
                   <Grid container spacing={2}>
@@ -1387,15 +1225,7 @@ export function OrdersTable({
                     <Grid size={6}>
                       <DetailItem
                         label="Payment"
-                        value={
-                          <Chip
-                            size="small"
-                            label={detailsDialog.order.payment_status}
-                            color={getStatusColor(detailsDialog.order.payment_status) as any}
-                            variant="outlined"
-                            sx={{ height: 22, borderRadius: "6px", fontSize: "0.72rem", fontWeight: 700 }}
-                          />
-                        }
+                        value={<StatusBadge status={detailsDialog.order.payment_status} />}
                       />
                     </Grid>
                     <Grid size={6}>
@@ -1426,13 +1256,13 @@ export function OrdersTable({
           ) : null}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDetailsDialog({ open: false, order: null })} sx={{ borderRadius: 2 }}>
+          <MuiButton onClick={() => setDetailsDialog({ open: false, order: null })} sx={{ borderRadius: 2 }}>
             Close
-          </Button>
+          </MuiButton>
         </DialogActions>
       </Dialog>
 
-            <Dialog
+      <Dialog
         open={accessKeyDialog.open}
         onClose={() =>
           setAccessKeyDialog({
@@ -1660,7 +1490,7 @@ export function OrdersTable({
         </DialogContent>
 
         <DialogActions sx={{ px: 3, pb: 2.5, pt: 0, gap: 1 }}>
-          <Button
+          <MuiButton
             variant="outlined"
             color="inherit"
             onClick={() =>
@@ -1677,9 +1507,9 @@ export function OrdersTable({
             sx={{ borderRadius: 2, flex: 1, fontWeight: 700 }}
           >
             Close
-          </Button>
+          </MuiButton>
 
-          <Button
+          <MuiButton
             variant="contained"
             onClick={async () => {
               await copyText(
@@ -1707,10 +1537,10 @@ export function OrdersTable({
             sx={{ borderRadius: 2, flex: 1, fontWeight: 700 }}
           >
             Copy & Close
-          </Button>
+          </MuiButton>
         </DialogActions>
       </Dialog>
-      
+
       <Snackbar
         open={Boolean(message)}
         autoHideDuration={3000}
