@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo } from "react";
 import { CssBaseline, ThemeProvider, alpha, createTheme } from "@mui/material";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
@@ -10,8 +10,9 @@ import { OrdersPage } from "./pages/OrdersPage";
 import { PlansPage } from "./pages/PlansPage";
 import { TelegramOrdersPage } from "./pages/TelegramOrdersPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { ResellerLayout } from "./layouts/ResellerLayout";
-import { ColorModeContext } from "./theme/ColorModeContext";
+import { AppShell } from "./components/layout/AppShell";
+
+const UiPreview = lazy(() => import("./pages/UiPreview"));
 
 const VIOLET = "#7c3aed";
 const CYAN = "#06b6d4";
@@ -28,7 +29,7 @@ function buildTheme(mode: "light" | "dark") {
       success: { main: EMERALD },
       background: dark
         ? { default: "#070812", paper: "#0c0e1c" }
-        : { default: "#f0f2ff", paper: "#ffffff" },
+        : { default: "#f6f7f9", paper: "#ffffff" },
       text: dark
         ? { primary: "#e8eaf6", secondary: "#8892b0" }
         : { primary: "#0f0f23", secondary: "#5a6483" },
@@ -52,8 +53,8 @@ function buildTheme(mode: "light" | "dark") {
             backgroundImage: dark
               ? `radial-gradient(ellipse 80% 40% at 50% -10%, ${alpha(VIOLET, 0.18)}, transparent),
                  linear-gradient(180deg, #070812 0%, #090b18 100%)`
-              : `radial-gradient(ellipse 80% 40% at 50% -10%, ${alpha(VIOLET, 0.08)}, transparent),
-                 linear-gradient(180deg, #f0f2ff 0%, #eaecff 100%)`,
+              : "none",
+            backgroundColor: dark ? undefined : "#f6f7f9",
           },
         },
       },
@@ -170,57 +171,38 @@ function buildTheme(mode: "light" | "dark") {
 }
 
 export default function App() {
-  const [mode, setMode] = useState<"light" | "dark">(() => {
-    const saved = localStorage.getItem("reseller-dashboard-mode");
-    return saved === "light" ? "light" : "dark";
-  });
-
-  const colorMode = useMemo(
-    () => ({
-      mode,
-      toggleColorMode: () => {
-        setMode((prev) => {
-          const next = prev === "dark" ? "light" : "dark";
-          localStorage.setItem("reseller-dashboard-mode", next);
-          return next;
-        });
-      },
-    }),
-    [mode]
-  );
-
-  const theme = useMemo(() => buildTheme(mode), [mode]);
+  const theme = useMemo(() => buildTheme("light"), []);
 
   return (
-    <ColorModeContext.Provider value={colorMode}>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <ResellerAuthProvider>
-          <DashboardDataProvider>
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <ResellerAuthProvider>
+        <DashboardDataProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
 
-              <Route
-                path="/app"
-                element={
-                  <ProtectedRoute>
-                    <ResellerLayout />
-                  </ProtectedRoute>
-                }
-              >
-                <Route index element={<Navigate to="overview" replace />} />
-                <Route path="overview" element={<OverviewPage />} />
-                <Route path="orders" element={<OrdersPage />} />
-                <Route path="telegram-orders" element={<TelegramOrdersPage />} />
-                <Route path="plans" element={<PlansPage />} />
-                <Route path="settings" element={<SettingsPage />} />
-              </Route>
+            <Route path="/ui-preview" element={<Suspense><UiPreview /></Suspense>} />
 
-              <Route path="*" element={<Navigate to="/app" replace />} />
-            </Routes>
-          </DashboardDataProvider>
-        </ResellerAuthProvider>
-      </ThemeProvider>
-    </ColorModeContext.Provider>
+            <Route
+              path="/app"
+              element={
+                <ProtectedRoute>
+                  <AppShell />
+                </ProtectedRoute>
+              }
+            >
+              <Route index element={<Navigate to="overview" replace />} />
+              <Route path="overview" element={<OverviewPage />} />
+              <Route path="orders" element={<OrdersPage />} />
+              <Route path="telegram-orders" element={<TelegramOrdersPage />} />
+              <Route path="plans" element={<PlansPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
+
+            <Route path="*" element={<Navigate to="/app" replace />} />
+          </Routes>
+        </DashboardDataProvider>
+      </ResellerAuthProvider>
+    </ThemeProvider>
   );
 }
