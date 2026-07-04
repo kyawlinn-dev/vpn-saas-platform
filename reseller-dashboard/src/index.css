@@ -1,10 +1,8 @@
 @import "tailwindcss";
 
-/* NovaNet Reseller — Light "Flup-style" shadcn token foundation (Phase 0).
+/* NovaNet Reseller — Light "Flup-style" shadcn token foundation.
    Maps Tailwind utility names (bg-card, text-muted-foreground, border-border…)
-   to the CSS variables in :root. Coexists with MUI: Emotion class selectors
-   outrank Tailwind's element-level Preflight, so MUI pages render unchanged.
-   Do NOT enable MUI injectFirst. Do NOT add body/html base styles here. */
+   to the CSS variables in :root. */
 
 @theme inline {
   --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
@@ -102,4 +100,11 @@
   --sidebar-ring: #7c3aed;
 
   --radius: 0.75rem;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }

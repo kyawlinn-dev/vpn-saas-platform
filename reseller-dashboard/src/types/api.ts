@@ -146,6 +146,17 @@ export interface PaymentMethod {
   account_number: string;
 }
 
+export interface BotStatus {
+  token_saved: boolean;
+  token_valid: boolean;
+  webhook_registered: boolean;
+  running: boolean;
+  connected: boolean;
+  bot_username: Nullable<string>;
+  bot_id: Nullable<number>;
+  webhook_registered_at?: Nullable<string>;
+}
+
 export interface WorkspaceSettings {
   miniapp_slug: string;
   brand_name: string;
@@ -157,6 +168,7 @@ export interface WorkspaceSettings {
   trial_duration_days: number | null;
   payment_info: PaymentMethod[];
   bot_connected: boolean;
+  bot_status?: BotStatus;
 }
 
 export interface ServerInventoryCounts {

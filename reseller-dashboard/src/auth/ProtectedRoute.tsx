@@ -1,5 +1,4 @@
 import type { PropsWithChildren } from "react";
-import { Box, CircularProgress } from "@mui/material";
 import { Navigate, useLocation } from "react-router-dom";
 import { useResellerAuth } from "../providers/ResellerAuthProvider";
 
@@ -9,14 +8,9 @@ export function ProtectedRoute({ children }: PropsWithChildren) {
 
   if (initializing) {
     return (
-      <Box
-        minHeight="100vh"
-        display="flex"
-        alignItems="center"
-        justifyContent="center"
-      >
-        <CircularProgress />
-      </Box>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
     );
   }
 

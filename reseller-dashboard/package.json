@@ -10,10 +10,6 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.1",
-    "@mui/icons-material": "^7.0.1",
-    "@mui/material": "^7.0.1",
     "@supabase/supabase-js": "^2.100.0",
     "@tailwindcss/vite": "^4.3.2",
     "axios": "^1.8.4",
