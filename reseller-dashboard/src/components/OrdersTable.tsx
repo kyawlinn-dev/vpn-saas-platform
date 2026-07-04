@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
-import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import {
   Alert,
   Box,
   Button as MuiButton,
-  Card,
+  Card as MuiCard,
+  CardContent as MuiCardContent,
   Snackbar,
-  CardContent,
   Dialog,
   DialogActions,
   DialogContent,
@@ -16,16 +14,8 @@ import {
   Divider,
   Grid,
   IconButton,
-  InputAdornment,
   MenuItem,
-  Select,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
   TextField,
   Tooltip,
   Typography,
@@ -33,7 +23,12 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { Copy, Info, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Plus, Copy, Info, ChevronLeft, ChevronRight } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { FilterChips } from "@/components/ui/filter-chips";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { UsageBar } from "@/components/ui/usage-bar";
 import { Button } from "@/components/ui/button";
@@ -591,365 +586,234 @@ export function OrdersTable({
 
   return (
     <>
-      <Card ref={tableRef} sx={{ borderRadius: 2, scrollMarginTop: "80px" }}>
-        <CardContent sx={{ p: { xs: 1.5, md: 2.5 } }}>
-          <Stack spacing={2}>
-            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1.5}>
-              <Box>
-                <Typography
-                  sx={{
-                    fontSize: { xs: "1.35rem", md: "1.6rem" },
-                    fontWeight: 800,
-                    lineHeight: 1.1,
-                    fontFamily: "'Outfit', sans-serif",
-                  }}
-                >
-                  {title}
-                </Typography>
-                {!compactMobile && description ? (
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ mt: 0.4, fontSize: "0.85rem" }}
-                  >
-                    {description}
-                  </Typography>
-                ) : null}
-              </Box>
-
-              {headerAction ? (
-                <MuiButton
-                  variant="contained"
-                  startIcon={headerAction.icon || <AddRoundedIcon />}
-                  onClick={headerAction.onClick}
-                  disabled={headerAction.disabled}
-                  sx={{
-                    borderRadius: 2,
-                    minHeight: { xs: 36, md: 40 },
-                    px: { xs: 1.4, md: 2 },
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                    fontSize: { xs: "0.8rem", md: "0.88rem" },
-                  }}
-                >
-                  {headerAction.label}
-                </MuiButton>
-              ) : null}
-            </Stack>
-
-            {showSearch ? (
-              <TextField
-                size="small"
-                fullWidth
-                placeholder="Search customer, plan, phone, Telegram…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchRoundedIcon fontSize="small" />
-                    </InputAdornment>
-                  ),
-                }}
-              />
+      <Card ref={tableRef} className="scroll-mt-20 p-4 md:p-6 space-y-4">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl md:text-2xl font-bold font-display tracking-tight text-foreground">
+              {title}
+            </h2>
+            {!compactMobile && description ? (
+              <p className="mt-1 text-sm text-muted-foreground">{description}</p>
             ) : null}
-
-            {showFilters ? (
-              <Box
-                sx={{
-                  display: "flex",
-                  gap: 0.75,
-                  overflowX: "auto",
-                  pb: 0.5,
-                  scrollbarWidth: "none",
-                  "&::-webkit-scrollbar": { display: "none" },
-                  mx: { xs: -1.5, md: 0 },
-                  px: { xs: 1.5, md: 0 },
-                }}
-              >
-                {([
-                  { value: "all", label: "All" },
-                  { value: "pending", label: "Pending" },
-                  { value: "active", label: "Active" },
-                  { value: "expiring", label: "Expire soon" },
-                  { value: "overdue", label: "Overdue" },
-                  { value: "expired", label: "Expired" },
-                  { value: "stopped", label: "Stopped" },
-                ] as { value: OrderFilter; label: string }[]).map((item) => {
-                  const active = filter === item.value;
-                  return (
-                    <MuiButton
-                      key={item.value}
-                      onClick={() => setFilter(item.value)}
-                      disableElevation
-                      sx={{
-                        flex: "0 0 auto",
-                        whiteSpace: "nowrap",
-                        minHeight: 30,
-                        px: 1.4,
-                        fontSize: "0.78rem",
-                        fontWeight: 700,
-                        borderRadius: "50px",
-                        color: active
-                          ? "#fff"
-                          : dark
-                            ? alpha("#e8eaf6", 0.6)
-                            : alpha("#0f0f23", 0.5),
-                        bgcolor: active ? VIOLET : dark ? alpha("#fff", 0.05) : alpha("#000", 0.04),
-                        border: `1px solid ${active ? VIOLET : dark ? alpha("#fff", 0.1) : alpha("#000", 0.1)}`,
-                        boxShadow: active ? `0 3px 10px ${alpha(VIOLET, 0.35)}` : "none",
-                        "&:hover": {
-                          bgcolor: active
-                            ? "#9f67ff"
-                            : dark
-                              ? alpha("#fff", 0.09)
-                              : alpha(VIOLET, 0.07),
-                          color: active ? "#fff" : VIOLET,
-                        },
-                      }}
-                    >
-                      {item.label} ({filterCounts[item.value]})
-                    </MuiButton>
-                  );
-                })}
-              </Box>
-            ) : null}
-
-            {mobile ? (
-              <Stack spacing={1}>
-                {pagedOrders.length === 0 ? (
-                  <Alert severity="info">No matching orders found.</Alert>
-                ) : (
-                  pagedOrders.map((order) => {
-                    const expirySoon = isExpiringSoon(order.expiry_date, 7) && order.status === "active";
-                    return (
-                      <Box
-                        key={order.id}
-                        sx={{
-                          borderRadius: 2,
-                          border: `1px solid ${dark ? alpha(VIOLET, 0.1) : alpha("#000", 0.07)}`,
-                          bgcolor: dark ? alpha("#fff", 0.025) : alpha("#fff", 0.7),
-                          p: 1.5,
-                        }}
-                      >
-                        <Stack
-                          direction="row"
-                          justifyContent="space-between"
-                          alignItems="flex-start"
-                          sx={{ mb: 0.75 }}
-                        >
-                          <Box sx={{ minWidth: 0, mr: 1 }}>
-                            <Typography sx={{ fontWeight: 700, fontSize: "0.92rem", lineHeight: 1.2 }}>
-                              {order.customer?.full_name || "Unknown"}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.73rem" }}>
-                              {order.customer?.telegram_username || order.customer?.phone || "-"}
-                            </Typography>
-                          </Box>
-                          <StatusBadge status={order.status} />
-                        </Stack>
-
-                        <Stack direction="row" spacing={2} sx={{ mb: 1.25 }}>
-                          <Box>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{
-                                fontSize: "0.68rem",
-                                fontWeight: 600,
-                                textTransform: "uppercase",
-                                letterSpacing: "0.04em",
-                              }}
-                            >
-                              Plan
-                            </Typography>
-                            <Typography sx={{ fontSize: "0.82rem", fontWeight: 600 }}>
-                              {order.plan?.name || "-"}
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{
-                                fontSize: "0.68rem",
-                                fontWeight: 600,
-                                textTransform: "uppercase",
-                                letterSpacing: "0.04em",
-                              }}
-                            >
-                              Expiry
-                            </Typography>
-                            <Typography
-                              sx={{
-                                fontSize: "0.82rem",
-                                fontWeight: 600,
-                                color: expirySoon ? "error.main" : "text.primary",
-                              }}
-                            >
-                              {formatDaysLeft(order.expiry_date) || "-"}
-                            </Typography>
-                          </Box>
-                          <Box>
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{
-                                fontSize: "0.68rem",
-                                fontWeight: 600,
-                                textTransform: "uppercase",
-                                letterSpacing: "0.04em",
-                              }}
-                            >
-                              Price
-                            </Typography>
-                            <Typography sx={{ fontSize: "0.82rem", fontWeight: 700 }}>
-                              {formatMMK(order.price_mmk)}
-                            </Typography>
-                          </Box>
-                        </Stack>
-
-                        <Divider sx={{ mb: 1 }} />
-                        {renderActions(order)}
-                      </Box>
-                    );
-                  })
-                )}
-              </Stack>
-            ) : (
-              <TableContainer
-                sx={{
-                  borderRadius: 1.5,
-                  border: `1px solid ${dark ? alpha(VIOLET, 0.1) : alpha("#000", 0.06)}`,
-                }}
-              >
-                <Table size="small" sx={{ tableLayout: "fixed", width: "100%" }}>
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: dark ? alpha("#fff", 0.03) : alpha("#000", 0.02) }}>
-                      <TableCell sx={{ width: "22%" }}>Customer</TableCell>
-                      <TableCell sx={{ width: "13%" }}>Plan</TableCell>
-                      <TableCell sx={{ width: "10%" }}>Status</TableCell>
-                      <TableCell sx={{ width: "9%" }}>Payment</TableCell>
-                      <TableCell sx={{ width: "13%" }}>Expiry</TableCell>
-                      <TableCell sx={{ width: "12%" }}>Usage</TableCell>
-                      <TableCell sx={{ width: "8%" }}>Access</TableCell>
-                      <TableCell sx={{ width: "8%" }}>Price</TableCell>
-                      <TableCell sx={{ width: "15%" }}>Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {pagedOrders.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={9}>
-                          <Alert severity="info">No matching orders found.</Alert>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      pagedOrders.map((order) => {
-                        const key = activeKeyByOrderId[order.id];
-                        const expirySoon = isExpiringSoon(order.expiry_date, 7) && order.status === "active";
-
-                        return (
-                          <TableRow key={order.id} hover sx={{ "& td": { py: 1 } }}>
-                            <TableCell>
-                              <Typography sx={{ fontWeight: 600, fontSize: "0.87rem", lineHeight: 1.2 }}>
-                                {order.customer?.full_name || "Unknown"}
-                              </Typography>
-                              <Typography sx={{ fontSize: "0.71rem", color: "text.secondary" }}>
-                                {order.customer?.telegram_username || order.customer?.phone || "-"}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography sx={{ fontWeight: 600, fontSize: "0.85rem" }}>
-                                {order.plan?.name || "-"}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <StatusBadge status={order.status} />
-                            </TableCell>
-                            <TableCell>
-                              <StatusBadge status={order.payment_status} />
-                            </TableCell>
-                            <TableCell>
-                              <Typography sx={{ fontSize: "0.82rem" }}>{formatDate(order.expiry_date)}</Typography>
-                              <Typography
-                                sx={{
-                                  fontSize: "0.75rem",
-                                  color: expirySoon ? "error.main" : "text.secondary",
-                                }}
-                              >
-                                {formatDaysLeft(order.expiry_date)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              <Typography sx={{ fontSize: "0.82rem" }}>
-                                {key ? formatUsageGb(Number(key.used_gb_30d || 0)) : "-"}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>
-                              {key?.access_url ? (
-                                <IconButton size="small" onClick={() => void copyText(key.access_url!, "Access URL")}>
-                                  <ContentCopyIcon sx={{ fontSize: 16 }} />
-                                </IconButton>
-                              ) : (
-                                <Typography sx={{ fontSize: "0.82rem" }} color="text.secondary">
-                                  -
-                                </Typography>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              <Typography sx={{ fontSize: "0.85rem", fontWeight: 700 }}>
-                                {formatMMK(order.price_mmk)}
-                              </Typography>
-                            </TableCell>
-                            <TableCell>{renderActions(order)}</TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
-
-            <Divider />
-
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              justifyContent="space-between"
-              alignItems={{ xs: "center", sm: "center" }}
-              spacing={1.5}
+          </div>
+          {headerAction ? (
+            <Button
+              variant="primary"
+              leftIcon={headerAction.icon ?? <Plus size={16} />}
+              onClick={headerAction.onClick}
+              disabled={headerAction.disabled}
             >
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.82rem" }}>
-                  Rows
-                </Typography>
-                <Select
-                  size="small"
-                  value={rowsPerPage}
-                  onChange={(e) => setRowsPerPage(Number(e.target.value))}
-                  sx={{ minWidth: 64, height: 32, borderRadius: 1.5 }}
-                >
-                  {rowsPerPageOptions.map((o) => (
-                    <MenuItem key={o} value={o}>
-                      {o}
-                    </MenuItem>
-                  ))}
-                </Select>
-                <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.82rem" }}>
-                  {filteredOrders.length === 0
-                    ? "0–0"
-                    : `${(currentPage - 1) * rowsPerPage + 1}–${Math.min(currentPage * rowsPerPage, filteredOrders.length)}`}{" "}
-                  of {filteredOrders.length}
-                </Typography>
-              </Stack>
+              {headerAction.label}
+            </Button>
+          ) : null}
+        </div>
 
-              <TablePagination page={currentPage} count={totalPages} onChange={handlePageChange} />
-            </Stack>
-          </Stack>
-        </CardContent>
+        {/* Search */}
+        {showSearch ? (
+          <div className="relative">
+            <Search
+              size={16}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              className="pl-9"
+              placeholder="Search customer, plan, phone, Telegram…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+        ) : null}
+
+        {/* Filter chips */}
+        {showFilters ? (
+          <FilterChips
+            value={filter}
+            onChange={(v) => setFilter(v as OrderFilter)}
+            options={[
+              { value: "all", label: "All", count: filterCounts.all },
+              { value: "pending", label: "Pending", count: filterCounts.pending },
+              { value: "active", label: "Active", count: filterCounts.active },
+              { value: "expiring", label: "Expire soon", count: filterCounts.expiring },
+              { value: "overdue", label: "Overdue", count: filterCounts.overdue },
+              { value: "expired", label: "Expired", count: filterCounts.expired },
+              { value: "stopped", label: "Stopped", count: filterCounts.stopped },
+            ]}
+          />
+        ) : null}
+
+        {/* Mobile cards / Desktop table */}
+        {mobile ? (
+          <div className="space-y-2">
+            {pagedOrders.length === 0 ? (
+              <div className="rounded-md border border-border bg-secondary/40 px-4 py-6 text-center text-sm text-muted-foreground">
+                No matching orders found.
+              </div>
+            ) : (
+              pagedOrders.map((order) => {
+                const expirySoon = isExpiringSoon(order.expiry_date, 7) && order.status === "active";
+                return (
+                  <div key={order.id} className="rounded-lg border border-border bg-card p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate">
+                          {order.customer?.full_name || "Unknown"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {order.customer?.telegram_username || order.customer?.phone || "-"}
+                        </div>
+                      </div>
+                      <StatusBadge status={order.status} />
+                    </div>
+
+                    <div className="mt-3 flex gap-6">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Plan
+                        </div>
+                        <div className="text-sm font-medium">{order.plan?.name || "-"}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Expiry
+                        </div>
+                        <div className={`text-sm font-medium${expirySoon ? " text-destructive" : ""}`}>
+                          {formatDaysLeft(order.expiry_date) || "-"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          Price
+                        </div>
+                        <div className="text-sm font-medium">{formatMMK(order.price_mmk)}</div>
+                      </div>
+                    </div>
+
+                    <div className="my-3 h-px bg-border" />
+                    {renderActions(order)}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : (
+          <Table className="table-fixed">
+            <TableHeader>
+              <TableRow className="hover:bg-transparent">
+                <TableHead style={{ width: "22%" }}>Customer</TableHead>
+                <TableHead style={{ width: "13%" }}>Plan</TableHead>
+                <TableHead style={{ width: "10%" }}>Status</TableHead>
+                <TableHead style={{ width: "9%" }}>Payment</TableHead>
+                <TableHead style={{ width: "13%" }}>Expiry</TableHead>
+                <TableHead style={{ width: "12%" }}>Usage</TableHead>
+                <TableHead style={{ width: "8%" }}>Access</TableHead>
+                <TableHead style={{ width: "8%" }}>Price</TableHead>
+                <TableHead style={{ width: "15%" }}>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pagedOrders.length === 0 ? (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={9}>
+                    <div className="py-4 text-center text-sm text-muted-foreground">
+                      No matching orders found.
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pagedOrders.map((order) => {
+                  const key = activeKeyByOrderId[order.id];
+                  const expirySoon = isExpiringSoon(order.expiry_date, 7) && order.status === "active";
+                  return (
+                    <TableRow key={order.id}>
+                      <TableCell>
+                        <div className="text-sm font-medium">
+                          {order.customer?.full_name || "Unknown"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {order.customer?.telegram_username || order.customer?.phone || "-"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm font-medium">{order.plan?.name || "-"}</div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={order.status} />
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={order.payment_status} />
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">{formatDate(order.expiry_date)}</div>
+                        <div className={`text-xs${expirySoon ? " text-destructive" : " text-muted-foreground"}`}>
+                          {formatDaysLeft(order.expiry_date)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          {key ? formatUsageGb(Number(key.used_gb_30d || 0)) : "-"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {key?.access_url ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            title="Copy access URL"
+                            onClick={() => void copyText(key.access_url!, "Access URL")}
+                          >
+                            <Copy size={15} />
+                          </Button>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm font-semibold">{formatMMK(order.price_mmk)}</div>
+                      </TableCell>
+                      <TableCell>{renderActions(order)}</TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        )}
+
+        {/* Pagination footer */}
+        <div className="h-px bg-border" />
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>Rows</span>
+            <div className="w-[72px] shrink-0">
+              <Select
+                value={rowsPerPage}
+                onChange={(e) => setRowsPerPage(Number(e.target.value))}
+                className="h-8"
+              >
+                {rowsPerPageOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <span>
+              {filteredOrders.length === 0
+                ? "0–0"
+                : `${(currentPage - 1) * rowsPerPage + 1}–${Math.min(
+                    currentPage * rowsPerPage,
+                    filteredOrders.length
+                  )}`}{" "}
+              of {filteredOrders.length}
+            </span>
+          </div>
+          <TablePagination page={currentPage} count={totalPages} onChange={handlePageChange} />
+        </div>
       </Card>
 
+      {/* ── Renew / Extend dialog (still MUI) ── */}
       <Dialog
         open={renewDialog.open}
         onClose={() => setRenewDialog({ open: false, order: null, planId: "", action: "renew" })}
@@ -1086,6 +950,7 @@ export function OrdersTable({
         </DialogActions>
       </Dialog>
 
+      {/* ── Stop dialog (still MUI) ── */}
       <Dialog
         open={stopDialog.open}
         onClose={() => setStopDialog({ open: false, order: null })}
@@ -1192,6 +1057,7 @@ export function OrdersTable({
         </DialogActions>
       </Dialog>
 
+      {/* ── Details dialog (still MUI) ── */}
       <Dialog
         open={detailsDialog.open}
         onClose={() => setDetailsDialog({ open: false, order: null })}
@@ -1201,8 +1067,8 @@ export function OrdersTable({
         <DialogTitle sx={{ pb: 1 }}>Order Details</DialogTitle>
         <DialogContent>
           {detailsDialog.order ? (
-            <Card variant="outlined" sx={{ borderRadius: 2 }}>
-              <CardContent sx={{ p: 2 }}>
+            <MuiCard variant="outlined" sx={{ borderRadius: 2 }}>
+              <MuiCardContent sx={{ p: 2 }}>
                 <Stack spacing={2}>
                   <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
                     <Box>
@@ -1251,8 +1117,8 @@ export function OrdersTable({
                     {renderAccess(detailsDialog.order)}
                   </Box>
                 </Stack>
-              </CardContent>
-            </Card>
+              </MuiCardContent>
+            </MuiCard>
           ) : null}
         </DialogContent>
         <DialogActions>
@@ -1262,6 +1128,7 @@ export function OrdersTable({
         </DialogActions>
       </Dialog>
 
+      {/* ── Access key dialog (still MUI) ── */}
       <Dialog
         open={accessKeyDialog.open}
         onClose={() =>
@@ -1482,8 +1349,7 @@ export function OrdersTable({
                   lineHeight: 1.5,
                 }}
               >
-                Share this URL with the customer. They can import it into their
-                Outline or compatible VPN app.
+                Share this URL with the customer. They can import it into their Outline or compatible VPN app.
               </Typography>
             </Stack>
           </Stack>
@@ -1541,6 +1407,7 @@ export function OrdersTable({
         </DialogActions>
       </Dialog>
 
+      {/* ── Success snackbar ── */}
       <Snackbar
         open={Boolean(message)}
         autoHideDuration={3000}
@@ -1569,6 +1436,7 @@ export function OrdersTable({
         </Alert>
       </Snackbar>
 
+      {/* ── Error snackbar ── */}
       <Snackbar
         open={Boolean(error)}
         autoHideDuration={4000}
