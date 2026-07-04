@@ -1,6 +1,5 @@
 import { useState } from "react";
-import AddRoundedIcon from "@mui/icons-material/AddRounded";
-import { Alert } from "@mui/material";
+import { Plus } from "lucide-react";
 import { CreateOrderDialog } from "../components/CreateOrderDialog";
 import { OrdersTable } from "../components/OrdersTable";
 import { useScopedDashboard } from "../hooks/useScopedDashboard";
@@ -13,15 +12,15 @@ export function OrdersPage() {
   return (
     <>
       {!loading && plans.length === 0 ? (
-        <Alert severity="warning" sx={{ mb: 2 }}>
+        <div className="mb-4 rounded-md border border-warning/25 bg-warning/10 px-4 py-3 text-sm text-[color:var(--warning)]">
           No active plans are available yet. Add plans from the admin side first.
-        </Alert>
+        </div>
       ) : null}
 
       {error ? (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <div className="mb-4 rounded-md border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
-        </Alert>
+        </div>
       ) : null}
 
       <OrdersTable
@@ -40,7 +39,7 @@ export function OrdersPage() {
         resetTrigger={orderResetTrigger}
         headerAction={{
           label: "Create Order",
-          icon: <AddRoundedIcon />,
+          icon: <Plus size={16} />,
           onClick: () => setOpenCreateModal(true),
           disabled: plans.length === 0,
         }}
