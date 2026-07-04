@@ -26,6 +26,7 @@ import resellerWorkspaceRouter from "./routes/reseller/resellerWorkspaceRouter.j
 
 import resellerOrdersRouter from "./routes/reseller/resellerOrdersRouter.js";
 import resellerKeysRouter from "./routes/reseller/resellerKeysRouter.js";
+import resellerCustomersRouter from "./routes/reseller/resellerCustomersRouter.js";
 import orderActionRoutes from "./routes/reseller/orderActionRoutes.js";
 import planRoutes from "./routes/public/planRoutes.js";
 import subscriptionRoutes from "./routes/public/subscriptionRoutes.js";
@@ -212,6 +213,14 @@ app.use(
   requireAuth,
   requireActiveReseller,
   resellerKeysRouter
+);
+
+app.use(
+  "/api/reseller/customers",
+  requireTrustedOrigin,
+  requireAuth,
+  requireActiveReseller,
+  resellerCustomersRouter
 );
 
 app.use(
