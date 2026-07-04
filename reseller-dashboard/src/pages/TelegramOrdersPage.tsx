@@ -1,37 +1,18 @@
 import { useMemo, useState } from "react";
-import OpenInNewRoundedIcon from "@mui/icons-material/OpenInNewRounded";
-import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
-import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
-import CancelRoundedIcon from "@mui/icons-material/CancelRounded";
-import SmartToyRoundedIcon from "@mui/icons-material/SmartToyRounded";
-import ImageRoundedIcon from "@mui/icons-material/ImageRounded";
 import {
-  Alert,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Grid,
-  IconButton,
-  LinearProgress,
-  MenuItem,
-  Select,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Typography,
-  alpha,
-  useTheme,
-} from "@mui/material";
+  RefreshCw, Image as ImageIcon, ExternalLink, CheckCircle2, XCircle, Bot,
+} from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Select } from "@/components/ui/select";
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
+} from "@/components/ui/table";
+import {
+  Dialog, DialogHeader, DialogTitle, DialogDescription,
+  DialogBody, DialogFooter,
+} from "@/components/ui/dialog";
 import { api } from "../lib/api";
 import { formatDate, formatMMK } from "../lib/format";
 import { useScopedDashboard } from "../hooks/useScopedDashboard";
@@ -39,91 +20,19 @@ import type { Order } from "../types/api";
 
 function ReviewChip({ value }: { value?: string | null }) {
   const v = String(value || "pending_review");
-
-  const map: Record<string, { label: string; sx: Record<string, unknown> }> = {
-    pending_review: {
-      label: "Pending Review",
-      sx: {
-        bgcolor: "rgba(245, 158, 11, 0.14)",
-        color: "#f59e0b",
-        border: "1px solid rgba(245, 158, 11, 0.3)",
-      },
-    },
-    confirmed: {
-      label: "Confirmed",
-      sx: {
-        bgcolor: "rgba(16, 185, 129, 0.14)",
-        color: "#10b981",
-        border: "1px solid rgba(16, 185, 129, 0.3)",
-      },
-    },
-    rejected: {
-      label: "Rejected",
-      sx: {
-        bgcolor: "rgba(239, 68, 68, 0.14)",
-        color: "#ef4444",
-        border: "1px solid rgba(239, 68, 68, 0.3)",
-      },
-    },
-  };
-
-  const item = map[v] || map.pending_review;
-
   return (
-    <Chip
-      size="small"
-      label={item.label}
-      sx={{
-        fontWeight: 700,
-        borderRadius: "999px",
-        ...item.sx,
-      }}
-    />
+    <Badge variant={v === "confirmed" ? "success" : v === "rejected" ? "destructive" : "warning"}>
+      {v === "confirmed" ? "Confirmed" : v === "rejected" ? "Rejected" : "Pending Review"}
+    </Badge>
   );
 }
 
 function AccessChip({ value }: { value?: string | null }) {
   const v = String(value || "pending");
-
-  const map: Record<string, { label: string; sx: Record<string, unknown> }> = {
-    active: {
-      label: "Active",
-      sx: {
-        bgcolor: "rgba(16, 185, 129, 0.14)",
-        color: "#10b981",
-        border: "1px solid rgba(16, 185, 129, 0.3)",
-      },
-    },
-    stopped: {
-      label: "Stopped",
-      sx: {
-        bgcolor: "rgba(107, 114, 128, 0.14)",
-        color: "#9ca3af",
-        border: "1px solid rgba(107, 114, 128, 0.3)",
-      },
-    },
-    pending: {
-      label: "Pending",
-      sx: {
-        bgcolor: "rgba(59, 130, 246, 0.14)",
-        color: "#60a5fa",
-        border: "1px solid rgba(59, 130, 246, 0.3)",
-      },
-    },
-  };
-
-  const item = map[v] || map.pending;
-
   return (
-    <Chip
-      size="small"
-      label={item.label}
-      sx={{
-        fontWeight: 700,
-        borderRadius: "999px",
-        ...item.sx,
-      }}
-    />
+    <Badge variant={v === "active" ? "success" : v === "stopped" ? "default" : "info"}>
+      {v === "active" ? "Active" : v === "stopped" ? "Stopped" : "Pending"}
+    </Badge>
   );
 }
 
@@ -139,8 +48,6 @@ function getTelegramOrders(orders: Order[]) {
 }
 
 export function TelegramOrdersPage() {
-  const theme = useTheme();
-  const dark = theme.palette.mode === "dark";
   const { orders, refresh, loading, error } = useScopedDashboard();
 
   const [reviewFilter, setReviewFilter] = useState("pending_review");
@@ -181,11 +88,15 @@ export function TelegramOrdersPage() {
     if (signedUrls[orderId]) return signedUrls[orderId];
     try {
       setFetchingSignedUrl(orderId);
+      setActionError("");
       const response = await api.get(`/reseller/orders/${orderId}/screenshot-url`);
       const url = response.data.signed_url as string;
       setSignedUrls((prev) => ({ ...prev, [orderId]: url }));
       return url;
-    } catch {
+    } catch (err: any) {
+      setActionError(
+        err?.response?.data?.error || err?.message || "Payment screenshot is not available."
+      );
       return null;
     } finally {
       setFetchingSignedUrl(null);
@@ -229,231 +140,190 @@ export function TelegramOrdersPage() {
   };
 
   return (
-    <Stack spacing={2.5}>
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        spacing={1.5}
-        justifyContent="space-between"
-        alignItems={{ xs: "stretch", md: "center" }}
-      >
-        <Box>
-          <Typography variant="h5" sx={{ mb: 0.5 }}>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight font-display text-foreground">
             Telegram Orders
-          </Typography>
-          <Typography color="text.secondary">
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             Review instant-access purchases from Mini App and bot. Confirm valid payments or reject fake ones.
-          </Typography>
-        </Box>
-
+          </p>
+        </div>
         <Button
-          variant="outlined"
-          startIcon={<RefreshRoundedIcon />}
+          variant="outline"
+          leftIcon={<RefreshCw size={16} className={loading ? "animate-spin" : undefined} />}
           onClick={() => void refresh()}
           disabled={loading}
         >
           Refresh
         </Button>
-      </Stack>
+      </div>
 
-      {loading ? <LinearProgress /> : null}
+      {/* Loading bar */}
+      {loading ? (
+        <div className="h-1 w-full overflow-hidden rounded bg-secondary">
+          <div className="h-full w-1/3 animate-pulse rounded bg-primary" />
+        </div>
+      ) : null}
 
-      {error ? <Alert severity="error">{error}</Alert> : null}
-      {actionError ? <Alert severity="error">{actionError}</Alert> : null}
+      {/* Alerts */}
+      {error ? (
+        <div className="rounded-md border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
+      {actionError ? (
+        <div className="rounded-md border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {actionError}
+        </div>
+      ) : null}
 
-      <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 3 }}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" variant="body2">
-                Total Telegram Orders
-              </Typography>
-              <Typography variant="h5" sx={{ mt: 1 }}>
-                {counts.total}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="p-4">
+          <div className="text-sm text-muted-foreground">Total Telegram Orders</div>
+          <div className="mt-1 text-2xl font-bold font-display text-foreground">{counts.total}</div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-sm text-muted-foreground">Pending Review</div>
+          <div className="mt-1 text-2xl font-bold font-display text-[color:var(--warning)]">
+            {counts.pending}
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-sm text-muted-foreground">Confirmed</div>
+          <div className="mt-1 text-2xl font-bold font-display text-[color:var(--success)]">
+            {counts.confirmed}
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="text-sm text-muted-foreground">Rejected</div>
+          <div className="mt-1 text-2xl font-bold font-display text-destructive">
+            {counts.rejected}
+          </div>
+        </Card>
+      </div>
 
-        <Grid size={{ xs: 12, md: 3 }}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" variant="body2">
-                Pending Review
-              </Typography>
-              <Typography variant="h5" sx={{ mt: 1, color: "#f59e0b" }}>
-                {counts.pending}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
+      {/* Filter bar + orders */}
+      <Card className="p-4 space-y-4">
+        {/* Filters row */}
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Select
+              value={reviewFilter}
+              onChange={(e) => setReviewFilter(String(e.target.value))}
+              className="md:w-[180px]"
+            >
+              <option value="pending_review">Pending Review</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="rejected">Rejected</option>
+              <option value="all">All Review States</option>
+            </Select>
+            <Select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(String(e.target.value))}
+              className="md:w-[160px]"
+            >
+              <option value="all">All Sources</option>
+              <option value="miniapp">Mini App</option>
+              <option value="bot">Bot</option>
+            </Select>
+          </div>
+          <Badge variant="default" className="gap-1 self-start md:self-center">
+            <Bot size={14} />
+            {filteredOrders.length} result{filteredOrders.length === 1 ? "" : "s"}
+          </Badge>
+        </div>
 
-        <Grid size={{ xs: 12, md: 3 }}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" variant="body2">
-                Confirmed
-              </Typography>
-              <Typography variant="h5" sx={{ mt: 1, color: "#10b981" }}>
-                {counts.confirmed}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        <Grid size={{ xs: 12, md: 3 }}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" variant="body2">
-                Rejected
-              </Typography>
-              <Typography variant="h5" sx={{ mt: 1, color: "#ef4444" }}>
-                {counts.rejected}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
-      <Card>
-        <CardContent>
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            spacing={1.5}
-            justifyContent="space-between"
-            alignItems={{ xs: "stretch", md: "center" }}
-            sx={{ mb: 2 }}
-          >
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
-              <Select
-                value={reviewFilter}
-                onChange={(e) => setReviewFilter(String(e.target.value))}
-                size="small"
-                sx={{ minWidth: 180 }}
-              >
-                <MenuItem value="pending_review">Pending Review</MenuItem>
-                <MenuItem value="confirmed">Confirmed</MenuItem>
-                <MenuItem value="rejected">Rejected</MenuItem>
-                <MenuItem value="all">All Review States</MenuItem>
-              </Select>
-
-              <Select
-                value={sourceFilter}
-                onChange={(e) => setSourceFilter(String(e.target.value))}
-                size="small"
-                sx={{ minWidth: 160 }}
-              >
-                <MenuItem value="all">All Sources</MenuItem>
-                <MenuItem value="miniapp">Mini App</MenuItem>
-                <MenuItem value="bot">Bot</MenuItem>
-              </Select>
-            </Stack>
-
-            <Chip
-              icon={<SmartToyRoundedIcon />}
-              label={`${filteredOrders.length} result${filteredOrders.length === 1 ? "" : "s"}`}
-              sx={{
-                alignSelf: { xs: "flex-start", md: "center" },
-                bgcolor: dark ? alpha("#fff", 0.05) : alpha("#000", 0.04),
-              }}
-            />
-          </Stack>
-
-          {filteredOrders.length === 0 ? (
-            <Alert severity="info">
-              No Telegram purchase orders found for the current filter.
-            </Alert>
-          ) : (
-            <TableContainer>
+        {/* Orders list */}
+        {filteredOrders.length === 0 ? (
+          <div className="rounded-md border border-border bg-secondary/40 px-4 py-8 text-center text-sm text-muted-foreground">
+            No Telegram purchase orders found for the current filter.
+          </div>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="hidden md:block">
               <Table>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Customer</TableCell>
-                    <TableCell>Plan</TableCell>
-                    <TableCell>Source</TableCell>
-                    <TableCell>Payment</TableCell>
-                    <TableCell>Review</TableCell>
-                    <TableCell>Access</TableCell>
-                    <TableCell>Submitted</TableCell>
-                    <TableCell align="right">Actions</TableCell>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead>Payment</TableHead>
+                    <TableHead>Review</TableHead>
+                    <TableHead>Access</TableHead>
+                    <TableHead>Submitted</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
-                </TableHead>
-
+                </TableHeader>
                 <TableBody>
                   {filteredOrders.map((order) => {
                     const busy = busyOrderId === order.id;
-                    const canReview = order.review_status === "pending_review";
+                    const canReview =
+                      order.review_status === "pending_review" &&
+                      ["active", "pending"].includes(String(order.status || ""));
 
                     return (
-                      <TableRow key={order.id} hover>
+                      <TableRow key={order.id}>
                         <TableCell>
-                          <Stack spacing={0.35}>
-                            <Typography fontWeight={700}>
-                              {order.customer?.full_name || "Unknown customer"}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              @{order.customer?.telegram_username || "no_username"}
-                            </Typography>
-                          </Stack>
+                          <div className="text-sm font-medium">
+                            {order.customer?.full_name || "Unknown customer"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            @{order.customer?.telegram_username || "no_username"}
+                          </div>
                         </TableCell>
 
                         <TableCell>
-                          <Stack spacing={0.35}>
-                            <Typography fontWeight={700}>
-                              {order.plan?.name || "Unknown plan"}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              {formatMMK(order.price_mmk || 0)}
-                            </Typography>
-                          </Stack>
+                          <div className="text-sm font-medium">
+                            {order.plan?.name || "Unknown plan"}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatMMK(order.price_mmk || 0)}
+                          </div>
                         </TableCell>
 
                         <TableCell>
-                          <Chip
-                            size="small"
-                            label={String(order.source || "dashboard")}
-                            sx={{
-                              textTransform: "capitalize",
-                              bgcolor: dark ? alpha("#fff", 0.05) : alpha("#000", 0.04),
-                            }}
-                          />
+                          <Badge variant="default" className="capitalize">
+                            {String(order.source || "dashboard")}
+                          </Badge>
                         </TableCell>
 
                         <TableCell>
-                          <Stack direction="row" spacing={1} alignItems="center">
-                            {order.payment_screenshot_url ? (
-                              <>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  startIcon={fetchingSignedUrl === order.id ? undefined : <ImageRoundedIcon />}
-                                  disabled={fetchingSignedUrl === order.id}
-                                  onClick={() => void handlePreview(order.id)}
-                                >
-                                  {fetchingSignedUrl === order.id ? "Loading…" : "Preview"}
-                                </Button>
-                                <IconButton
-                                  size="small"
-                                  disabled={fetchingSignedUrl === order.id}
-                                  onClick={() => void handleOpenOriginal(order.id)}
-                                >
-                                  <OpenInNewRoundedIcon fontSize="small" />
-                                </IconButton>
-                              </>
-                            ) : (
-                              <Typography variant="body2" color="text.secondary">
-                                No screenshot
-                              </Typography>
-                            )}
-                          </Stack>
-
+                          {order.payment_screenshot_url ? (
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                leftIcon={
+                                  fetchingSignedUrl === order.id ? undefined : <ImageIcon size={15} />
+                                }
+                                disabled={fetchingSignedUrl === order.id}
+                                onClick={() => void handlePreview(order.id)}
+                              >
+                                {fetchingSignedUrl === order.id ? "Loading…" : "Preview"}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                disabled={fetchingSignedUrl === order.id}
+                                onClick={() => void handleOpenOriginal(order.id)}
+                                title="Open original"
+                              >
+                                <ExternalLink size={15} />
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">No screenshot</span>
+                          )}
                           {order.payment_note ? (
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              sx={{ display: "block", mt: 0.75 }}
-                            >
+                            <div className="mt-1.5 text-xs text-muted-foreground">
                               {order.payment_note}
-                            </Typography>
+                            </div>
                           ) : null}
                         </TableCell>
 
@@ -466,66 +336,173 @@ export function TelegramOrdersPage() {
                         </TableCell>
 
                         <TableCell>
-                          <Typography variant="body2">
+                          <span className="text-sm">
                             {formatDate(order.created_at || null)}
-                          </Typography>
+                          </span>
                         </TableCell>
 
-                        <TableCell align="right">
-                          <Stack
-                            direction={{ xs: "column", lg: "row" }}
-                            spacing={1}
-                            justifyContent="flex-end"
-                          >
+                        <TableCell>
+                          <div className="flex flex-col lg:flex-row justify-end gap-2">
                             <Button
-                              size="small"
-                              variant="contained"
-                              color="success"
-                              startIcon={<CheckCircleRoundedIcon />}
+                              variant="primary"
+                              size="sm"
+                              leftIcon={<CheckCircle2 size={15} />}
                               disabled={!canReview || busy}
                               onClick={() => void handleConfirm(order.id)}
                             >
                               Confirm
                             </Button>
-
                             <Button
-                              size="small"
-                              variant="outlined"
-                              color="error"
-                              startIcon={<CancelRoundedIcon />}
+                              variant="destructiveOutline"
+                              size="sm"
+                              leftIcon={<XCircle size={15} />}
                               disabled={!canReview || busy}
                               onClick={() => setRejectConfirmOrder(order)}
                             >
                               Reject
                             </Button>
-                          </Stack>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
                   })}
                 </TableBody>
               </Table>
-            </TableContainer>
-          )}
-        </CardContent>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="space-y-3 md:hidden">
+              {filteredOrders.map((order) => {
+                const busy = busyOrderId === order.id;
+                const canReview =
+                  order.review_status === "pending_review" &&
+                  ["active", "pending"].includes(String(order.status || ""));
+
+                return (
+                  <Card key={order.id} className="p-4 space-y-3">
+                    {/* Row 1: name + source */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate">
+                          {order.customer?.full_name || "Unknown customer"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          @{order.customer?.telegram_username || "no_username"}
+                        </div>
+                      </div>
+                      <Badge variant="default" className="capitalize shrink-0">
+                        {String(order.source || "dashboard")}
+                      </Badge>
+                    </div>
+
+                    {/* Row 2: plan + status badges */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-medium">
+                          {order.plan?.name || "Unknown plan"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {formatMMK(order.price_mmk || 0)}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1 items-end shrink-0">
+                        <ReviewChip value={order.review_status} />
+                        <AccessChip value={order.status} />
+                      </div>
+                    </div>
+
+                    {/* Row 3: submitted date */}
+                    <div className="text-xs text-muted-foreground">
+                      Submitted: {formatDate(order.created_at || null)}
+                    </div>
+
+                    {/* Payment row */}
+                    <div>
+                      {order.payment_screenshot_url ? (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            leftIcon={
+                              fetchingSignedUrl === order.id ? undefined : <ImageIcon size={15} />
+                            }
+                            disabled={fetchingSignedUrl === order.id}
+                            onClick={() => void handlePreview(order.id)}
+                          >
+                            {fetchingSignedUrl === order.id ? "Loading…" : "Preview"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={fetchingSignedUrl === order.id}
+                            onClick={() => void handleOpenOriginal(order.id)}
+                            title="Open original"
+                          >
+                            <ExternalLink size={15} />
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No screenshot</span>
+                      )}
+                      {order.payment_note ? (
+                        <div className="mt-1.5 text-xs text-muted-foreground">
+                          {order.payment_note}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* Actions row */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        leftIcon={<CheckCircle2 size={15} />}
+                        disabled={!canReview || busy}
+                        onClick={() => void handleConfirm(order.id)}
+                      >
+                        Confirm
+                      </Button>
+                      <Button
+                        variant="destructiveOutline"
+                        size="sm"
+                        leftIcon={<XCircle size={15} />}
+                        disabled={!canReview || busy}
+                        onClick={() => setRejectConfirmOrder(order)}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          </>
+        )}
       </Card>
 
+      {/* Reject confirm dialog */}
       {rejectConfirmOrder && (
-        <Dialog open onClose={() => setRejectConfirmOrder(null)} maxWidth="xs" fullWidth>
-          <DialogTitle>Reject Payment?</DialogTitle>
-          <DialogContent>
-            <Typography variant="body2">
+        <Dialog open onClose={() => setRejectConfirmOrder(null)} size="sm">
+          <DialogHeader>
+            <DialogTitle>Reject Payment?</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <p className="text-sm text-muted-foreground">
               This will permanently delete the VPN key for{" "}
-              <strong>{rejectConfirmOrder.customer?.full_name ?? "this customer"}</strong> and cut
-              their access immediately. The order will be marked rejected and cannot be confirmed
-              afterward.
-            </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setRejectConfirmOrder(null)}>Cancel</Button>
+              <span className="font-semibold text-foreground">
+                {rejectConfirmOrder.customer?.full_name ?? "this customer"}
+              </span>{" "}
+              and cut their access immediately. The order will be marked rejected and cannot be
+              confirmed afterward.
+            </p>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectConfirmOrder(null)}>
+              Cancel
+            </Button>
             <Button
-              variant="contained"
-              color="error"
+              variant="destructive"
               disabled={busyOrderId === rejectConfirmOrder.id}
               onClick={() => {
                 const order = rejectConfirmOrder;
@@ -535,42 +512,39 @@ export function TelegramOrdersPage() {
             >
               Reject &amp; Remove Access
             </Button>
-          </DialogActions>
+          </DialogFooter>
         </Dialog>
       )}
 
-      <Dialog open={Boolean(previewUrl)} onClose={() => setPreviewUrl(null)} maxWidth="md" fullWidth>
-        <DialogTitle>Payment Screenshot</DialogTitle>
-        <DialogContent dividers>
+      {/* Preview dialog */}
+      <Dialog open={Boolean(previewUrl)} onClose={() => setPreviewUrl(null)} size="lg">
+        <DialogHeader>
+          <DialogTitle>Payment Screenshot</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
           {previewUrl ? (
-            <Box
-              component="img"
+            <img
               src={previewUrl}
               alt="Payment screenshot"
-              sx={{
-                width: "100%",
-                display: "block",
-                borderRadius: 2,
-                border: `1px solid ${alpha("#000", 0.12)}`,
-              }}
+              className="block w-full rounded-md border border-border"
             />
           ) : null}
-        </DialogContent>
-        <DialogActions>
+        </DialogBody>
+        <DialogFooter>
           {previewUrl ? (
             <Button
-              component="a"
-              href={previewUrl}
-              target="_blank"
-              rel="noreferrer"
-              startIcon={<OpenInNewRoundedIcon />}
+              variant="outline"
+              leftIcon={<ExternalLink size={16} />}
+              onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
             >
               Open Original
             </Button>
           ) : null}
-          <Button onClick={() => setPreviewUrl(null)}>Close</Button>
-        </DialogActions>
+          <Button variant="primary" onClick={() => setPreviewUrl(null)}>
+            Close
+          </Button>
+        </DialogFooter>
       </Dialog>
-    </Stack>
+    </div>
   );
 }
