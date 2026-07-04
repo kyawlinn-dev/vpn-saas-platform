@@ -1,26 +1,10 @@
 import { useEffect, useState } from "react";
-import {
-  Alert,
-  Box,
-  Button,
-  Divider,
-  IconButton,
-  InputAdornment,
-  Stack,
-  Tab,
-  Tabs,
-  TextField,
-  Typography,
-  alpha,
-  useTheme,
-} from "@mui/material";
-import VisibilityRoundedIcon from "@mui/icons-material/VisibilityRounded";
-import VisibilityOffRoundedIcon from "@mui/icons-material/VisibilityOffRounded";
+import { Eye, EyeOff, Zap, KeyRound, BarChart3 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useResellerAuth } from "../providers/ResellerAuthProvider";
-
-const VIOLET = "#7c3aed";
-const CYAN = "#06b6d4";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { FormField } from "@/components/ui/form-field";
 
 function GoogleIcon() {
   return (
@@ -48,8 +32,6 @@ function GoogleIcon() {
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const theme = useTheme();
-  const dark = theme.palette.mode === "dark";
   const { login, isAuthenticated, initializing } = useResellerAuth();
 
   const [tab, setTab] = useState<"signin" | "signup">("signin");
@@ -124,408 +106,209 @@ export default function LoginPage() {
     !!password &&
     (tab === "signin" || !!confirmPassword);
 
+  const featureItems = [
+    {
+      icon: <Zap size={18} />,
+      title: "Live order tracking",
+      desc: "Real-time status for all connections",
+    },
+    {
+      icon: <KeyRound size={18} />,
+      title: "Access key management",
+      desc: "One-click activate, stop & renew",
+    },
+    {
+      icon: <BarChart3 size={18} />,
+      title: "Revenue insights",
+      desc: "Track usage, value & expiry in one view",
+    },
+  ];
+
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "stretch",
-        background: dark
-          ? `radial-gradient(ellipse 100% 60% at 50% -5%, ${alpha(VIOLET, 0.2)}, transparent), #070812`
-          : `radial-gradient(ellipse 100% 60% at 50% -5%, ${alpha(VIOLET, 0.1)}, transparent), #f0f2ff`,
+    <div
+      className="min-h-screen flex bg-background"
+      style={{
+        background:
+          "radial-gradient(ellipse 100% 60% at 50% -5%, rgba(124,58,237,0.08), transparent), #f6f7f9",
       }}
     >
-      <Box
-        sx={{
-          display: { xs: "none", md: "flex" },
-          flexDirection: "column",
-          justifyContent: "center",
-          width: "44%",
-          px: 7,
-          py: 6,
-          position: "relative",
-          background: `linear-gradient(155deg, ${alpha(VIOLET, 0.22)} 0%, ${alpha(CYAN, 0.08)} 100%)`,
-          borderRight: `1px solid ${alpha(VIOLET, 0.15)}`,
-          overflow: "hidden",
-        }}
-      >
-        <Box
-          sx={{
-            position: "absolute",
-            top: -80,
-            left: -80,
-            width: 320,
-            height: 320,
-            borderRadius: "50%",
-            background: `radial-gradient(circle, ${alpha(VIOLET, 0.25)}, transparent 70%)`,
-            pointerEvents: "none",
-          }}
-        />
-        <Box
-          sx={{
-            position: "absolute",
-            bottom: -60,
-            right: -60,
-            width: 260,
-            height: 260,
-            borderRadius: "50%",
-            background: `radial-gradient(circle, ${alpha(CYAN, 0.2)}, transparent 70%)`,
-            pointerEvents: "none",
-          }}
-        />
+      {/* ── Left brand panel (desktop only) ── */}
+      <div className="hidden md:flex w-[44%] flex-col justify-center px-12 py-10 bg-gradient-to-br from-primary/10 to-[color:var(--brand-blue)]/5 border-r border-border relative overflow-hidden">
+        {/* Brand logo */}
+        <div className="grid h-13 w-13 place-items-center rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#2563eb] shadow-lg">
+          <span className="font-display text-2xl font-black text-white">R</span>
+        </div>
 
-        <Stack spacing={3} sx={{ position: "relative", zIndex: 1 }}>
-          <Box
-            sx={{
-              width: 52,
-              height: 52,
-              borderRadius: 2.5,
-              background: `linear-gradient(135deg, ${VIOLET}, ${CYAN})`,
-              display: "grid",
-              placeItems: "center",
-              boxShadow: `0 8px 32px ${alpha(VIOLET, 0.5)}`,
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: "1.5rem",
-                fontWeight: 900,
-                color: "#fff",
-                fontFamily: "'Outfit', sans-serif",
-              }}
-            >
-              R
-            </Typography>
-          </Box>
+        <h1 className="mt-6 font-display text-4xl font-black leading-tight tracking-tight text-foreground">
+          Reseller
+          <br />
+          Dashboard
+        </h1>
 
-          <Box>
-            <Typography
-              sx={{
-                fontSize: "2.4rem",
-                fontWeight: 900,
-                fontFamily: "'Outfit', sans-serif",
-                lineHeight: 1.1,
-                letterSpacing: "-0.03em",
-                color: dark ? "#e8eaf6" : "#0f0f23",
-              }}
-            >
-              Reseller
-              <br />
-              Dashboard
-            </Typography>
-            <Typography
-              sx={{
-                mt: 1.5,
-                fontSize: "1.05rem",
-                color: dark ? alpha("#e8eaf6", 0.6) : alpha("#0f0f23", 0.55),
-                lineHeight: 1.6,
-              }}
-            >
-              Manage VPN orders, track customers,
-              <br />
-              and grow your reseller business.
-            </Typography>
-          </Box>
+        <p className="mt-4 text-base text-muted-foreground leading-relaxed">
+          Manage VPN orders, track customers,
+          <br />
+          and grow your reseller business.
+        </p>
 
-          <Stack spacing={2} sx={{ mt: 2 }}>
-            {[
-              {
-                emoji: "⚡",
-                title: "Live order tracking",
-                desc: "Real-time status for all connections",
-              },
-              {
-                emoji: "🔑",
-                title: "Access key management",
-                desc: "One-click activate, stop & renew",
-              },
-              {
-                emoji: "📊",
-                title: "Revenue insights",
-                desc: "Track usage, value & expiry in one view",
-              },
-            ].map((f) => (
-              <Stack
-                key={f.title}
-                direction="row"
-                spacing={1.5}
-                alignItems="flex-start"
-              >
-                <Box sx={{ fontSize: "1.2rem", mt: 0.1 }}>{f.emoji}</Box>
-                <Box>
-                  <Typography
-                    sx={{
-                      fontWeight: 700,
-                      fontSize: "0.88rem",
-                      color: dark ? "#e8eaf6" : "#0f0f23",
-                    }}
-                  >
-                    {f.title}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: "0.8rem",
-                      color: dark
-                        ? alpha("#e8eaf6", 0.5)
-                        : alpha("#0f0f23", 0.5),
-                    }}
-                  >
-                    {f.desc}
-                  </Typography>
-                </Box>
-              </Stack>
-            ))}
-          </Stack>
-        </Stack>
-      </Box>
+        {/* Feature list */}
+        <div className="mt-8 space-y-4">
+          {featureItems.map((f) => (
+            <div key={f.title} className="flex gap-3">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#f5f3ff] text-[#7c3aed]">
+                {f.icon}
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-foreground">{f.title}</div>
+                <div className="text-xs text-muted-foreground">{f.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-      <Box
-        sx={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          px: { xs: 2, sm: 4, md: 7 },
-          py: 6,
-        }}
-      >
-        <Stack
-          spacing={1}
-          alignItems="center"
-          sx={{ mb: 4, display: { md: "none" } }}
-        >
-          <Box
-            sx={{
-              width: 48,
-              height: 48,
-              borderRadius: 2,
-              background: `linear-gradient(135deg, ${VIOLET}, ${CYAN})`,
-              display: "grid",
-              placeItems: "center",
-              boxShadow: `0 6px 24px ${alpha(VIOLET, 0.4)}`,
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: "1.4rem",
-                fontWeight: 900,
-                color: "#fff",
-                fontFamily: "'Outfit', sans-serif",
-              }}
-            >
-              R
-            </Typography>
-          </Box>
-          <Typography
-            sx={{
-              fontWeight: 800,
-              fontSize: "1.15rem",
-              fontFamily: "'Outfit', sans-serif",
-            }}
-          >
-            Reseller Dashboard
-          </Typography>
-        </Stack>
+      {/* ── Right panel ── */}
+      <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 md:px-12 py-10">
+        {/* Mobile brand header */}
+        <div className="flex flex-col items-center gap-2 mb-8 md:hidden">
+          <div className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#2563eb] shadow-lg">
+            <span className="font-display text-xl font-black text-white">R</span>
+          </div>
+          <div className="font-display text-lg font-bold">Reseller Dashboard</div>
+        </div>
 
-        <Box
-          sx={{
-            width: "100%",
-            maxWidth: 420,
-            p: { xs: 3, sm: 4 },
-            borderRadius: 3,
-            background: dark ? alpha("#0c0e1c", 0.8) : alpha("#ffffff", 0.9),
-            border: `1px solid ${
-              dark ? alpha(VIOLET, 0.15) : alpha(VIOLET, 0.12)
-            }`,
-            backdropFilter: "blur(20px)",
-            boxShadow: dark
-              ? `0 24px 80px ${alpha("#000", 0.5)}`
-              : `0 12px 48px ${alpha(VIOLET, 0.1)}`,
-          }}
-        >
-          <Typography
-            sx={{
-              fontWeight: 800,
-              fontSize: "1.6rem",
-              fontFamily: "'Outfit', sans-serif",
-              mb: 0.5,
-            }}
-          >
+        {/* Auth card */}
+        <div className="w-full max-w-[420px] rounded-xl border border-border bg-card p-6 sm:p-8 shadow-[0_12px_48px_rgba(124,58,237,0.08)]">
+          <h2 className="font-display text-2xl font-bold text-foreground">
             {tab === "signin" ? "Welcome back" : "Create account"}
-          </Typography>
-          <Typography
-            sx={{ fontSize: "0.88rem", color: "text.secondary", mb: 2.5 }}
-          >
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
             {tab === "signin"
               ? "Sign in to your reseller account"
               : "Start managing your VPN reseller business"}
-          </Typography>
+          </p>
 
-          <Tabs
-            value={tab}
-            onChange={(_, v: "signin" | "signup") => {
-              if (v === "signup") {
-                setError("Sign up is not available yet. Please contact admin.");
-                setSuccess("");
-                return;
-              }
-              setTab("signin");
-              setError("");
-              setSuccess("");
-            }}
-            sx={{
-              mb: 3,
-              "& .MuiTabs-root": { minHeight: 38 },
-              "& .MuiTab-root": {
-                minHeight: 38,
-                fontSize: "0.88rem",
-                fontWeight: 700,
-                textTransform: "none",
-                px: 2,
-              },
-              "& .MuiTabs-indicator": {
-                height: 2,
-                borderRadius: 2,
-                background: `linear-gradient(90deg, ${VIOLET}, ${CYAN})`,
-              },
-            }}
-          >
-            <Tab value="signin" label="Sign In" />
-            <Tab value="signup" label="Sign Up" />
-          </Tabs>
+          {/* Segmented tab toggle */}
+          <div className="mt-6 grid grid-cols-2 gap-1 rounded-md border border-border bg-secondary/50 p-1">
+            <button
+              type="button"
+              onClick={() => { setTab("signin"); setError(""); setSuccess(""); }}
+              className={`py-1.5 text-sm transition-colors ${
+                tab === "signin"
+                  ? "rounded-[6px] bg-card text-foreground shadow-sm font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => { setError("Sign up is not available yet. Please contact admin."); setSuccess(""); }}
+              className={`py-1.5 text-sm transition-colors ${
+                tab === "signup"
+                  ? "rounded-[6px] bg-card text-foreground shadow-sm font-semibold"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Sign Up
+            </button>
+          </div>
 
-          <Stack spacing={2}>
+          {/* Form */}
+          <div className="mt-5 space-y-4">
             {error ? (
-              <Alert severity="error" sx={{ fontSize: "0.84rem" }}>
+              <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error}
-              </Alert>
+              </div>
             ) : null}
 
             {success ? (
-              <Alert severity="success" sx={{ fontSize: "0.84rem" }}>
+              <div className="rounded-md border border-success/25 bg-success/10 px-3 py-2 text-sm text-[color:var(--success)]">
                 {success}
-              </Alert>
+              </div>
             ) : null}
 
-            <TextField
-              label="Email address"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              fullWidth
-              autoComplete="email"
-              onKeyDown={onKeyDown}
-              size="medium"
-              disabled={loading}
-            />
-
-            <TextField
-              label="Password"
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              fullWidth
-              autoComplete="current-password"
-              onKeyDown={onKeyDown}
-              size="medium"
-              disabled={loading}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={() => setShowPassword(!showPassword)}
-                      edge="end"
-                      size="small"
-                    >
-                      {showPassword ? (
-                        <VisibilityOffRoundedIcon fontSize="small" />
-                      ) : (
-                        <VisibilityRoundedIcon fontSize="small" />
-                      )}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-
-            {tab === "signup" && (
-              <TextField
-                label="Confirm password"
-                type={showPassword ? "text" : "password"}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                fullWidth
-                autoComplete="new-password"
+            <FormField label="Email address">
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
                 onKeyDown={onKeyDown}
-                size="medium"
                 disabled={loading}
               />
+            </FormField>
+
+            <FormField label="Password">
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  onKeyDown={onKeyDown}
+                  disabled={loading}
+                  className="pr-9"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </FormField>
+
+            {tab === "signup" && (
+              <FormField label="Confirm password">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                  onKeyDown={onKeyDown}
+                  disabled={loading}
+                />
+              </FormField>
             )}
 
             <Button
-              variant="contained"
-              size="large"
-              onClick={() =>
-                void (tab === "signin" ? handleSignIn() : handleSignUp())
-              }
-              disabled={loading || !canSubmit}
+              variant="primary"
               fullWidth
-              sx={{ minHeight: 46, fontSize: "0.95rem", borderRadius: 2 }}
+              className="h-11"
+              disabled={loading || !canSubmit}
+              onClick={() => void (tab === "signin" ? handleSignIn() : handleSignUp())}
             >
               {loading
-                ? tab === "signin"
-                  ? "Signing in…"
-                  : "Creating account…"
-                : tab === "signin"
-                ? "Sign In"
-                : "Create Account"}
+                ? tab === "signin" ? "Signing in…" : "Creating account…"
+                : tab === "signin" ? "Sign In" : "Create Account"}
             </Button>
 
-            <Divider sx={{ my: 0.5 }}>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ px: 1 }}
-              >
-                or continue with
-              </Typography>
-            </Divider>
+            {/* Divider */}
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">or continue with</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
 
             <Button
-              variant="outlined"
-              size="large"
+              variant="outline"
               fullWidth
-              onClick={() => void handleGoogle()}
+              className="h-11"
               disabled={googleLoading}
-              startIcon={<GoogleIcon />}
-              sx={{
-                minHeight: 46,
-                fontSize: "0.9rem",
-                borderRadius: 2,
-                borderColor: dark
-                  ? alpha(VIOLET, 0.25)
-                  : alpha(VIOLET, 0.2),
-                color: "text.primary",
-                "&:hover": {
-                  borderColor: VIOLET,
-                  bgcolor: alpha(VIOLET, 0.05),
-                },
-              }}
+              leftIcon={<GoogleIcon />}
+              onClick={() => void handleGoogle()}
             >
               {googleLoading ? "Redirecting…" : "Continue with Google"}
             </Button>
-          </Stack>
-        </Box>
+          </div>
+        </div>
 
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ mt: 3, textAlign: "center" }}
-        >
+        <p className="mt-6 text-center text-xs text-muted-foreground">
           By signing in you agree to our Terms of Service and Privacy Policy.
-        </Typography>
-      </Box>
-    </Box>
+        </p>
+      </div>
+    </div>
   );
 }
