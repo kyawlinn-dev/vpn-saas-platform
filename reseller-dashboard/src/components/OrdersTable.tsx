@@ -1,45 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import {
-  Alert,
-  Box,
-  Button as MuiButton,
-  Card as MuiCard,
-  CardContent as MuiCardContent,
-  Snackbar,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  Grid,
-  IconButton,
-  MenuItem,
-  Stack,
-  TextField,
-  Tooltip,
-  Typography,
-  alpha,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
-import { Search, Plus, Copy, Info, ChevronLeft, ChevronRight } from "lucide-react";
+  Search, Plus, Copy, Info, ChevronLeft, ChevronRight,
+  RefreshCw, Ban, KeyRound, Lightbulb,
+} from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { FilterChips } from "@/components/ui/filter-chips";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import {
+  Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
+} from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { UsageBar } from "@/components/ui/usage-bar";
 import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/ui/action-button";
+import {
+  Dialog, DialogHeader, DialogTitle, DialogDescription,
+  DialogBody, DialogFooter, DialogClose,
+} from "@/components/ui/dialog";
+import { FormField } from "@/components/ui/form-field";
 import { api } from "../lib/api";
 import {
-  formatDate,
-  formatDaysLeft,
-  formatMMK,
-  formatUsageGb,
-  isExpiringSoon,
+  formatDate, formatDaysLeft, formatMMK, formatUsageGb, isExpiringSoon,
 } from "../lib/format";
 import type { Order, Plan, VpnKey } from "../types/api";
 
@@ -112,6 +94,20 @@ function mapActionError(errorData?: { error?: string; code?: string }) {
   }
 }
 
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(query).matches
+  );
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const handler = () => setMatches(m.matches);
+    handler();
+    m.addEventListener("change", handler);
+    return () => m.removeEventListener("change", handler);
+  }, [query]);
+  return matches;
+}
+
 function TablePagination({
   page,
   count,
@@ -121,12 +117,11 @@ function TablePagination({
   count: number;
   onChange: (page: number) => void;
 }) {
-  const theme = useTheme();
-  const mobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const narrow = useMediaQuery("(max-width: 599px)");
 
   const pages = useMemo(() => {
     if (count <= 1) return [1];
-    const siblings = mobile ? 1 : 2;
+    const siblings = narrow ? 1 : 2;
     const items: (number | "...")[] = [];
     const left = Math.max(2, page - siblings);
     const right = Math.min(count - 1, page + siblings);
@@ -138,7 +133,7 @@ function TablePagination({
     if (count > 1) items.push(count);
 
     return items;
-  }, [page, count, mobile]);
+  }, [page, count, narrow]);
 
   return (
     <div className="flex items-center gap-1 overflow-x-auto">
@@ -203,23 +198,12 @@ function LoadingView() {
 
 function DetailItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <Box>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        sx={{
-          fontWeight: 600,
-          fontSize: "0.72rem",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-        }}
-      >
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
-      </Typography>
-      <Typography component="div" sx={{ mt: 0.3, fontWeight: 700, fontSize: "0.9rem" }}>
-        {value}
-      </Typography>
-    </Box>
+      </div>
+      <div className="mt-0.5 text-sm font-medium text-foreground">{value}</div>
+    </div>
   );
 }
 
@@ -239,9 +223,7 @@ export function OrdersTable({
   resetTrigger,
   headerAction,
 }: Props) {
-  const theme = useTheme();
-  const dark = theme.palette.mode === "dark";
-  const mobile = useMediaQuery(theme.breakpoints.down("md"));
+  const mobile = useMediaQuery("(max-width: 899px)");
 
   const [loadingId, setLoadingId] = useState("");
   const [message, setMessage] = useState("");
@@ -523,7 +505,9 @@ export function OrdersTable({
 
   const renderActions = (order: Order) => (
     <div className="flex flex-wrap items-center gap-1.5">
-      {order.status === "pending" && (
+      {order.status === "pending" &&
+        order.payment_status === "paid" &&
+        order.review_status !== "rejected" && (
         <ActionButton
           variant="secondary"
           onClick={() => void runActivate(order)}
@@ -555,7 +539,8 @@ export function OrdersTable({
         </>
       )}
 
-      {(order.status === "stopped" || order.status === "expired") && (
+      {(order.status === "stopped" || order.status === "expired") &&
+        order.review_status !== "rejected" && (
         <ActionButton
           variant="primary"
           onClick={() =>
@@ -581,8 +566,6 @@ export function OrdersTable({
   );
 
   if (loading) return <LoadingView />;
-
-  const VIOLET = "#7c3aed";
 
   return (
     <>
@@ -813,322 +796,205 @@ export function OrdersTable({
         </div>
       </Card>
 
-      {/* ── Renew / Extend dialog (still MUI) ── */}
+      {/* ── Renew / Extend dialog ── */}
       <Dialog
         open={renewDialog.open}
         onClose={() => setRenewDialog({ open: false, order: null, planId: "", action: "renew" })}
-        fullWidth
-        maxWidth="xs"
-        PaperProps={{
-          sx: {
-            borderRadius: 3,
-            background: dark
-              ? "linear-gradient(145deg, #0c0e1c 0%, #10123a 100%)"
-              : "linear-gradient(145deg, #ffffff 0%, #f3f0ff 100%)",
-            border: `1px solid ${alpha(VIOLET, dark ? 0.25 : 0.18)}`,
-            overflow: "hidden",
-          },
-        }}
+        size="sm"
       >
-        <Box
-          sx={{
-            height: 4,
-            background: `linear-gradient(90deg, ${VIOLET}, #06b6d4)`,
-            boxShadow: `0 0 20px ${alpha(VIOLET, 0.5)}`,
-          }}
-        />
-        <DialogContent sx={{ pt: 3, pb: 2, px: 3 }}>
-          <Stack spacing={2.5}>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Box
-                sx={{
-                  width: 46,
-                  height: 46,
-                  borderRadius: 2.5,
-                  flexShrink: 0,
-                  background: `linear-gradient(135deg, ${VIOLET}, #06b6d4)`,
-                  display: "grid",
-                  placeItems: "center",
-                  boxShadow: `0 6px 18px ${alpha(VIOLET, 0.4)}`,
-                }}
-              >
-                <Typography sx={{ fontSize: "1.3rem" }}>🔄</Typography>
-              </Box>
-              <Box>
-                <Typography
-                  sx={{
-                    fontWeight: 800,
-                    fontSize: "1.1rem",
-                    lineHeight: 1.2,
-                    fontFamily: "'Outfit', sans-serif",
-                  }}
-                >
-                  {renewDialog.action === "extend" ? "Extend Subscription" : "Renew Subscription"}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {renewDialog.order?.customer?.full_name || "Customer"}
-                  {renewDialog.action === "extend"
-                    ? " · extend current active subscription"
-                    : " · start a fresh subscription with a new key"}
-                </Typography>
-              </Box>
-            </Stack>
-
-            {renewDialog.order?.plan && (
-              <Box
-                sx={{
-                  p: 1.5,
-                  borderRadius: 2,
-                  bgcolor: dark ? alpha("#fff", 0.04) : alpha(VIOLET, 0.04),
-                  border: `1px solid ${alpha(VIOLET, dark ? 0.15 : 0.1)}`,
-                }}
-              >
-                <Typography
-                  variant="caption"
-                  sx={{
-                    fontSize: "0.68rem",
-                    fontWeight: 700,
-                    letterSpacing: "0.07em",
-                    textTransform: "uppercase",
-                    color: "text.secondary",
-                  }}
-                >
-                  Current plan
-                </Typography>
-                <Typography sx={{ fontWeight: 700, fontSize: "0.9rem", mt: 0.4 }}>
-                  {renewDialog.order.plan.name} — {formatMMK(renewDialog.order.plan.price_mmk)} /{" "}
-                  {renewDialog.order.plan.duration_days} days
-                </Typography>
-              </Box>
-            )}
-
-            <TextField
-              select
-              fullWidth
-              label="Select new plan"
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#f5f3ff] text-[#7c3aed]">
+              <RefreshCw size={18} />
+            </div>
+            <div>
+              <DialogTitle>
+                {renewDialog.action === "extend" ? "Extend Subscription" : "Renew Subscription"}
+              </DialogTitle>
+              <DialogDescription>
+                {renewDialog.order?.customer?.full_name || "Customer"}
+                {renewDialog.action === "extend"
+                  ? " · extend current active subscription"
+                  : " · start a fresh subscription with a new key"}
+              </DialogDescription>
+            </div>
+          </div>
+          <DialogClose />
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          {renewDialog.order?.plan && (
+            <div className="rounded-md border border-border bg-secondary/40 p-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Current plan
+              </div>
+              <div className="mt-1 text-sm font-semibold">
+                {renewDialog.order.plan.name} — {formatMMK(renewDialog.order.plan.price_mmk)} /{" "}
+                {renewDialog.order.plan.duration_days} days
+              </div>
+            </div>
+          )}
+          <FormField label="Select new plan">
+            <Select
               value={renewDialog.planId}
               onChange={(e) => setRenewDialog((p) => ({ ...p, planId: e.target.value }))}
             >
               {plans.map((plan) => (
-                <MenuItem key={plan.id} value={plan.id}>
-                  <Stack>
-                    <Typography sx={{ fontWeight: 700, fontSize: "0.88rem" }}>{plan.name}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {formatMMK(plan.price_mmk)} · {plan.duration_days} days
-                    </Typography>
-                  </Stack>
-                </MenuItem>
+                <option key={plan.id} value={plan.id}>
+                  {plan.name} — {formatMMK(plan.price_mmk)} · {plan.duration_days}d
+                </option>
               ))}
-            </TextField>
-
-            {renewError ? <Alert severity="error" sx={{ borderRadius: 2 }}>{renewError}</Alert> : null}
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5, pt: 0.5, gap: 1 }}>
-          <MuiButton
-            variant="outlined"
-            color="inherit"
+            </Select>
+          </FormField>
+          {renewError ? (
+            <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {renewError}
+            </div>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            className="flex-1"
             onClick={() => setRenewDialog({ open: false, order: null, planId: "", action: "renew" })}
-            sx={{ borderRadius: 2, flex: 1, fontWeight: 700, whiteSpace: "nowrap" }}
           >
             Cancel
-          </MuiButton>
-          <MuiButton
-            variant="contained"
+          </Button>
+          <Button
+            variant="primary"
+            className="flex-1"
             onClick={() => void confirmRenew()}
-            disabled={!renewDialog.order || loadingId === `${renewDialog.order?.id}:${renewDialog.action}`}
-            sx={{ borderRadius: 2, flex: 1, fontWeight: 700, whiteSpace: "nowrap" }}
+            loading={!!renewDialog.order && loadingId === `${renewDialog.order?.id}:${renewDialog.action}`}
+            disabled={!renewDialog.order}
           >
             {renewDialog.order && loadingId === `${renewDialog.order.id}:${renewDialog.action}`
-              ? renewDialog.action === "extend"
-                ? "Extending…"
-                : "Renewing…"
-              : renewDialog.action === "extend"
-                ? "Confirm Extend"
-                : "Confirm Renew"}
-          </MuiButton>
-        </DialogActions>
+              ? renewDialog.action === "extend" ? "Extending…" : "Renewing…"
+              : renewDialog.action === "extend" ? "Confirm Extend" : "Confirm Renew"}
+          </Button>
+        </DialogFooter>
       </Dialog>
 
-      {/* ── Stop dialog (still MUI) ── */}
+      {/* ── Stop dialog ── */}
       <Dialog
         open={stopDialog.open}
         onClose={() => setStopDialog({ open: false, order: null })}
-        fullWidth
-        maxWidth="xs"
-        PaperProps={{
-          sx: {
-            borderRadius: 3,
-            background: dark
-              ? "linear-gradient(145deg, #0c0e1c 0%, #1c0a0a 100%)"
-              : "linear-gradient(145deg, #ffffff 0%, #fff5f5 100%)",
-            border: `1px solid ${alpha("#ef4444", dark ? 0.25 : 0.18)}`,
-            overflow: "hidden",
-          },
-        }}
+        size="sm"
       >
-        <Box
-          sx={{
-            height: 4,
-            background: "linear-gradient(90deg, #ef4444, #f97316)",
-            boxShadow: `0 0 20px ${alpha("#ef4444", 0.5)}`,
-          }}
-        />
-        <DialogContent sx={{ pt: 3, pb: 2, px: 3 }}>
-          <Stack spacing={2}>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Box
-                sx={{
-                  width: 46,
-                  height: 46,
-                  borderRadius: 2.5,
-                  flexShrink: 0,
-                  background: "linear-gradient(135deg, #ef4444, #f97316)",
-                  display: "grid",
-                  placeItems: "center",
-                  boxShadow: `0 6px 18px ${alpha("#ef4444", 0.4)}`,
-                }}
-              >
-                <Typography sx={{ fontSize: "1.3rem" }}>⛔</Typography>
-              </Box>
-              <Box>
-                <Typography
-                  sx={{
-                    fontWeight: 800,
-                    fontSize: "1.1rem",
-                    lineHeight: 1.2,
-                    fontFamily: "'Outfit', sans-serif",
-                  }}
-                >
-                  Stop Subscription
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.3, fontSize: "0.82rem" }}>
-                  This will revoke VPN access immediately
-                </Typography>
-              </Box>
-            </Stack>
-
-            <Box
-              sx={{
-                p: 1.75,
-                borderRadius: 2,
-                bgcolor: dark ? alpha("#ef4444", 0.08) : alpha("#ef4444", 0.05),
-                border: `1px solid ${alpha("#ef4444", 0.2)}`,
-              }}
-            >
-              <Typography sx={{ fontSize: "0.88rem", lineHeight: 1.6 }}>
-                Stop subscription for{" "}
-                <Box component="span" sx={{ fontWeight: 800, color: dark ? "#fca5a5" : "#dc2626" }}>
-                  {stopDialog.order?.customer?.full_name || "this customer"}
-                </Box>
-                ? Their VPN key will be deactivated and they will lose access.
-              </Typography>
-            </Box>
-
-            {stopError ? <Alert severity="error" sx={{ borderRadius: 2 }}>{stopError}</Alert> : null}
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5, pt: 0.5, gap: 1 }}>
-          <MuiButton
-            variant="outlined"
-            color="inherit"
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-destructive/10 text-destructive">
+              <Ban size={18} />
+            </div>
+            <div>
+              <DialogTitle>Stop Subscription</DialogTitle>
+              <DialogDescription>This will revoke VPN access immediately</DialogDescription>
+            </div>
+          </div>
+          <DialogClose />
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <div className="rounded-md border border-destructive/25 bg-destructive/10 p-3 text-sm">
+            Stop subscription for{" "}
+            <span className="font-semibold text-destructive">
+              {stopDialog.order?.customer?.full_name || "this customer"}
+            </span>
+            ? Their VPN key will be deactivated and they will lose access.
+          </div>
+          {stopError ? (
+            <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {stopError}
+            </div>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            className="flex-1"
             onClick={() => setStopDialog({ open: false, order: null })}
-            sx={{ borderRadius: 2, flex: 1, fontWeight: 700, whiteSpace: "nowrap" }}
           >
             Cancel
-          </MuiButton>
-          <MuiButton
-            variant="contained"
-            color="error"
+          </Button>
+          <Button
+            variant="destructive"
+            className="flex-1"
             onClick={() => void confirmStop()}
-            disabled={!stopDialog.order || loadingId === `${stopDialog.order?.id}:stop`}
-            sx={{
-              borderRadius: 2,
-              flex: 1,
-              fontWeight: 700,
-              whiteSpace: "nowrap",
-              background: "linear-gradient(135deg, #ef4444, #dc2626)",
-              "&:hover": { background: "linear-gradient(135deg, #f87171, #ef4444)" },
-              boxShadow: `0 4px 14px ${alpha("#ef4444", 0.4)}`,
-            }}
+            loading={!!stopDialog.order && loadingId === `${stopDialog.order?.id}:stop`}
+            disabled={!stopDialog.order}
           >
-            {stopDialog.order && loadingId === `${stopDialog.order.id}:stop` ? "Stopping…" : "Confirm Stop"}
-          </MuiButton>
-        </DialogActions>
+            {stopDialog.order && loadingId === `${stopDialog.order.id}:stop`
+              ? "Stopping…"
+              : "Confirm Stop"}
+          </Button>
+        </DialogFooter>
       </Dialog>
 
-      {/* ── Details dialog (still MUI) ── */}
+      {/* ── Details dialog ── */}
       <Dialog
         open={detailsDialog.open}
         onClose={() => setDetailsDialog({ open: false, order: null })}
-        fullWidth
-        maxWidth="xs"
+        size="sm"
       >
-        <DialogTitle sx={{ pb: 1 }}>Order Details</DialogTitle>
-        <DialogContent>
-          {detailsDialog.order ? (
-            <MuiCard variant="outlined" sx={{ borderRadius: 2 }}>
-              <MuiCardContent sx={{ p: 2 }}>
-                <Stack spacing={2}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                    <Box>
-                      <Typography sx={{ fontWeight: 800, fontSize: "1.05rem" }}>
-                        {detailsDialog.order.customer?.full_name || "-"}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.3 }}>
-                        {detailsDialog.order.customer?.phone ||
-                          detailsDialog.order.customer?.telegram_username ||
-                          "No contact info"}
-                      </Typography>
-                    </Box>
-                    <StatusBadge status={detailsDialog.order.status} />
-                  </Stack>
+        <DialogHeader>
+          <DialogTitle>Order Details</DialogTitle>
+          <DialogClose />
+        </DialogHeader>
+        <DialogBody>
+          {detailsDialog.open && detailsDialog.order ? (
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-base font-semibold">
+                    {detailsDialog.order.customer?.full_name || "-"}
+                  </div>
+                  <div className="text-sm text-muted-foreground mt-0.5">
+                    {detailsDialog.order.customer?.phone ||
+                      detailsDialog.order.customer?.telegram_username ||
+                      "No contact info"}
+                  </div>
+                </div>
+                <StatusBadge status={detailsDialog.order.status} />
+              </div>
 
-                  <Grid container spacing={2}>
-                    <Grid size={6}>
-                      <DetailItem label="Plan" value={detailsDialog.order.plan?.name || "-"} />
-                    </Grid>
-                    <Grid size={6}>
-                      <DetailItem
-                        label="Payment"
-                        value={<StatusBadge status={detailsDialog.order.payment_status} />}
-                      />
-                    </Grid>
-                    <Grid size={6}>
-                      <DetailItem label="Price" value={formatMMK(detailsDialog.order.price_mmk)} />
-                    </Grid>
-                    <Grid size={6}>
-                      <DetailItem label="Expiry" value={formatDate(detailsDialog.order.expiry_date)} />
-                    </Grid>
-                    <Grid size={12}>
-                      <DetailItem label="Remaining" value={formatDaysLeft(detailsDialog.order.expiry_date)} />
-                    </Grid>
-                  </Grid>
+              <div className="grid grid-cols-2 gap-3">
+                <DetailItem label="Plan" value={detailsDialog.order.plan?.name || "-"} />
+                <DetailItem
+                  label="Payment"
+                  value={<StatusBadge status={detailsDialog.order.payment_status} />}
+                />
+                <DetailItem label="Price" value={formatMMK(detailsDialog.order.price_mmk)} />
+                <DetailItem label="Expiry" value={formatDate(detailsDialog.order.expiry_date)} />
+                <div className="col-span-2">
+                  <DetailItem
+                    label="Remaining"
+                    value={formatDaysLeft(detailsDialog.order.expiry_date)}
+                  />
+                </div>
+              </div>
 
-                  <Divider />
+              <div className="h-px bg-border" />
 
-                  <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "action.hover" }}>
-                    <Typography sx={{ fontWeight: 700, mb: 1, fontSize: "0.88rem" }}>Usage</Typography>
-                    {renderUsageCompact(activeKeyByOrderId[detailsDialog.order.id])}
-                  </Box>
+              <div className="rounded-md bg-secondary/40 p-3">
+                <div className="mb-2 text-sm font-semibold">Usage</div>
+                {renderUsageCompact(activeKeyByOrderId[detailsDialog.order.id])}
+              </div>
 
-                  <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: "action.hover" }}>
-                    <Typography sx={{ fontWeight: 700, mb: 1, fontSize: "0.88rem" }}>Access</Typography>
-                    {renderAccess(detailsDialog.order)}
-                  </Box>
-                </Stack>
-              </MuiCardContent>
-            </MuiCard>
+              <div className="rounded-md bg-secondary/40 p-3">
+                <div className="mb-2 text-sm font-semibold">Access</div>
+                {renderAccess(detailsDialog.order)}
+              </div>
+            </div>
           ) : null}
-        </DialogContent>
-        <DialogActions>
-          <MuiButton onClick={() => setDetailsDialog({ open: false, order: null })} sx={{ borderRadius: 2 }}>
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => setDetailsDialog({ open: false, order: null })}
+          >
             Close
-          </MuiButton>
-        </DialogActions>
+          </Button>
+        </DialogFooter>
       </Dialog>
 
-      {/* ── Access key dialog (still MUI) ── */}
+      {/* ── Access key dialog ── */}
       <Dialog
         open={accessKeyDialog.open}
         onClose={() =>
@@ -1142,223 +1008,93 @@ export function OrdersTable({
             actionType: "activate",
           })
         }
-        fullWidth
-        maxWidth="sm"
-        PaperProps={{
-          sx: {
-            borderRadius: 3,
-            background: dark
-              ? "linear-gradient(145deg, #0c0e1c 0%, #10123a 100%)"
-              : "linear-gradient(145deg, #ffffff 0%, #f3f0ff 100%)",
-            border: `1px solid ${alpha(VIOLET, dark ? 0.25 : 0.2)}`,
-            overflow: "hidden",
-          },
-        }}
+        size="md"
       >
-        <Box
-          sx={{
-            height: 4,
-            background: `linear-gradient(90deg, ${VIOLET}, #06b6d4)`,
-            boxShadow: `0 0 24px ${alpha(VIOLET, 0.6)}`,
-          }}
-        />
-
-        <DialogContent sx={{ pt: 3, pb: 2, px: 3 }}>
-          <Stack spacing={2.5}>
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Box
-                sx={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: 2.5,
-                  flexShrink: 0,
-                  background: `linear-gradient(135deg, ${VIOLET}, #06b6d4)`,
-                  display: "grid",
-                  placeItems: "center",
-                  boxShadow: `0 6px 20px ${alpha(VIOLET, 0.45)}`,
-                }}
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-[#f5f3ff] text-[#7c3aed]">
+              <KeyRound size={18} />
+            </div>
+            <div>
+              <DialogTitle>Access Key Ready!</DialogTitle>
+              <DialogDescription>
+                {accessKeyDialog.customerName} has been{" "}
+                {accessKeyDialog.actionType === "renew" ? "renewed" : "activated"}
+              </DialogDescription>
+            </div>
+          </div>
+          <DialogClose />
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <div className="rounded-md border border-primary/20 bg-primary/5 p-4 space-y-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Subscription Details
+            </div>
+            <div className="space-y-2">
+              {accessKeyDialog.token ? (
+                <div>
+                  <div className="text-xs text-muted-foreground">Access Token</div>
+                  <div className="break-all font-mono text-[13px] font-medium text-primary leading-relaxed">
+                    {accessKeyDialog.token}
+                  </div>
+                </div>
+              ) : null}
+              {accessKeyDialog.subscriptionUrl ? (
+                <div>
+                  <div className="text-xs text-muted-foreground">Subscription URL</div>
+                  <div className="break-all font-mono text-[13px] font-medium text-primary leading-relaxed">
+                    {accessKeyDialog.subscriptionUrl}
+                  </div>
+                </div>
+              ) : null}
+              {accessKeyDialog.serverCount ? (
+                <div className="text-sm text-muted-foreground">
+                  Assigned servers: {accessKeyDialog.serverCount}
+                </div>
+              ) : null}
+              {accessKeyDialog.accessUrl ? (
+                <div>
+                  <div className="text-xs text-muted-foreground">Fallback raw access URL</div>
+                  <div className="break-all font-mono text-[13px] font-medium text-primary leading-relaxed">
+                    {accessKeyDialog.accessUrl}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="flex justify-end">
+              <Button
+                variant="ghost"
+                size="icon"
+                title="Copy subscription details"
+                onClick={() =>
+                  void copyText(
+                    accessKeyDialog.subscriptionUrl ||
+                      accessKeyDialog.token ||
+                      accessKeyDialog.accessUrl,
+                    accessKeyDialog.subscriptionUrl
+                      ? "Subscription URL"
+                      : accessKeyDialog.token
+                        ? "Access Token"
+                        : "Access URL"
+                  )
+                }
               >
-                <Typography sx={{ fontSize: "1.4rem" }}>🔑</Typography>
-              </Box>
+                <Copy size={16} />
+              </Button>
+            </div>
+          </div>
 
-              <Box>
-                <Typography
-                  sx={{
-                    fontWeight: 800,
-                    fontSize: "1.15rem",
-                    lineHeight: 1.2,
-                    fontFamily: "'Outfit', sans-serif",
-                  }}
-                >
-                  Access Key Ready!
-                </Typography>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mt: 0.3, fontSize: "0.83rem" }}
-                >
-                  {accessKeyDialog.customerName} has been{" "}
-                  {accessKeyDialog.actionType === "renew" ? "renewed" : "activated"}
-                </Typography>
-              </Box>
-            </Stack>
-
-            <Box
-              sx={{
-                borderRadius: 2,
-                border: `1.5px solid ${alpha(VIOLET, dark ? 0.3 : 0.2)}`,
-                bgcolor: dark ? alpha(VIOLET, 0.07) : alpha(VIOLET, 0.04),
-                p: 2,
-              }}
-            >
-              <Typography
-                variant="caption"
-                sx={{
-                  fontSize: "0.68rem",
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: dark ? alpha("#e8eaf6", 0.45) : alpha("#0f0f23", 0.4),
-                  display: "block",
-                  mb: 1,
-                }}
-              >
-                Subscription Details
-              </Typography>
-
-              <Stack spacing={1.25}>
-                {accessKeyDialog.token ? (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Access Token
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontSize: "0.78rem",
-                        fontFamily: "monospace",
-                        wordBreak: "break-all",
-                        color: dark ? "#c4b5fd" : VIOLET,
-                        fontWeight: 600,
-                        lineHeight: 1.6,
-                      }}
-                    >
-                      {accessKeyDialog.token}
-                    </Typography>
-                  </Box>
-                ) : null}
-
-                {accessKeyDialog.subscriptionUrl ? (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Subscription URL
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontSize: "0.78rem",
-                        fontFamily: "monospace",
-                        wordBreak: "break-all",
-                        color: dark ? "#c4b5fd" : VIOLET,
-                        fontWeight: 600,
-                        lineHeight: 1.6,
-                      }}
-                    >
-                      {accessKeyDialog.subscriptionUrl}
-                    </Typography>
-                  </Box>
-                ) : null}
-
-                {accessKeyDialog.serverCount ? (
-                  <Typography variant="body2" color="text.secondary">
-                    Assigned servers: {accessKeyDialog.serverCount}
-                  </Typography>
-                ) : null}
-
-                {accessKeyDialog.accessUrl ? (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary">
-                      Fallback raw access URL
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontSize: "0.78rem",
-                        fontFamily: "monospace",
-                        wordBreak: "break-all",
-                        color: dark ? "#c4b5fd" : VIOLET,
-                        fontWeight: 600,
-                        lineHeight: 1.6,
-                      }}
-                    >
-                      {accessKeyDialog.accessUrl}
-                    </Typography>
-                  </Box>
-                ) : null}
-
-                <Stack direction="row" justifyContent="flex-end">
-                  <Tooltip title="Copy subscription details">
-                    <IconButton
-                      onClick={() =>
-                        void copyText(
-                          accessKeyDialog.subscriptionUrl ||
-                            accessKeyDialog.token ||
-                            accessKeyDialog.accessUrl,
-                          accessKeyDialog.subscriptionUrl
-                            ? "Subscription URL"
-                            : accessKeyDialog.token
-                              ? "Access Token"
-                              : "Access URL"
-                        )
-                      }
-                      sx={{
-                        flexShrink: 0,
-                        borderRadius: 1.5,
-                        width: 36,
-                        height: 36,
-                        bgcolor: alpha(VIOLET, 0.12),
-                        color: VIOLET,
-                        "&:hover": {
-                          bgcolor: alpha(VIOLET, 0.22),
-                          transform: "scale(1.08)",
-                        },
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      <ContentCopyIcon sx={{ fontSize: 17 }} />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
-              </Stack>
-            </Box>
-
-            <Stack
-              direction="row"
-              spacing={1}
-              alignItems="flex-start"
-              sx={{
-                p: 1.5,
-                borderRadius: 1.5,
-                bgcolor: dark ? alpha("#10b981", 0.08) : alpha("#10b981", 0.06),
-                border: `1px solid ${alpha("#10b981", 0.2)}`,
-              }}
-            >
-              <Typography sx={{ fontSize: "0.95rem", lineHeight: 1 }}>💡</Typography>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontSize: "0.78rem",
-                  color: dark ? "#6ee7b7" : "#065f46",
-                  lineHeight: 1.5,
-                }}
-              >
-                Share this URL with the customer. They can import it into their Outline or compatible VPN app.
-              </Typography>
-            </Stack>
-          </Stack>
-        </DialogContent>
-
-        <DialogActions sx={{ px: 3, pb: 2.5, pt: 0, gap: 1 }}>
-          <MuiButton
-            variant="outlined"
-            color="inherit"
+          <div className="flex items-start gap-2 rounded-md border border-success/20 bg-success/10 p-3 text-sm text-[color:var(--success)]">
+            <Lightbulb size={16} className="mt-0.5 shrink-0" />
+            <span>
+              Share this URL with the customer. They can import it into their Outline or compatible VPN app.
+            </span>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            className="flex-1"
             onClick={() =>
               setAccessKeyDialog({
                 open: false,
@@ -1370,13 +1106,13 @@ export function OrdersTable({
                 actionType: "activate",
               })
             }
-            sx={{ borderRadius: 2, flex: 1, fontWeight: 700 }}
           >
             Close
-          </MuiButton>
-
-          <MuiButton
-            variant="contained"
+          </Button>
+          <Button
+            variant="primary"
+            className="flex-1"
+            leftIcon={<Copy size={16} />}
             onClick={async () => {
               await copyText(
                 accessKeyDialog.subscriptionUrl ||
@@ -1388,7 +1124,6 @@ export function OrdersTable({
                     ? "Access Token"
                     : "Access URL"
               );
-
               setAccessKeyDialog({
                 open: false,
                 customerName: "",
@@ -1399,71 +1134,31 @@ export function OrdersTable({
                 actionType: "activate",
               });
             }}
-            startIcon={<ContentCopyIcon sx={{ fontSize: "1rem !important" }} />}
-            sx={{ borderRadius: 2, flex: 1, fontWeight: 700 }}
           >
             Copy & Close
-          </MuiButton>
-        </DialogActions>
+          </Button>
+        </DialogFooter>
       </Dialog>
 
-      {/* ── Success snackbar ── */}
-      <Snackbar
-        open={Boolean(message)}
-        autoHideDuration={3000}
-        onClose={() => setMessage("")}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        sx={{
-          top: { xs: 72, sm: 88 },
-          left: { xs: 12, sm: "50%" },
-          right: { xs: 12, sm: "auto" },
-          transform: { xs: "none", sm: "translateX(-50%)" },
-        }}
-      >
-        <Alert
-          onClose={() => setMessage("")}
-          severity="success"
-          variant="filled"
-          sx={{
-            width: { xs: "100%", sm: "auto" },
-            minWidth: { sm: 320 },
-            maxWidth: { xs: "100%", sm: 520 },
-            alignItems: "center",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.28)",
-          }}
-        >
-          {message}
-        </Alert>
-      </Snackbar>
-
-      {/* ── Error snackbar ── */}
-      <Snackbar
-        open={Boolean(error)}
-        autoHideDuration={4000}
-        onClose={() => setError("")}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
-        sx={{
-          top: { xs: 72, sm: 88 },
-          left: { xs: 12, sm: "50%" },
-          right: { xs: 12, sm: "auto" },
-          transform: { xs: "none", sm: "translateX(-50%)" },
-        }}
-      >
-        <Alert
-          onClose={() => setError("")}
-          severity="error"
-          variant="filled"
-          sx={{
-            width: { xs: "100%", sm: "auto" },
-            minWidth: { sm: 320 },
-            maxWidth: { xs: "100%", sm: 520 },
-            alignItems: "center",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.28)",
-          }}
-        >
-          {error}
-        </Alert>
-      </Snackbar>
+      {/* ── Toast stack ── */}
+      <div className="fixed left-1/2 top-20 z-[60] flex w-[min(92vw,420px)] -translate-x-1/2 flex-col gap-2 pointer-events-none">
+        {message ? (
+          <div className="pointer-events-auto flex items-center justify-between gap-3 rounded-md border border-success/25 bg-[color:var(--success)] px-4 py-2.5 text-sm font-medium text-white shadow-lg">
+            {message}
+            <button onClick={() => setMessage("")} className="opacity-80 hover:opacity-100">
+              ✕
+            </button>
+          </div>
+        ) : null}
+        {error ? (
+          <div className="pointer-events-auto flex items-center justify-between gap-3 rounded-md border border-destructive/25 bg-destructive px-4 py-2.5 text-sm font-medium text-white shadow-lg">
+            {error}
+            <button onClick={() => setError("")} className="opacity-80 hover:opacity-100">
+              ✕
+            </button>
+          </div>
+        ) : null}
+      </div>
     </>
   );
 }
