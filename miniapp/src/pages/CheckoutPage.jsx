@@ -268,6 +268,7 @@ function SectionLabel({ children, required }) {
 // ── CheckoutPage ───────────────────────────────────────────────────────────────
 export default function CheckoutPage({
   data,
+  initData: initDataProp = "",
   checkoutPlan,
   onToast,
   onTabChange,
@@ -275,6 +276,7 @@ export default function CheckoutPage({
 }) {
   const paymentMethods = data?.config?.payment || [];
   const telegramUserId = data?.user?.telegram_user_id;
+  const initData = initDataProp || data?.init_data || "";
 
   const [selectedMethodIdx, setSelectedMethodIdx] = useState(0);
   const [uploadedPath, setUploadedPath] = useState(null);
@@ -306,7 +308,7 @@ export default function CheckoutPage({
     setPreviewSrc(URL.createObjectURL(file));
 
     try {
-      const result = await uploadPaymentScreenshot({ file, telegramUserId });
+      const result = await uploadPaymentScreenshot({ file, telegramUserId, initData });
       setUploadedPath(result.path);
     } catch (err) {
       setUploadError(err.message || "Upload failed. Please try again.");
@@ -334,6 +336,7 @@ export default function CheckoutPage({
       plan_id: checkoutPlan?.id,
       payment_screenshot_url: uploadedPath,
       payment_note: paymentNote.trim() || undefined,
+      init_data: initData,
     });
   };
 

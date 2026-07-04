@@ -3,8 +3,7 @@ import { linkMiniAppServer, submitMiniAppPurchase } from "./api";
 
 export function useLinkServer({ onSuccess, onError } = {}) {
   return useMutation({
-    mutationFn: ({ server_id, telegram_user_id }) =>
-      linkMiniAppServer({ server_id, telegram_user_id }),
+    mutationFn: (args) => linkMiniAppServer(args),
     onSuccess,
     onError,
   });

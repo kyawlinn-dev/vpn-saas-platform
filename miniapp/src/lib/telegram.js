@@ -1,9 +1,86 @@
+const TELEGRAM_INIT_DATA_SESSION_KEY = "novanet.telegram.initData";
+
+let cachedTelegramInitData = "";
+
+function readStoredTelegramInitData() {
+  if (typeof window === "undefined") return "";
+
+  try {
+    return window.sessionStorage?.getItem(TELEGRAM_INIT_DATA_SESSION_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberTelegramInitData(initData) {
+  const value = typeof initData === "string" ? initData : "";
+  if (!value) return "";
+
+  cachedTelegramInitData = value;
+
+  try {
+    window.sessionStorage?.setItem(TELEGRAM_INIT_DATA_SESSION_KEY, value);
+  } catch {}
+
+  return value;
+}
+
 export function getTelegramWebApp() {
   return window.Telegram?.WebApp || null;
 }
 
 export function getTelegramInitData() {
-  return getTelegramWebApp()?.initData || "";
+  // Persisted values first: the live WebApp.initData is blanked by Telegram Web A
+  // after launch, so reading it first would bypass a valid cached value.
+  if (cachedTelegramInitData) return cachedTelegramInitData;
+
+  const storedInitData = readStoredTelegramInitData();
+  if (storedInitData) {
+    cachedTelegramInitData = storedInitData;
+    return storedInitData;
+  }
+
+  // Live value as last resort (only reliable during the brief launch window).
+  const liveInitData = getTelegramWebApp()?.initData || "";
+  if (liveInitData) return rememberTelegramInitData(liveInitData);
+
+  return "";
+}
+
+export function getTelegramInitDataStatus() {
+  const webApp = getTelegramWebApp();
+  const initData = getTelegramInitData();
+
+  return {
+    hasTelegramBridge: Boolean(webApp),
+    hasInitData: Boolean(initData),
+    initData,
+    platform: webApp?.platform || "unknown",
+    version: webApp?.version || "unknown",
+  };
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function waitForTelegramInitData(timeoutMs = 1500) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= timeoutMs) {
+    const status = getTelegramInitDataStatus();
+    if (status.hasInitData || !status.hasTelegramBridge) {
+      if (status.initData) rememberTelegramInitData(status.initData);
+      return status;
+    }
+
+    getTelegramWebApp()?.ready?.();
+    await wait(100);
+  }
+
+  const finalStatus = getTelegramInitDataStatus();
+  if (finalStatus.initData) rememberTelegramInitData(finalStatus.initData);
+  return finalStatus;
 }
 
 function applySafeAreaInsets() {

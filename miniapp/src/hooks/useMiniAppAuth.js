@@ -5,7 +5,7 @@ import {
   getMiniAppPlans,
   getMiniAppServers,
 } from "../features/auth/api";
-import { prepareTelegramWebApp } from "../lib/telegram";
+import { getTelegramInitData, prepareTelegramWebApp } from "../lib/telegram";
 import { useEffect } from "react";
 
 function attachKeyToServer(server, outlineKey) {
@@ -32,7 +32,7 @@ export function useMiniAppAuth() {
       const config = await getMiniAppConfig();
       const auth = await authenticateMiniApp();
       const plans = await getMiniAppPlans();
-      const servers = await getMiniAppServers(auth?.user?.telegram_user_id);
+      const servers = await getMiniAppServers(auth?.user?.telegram_user_id, auth?.init_data);
 
       const currentServer = attachKeyToServer(auth?.current_server, auth?.outline_key);
 
@@ -51,12 +51,17 @@ export function useMiniAppAuth() {
   const subscription = data?.subscription || null;
   const outlineKey = data?.outline_key || null;
 
-  const hasActivePackage = Boolean(subscription);
+  const hasActivePackage =
+    subscription?.status === "active" &&
+    (
+      subscription?.type === "trial" ||
+      ["pending_review", "confirmed", "approved"].includes(subscription?.review_status)
+    );
   const hasLinkedKey = Boolean(outlineKey?.dynamic_access_url);
 
   return {
     ...query,
-    initData: "",
+    initData: data?.init_data || getTelegramInitData() || "",
     data,
     state: hasActivePackage ? "active" : "no_package",
     hasActivePackage,

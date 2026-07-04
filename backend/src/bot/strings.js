@@ -49,6 +49,17 @@ export const START_CTA_TEXT = "📲 ဘာများ ကူညီပေးရ�
 export const START_BTN_BUY   = "🛒 ဝယ်ယူရန် / သက်တမ်းတိုးရန်";
 export const START_BTN_ADMIN = "👤 Admin / Support";
 
+export function appOpenText(brandName) {
+  const name = brandName || "VPN";
+  return [
+    `Open ${name} Mini App`,
+    "",
+    "Use the app to check your package, server, Outline key, and payments.",
+  ].join("\n");
+}
+
+export const APP_BTN_OPEN = "Open Mini App";
+
 // ── Get Key (🔑) handler ──────────────────────────────────────────────────────
 
 /**

@@ -4,6 +4,10 @@ import { verifyTelegramInitData } from "../../utils/telegramAuth.js";
 import { ensureOrderToken } from "../../services/tokenService.js";
 import { getActiveServers, ServerAvailabilityError } from "../../services/serverService.js";
 import { provisionServersForToken } from "../../services/subscriptionProvisionService.js";
+import {
+  activatePendingReviewPurchase,
+  OrderLifecycleError,
+} from "../../services/orderLifecycleService.js";
 
 const router = express.Router();
 
@@ -562,6 +566,23 @@ async function getPendingReviewPurchaseOrder(customerId) {
   return data || null;
 }
 
+async function getActivePurchaseOrder(customerId, resellerId) {
+  const { data, error } = await supabase
+    .from("vpn_orders")
+    .select("id, review_status")
+    .eq("customer_id", customerId)
+    .eq("reseller_id", resellerId)
+    .eq("order_type", "purchase")
+    .eq("status", "active")
+    .in("review_status", ["pending_review", "confirmed"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
 async function createImmediatePurchaseOrder({
   customer,
   reseller,
@@ -569,8 +590,6 @@ async function createImmediatePurchaseOrder({
   paymentScreenshotUrl,
   paymentNote,
 }) {
-  const now = new Date();
-  const expiryAt = calcExpiryDate(now, plan.duration_days);
   const priceMmk = Number(plan.price_mmk || 0);
   const commissionPercent = Number(reseller.commission_percent || 20);
   const commissionAmountMmk = Math.round((priceMmk * commissionPercent) / 100);
@@ -581,7 +600,7 @@ async function createImmediatePurchaseOrder({
       customer_id: customer.id,
       reseller_id: reseller.id,
       plan_id: plan.id,
-      status: "active",
+      status: "pending",
       payment_status: "unpaid",
       order_type: "purchase",
       review_status: "pending_review",
@@ -592,9 +611,6 @@ async function createImmediatePurchaseOrder({
       total_paid_mmk: 0,
       commission_percent: commissionPercent,
       commission_amount_mmk: commissionAmountMmk,
-      activated_at: now.toISOString(),
-      start_date: toDateOnly(now),
-      expiry_date: toDateOnly(expiryAt),
       stopped_at: null,
     })
     .select(`
@@ -617,54 +633,11 @@ async function createImmediatePurchaseOrder({
 }
 
 async function provisionImmediatePurchaseOrder({ order, customer, reseller, plan }) {
-  const now = new Date();
-  const expiryAt = calcExpiryDate(now, plan.duration_days);
-  const regions = getPlanRegions(plan);
-
-  const selectedServers = await getActiveServers({
-    regions,
-    limit: regions.length,
-  });
-
-  if (!selectedServers.length) {
-    throw new ServerAvailabilityError("No active server available", "NO_ACTIVE_SERVER");
-  }
-
-  if (regions.length && selectedServers.length < regions.length) {
-    const availableRegions = new Set(
-      selectedServers.map((server) => String(server.region || "").toLowerCase())
-    );
-
-    const missingRegions = regions.filter(
-      (region) => !availableRegions.has(String(region || "").toLowerCase())
-    );
-
-    throw new ServerAvailabilityError(
-      `Missing active server capacity for region(s): ${missingRegions.join(", ")}`,
-      "MISSING_REGION_CAPACITY"
-    );
-  }
-
-  const token = await ensureOrderToken({
-    customerId: order.customer_id,
-    resellerId: order.reseller_id,
-    orderId: order.id,
-    expiresAt: expiryAt.toISOString(),
-  });
-
-  await provisionServersForToken({
-    token,
-    order,
-    customer,
+  return activatePendingReviewPurchase({
+    order: { ...order, customer },
     reseller,
     plan,
-    servers: selectedServers,
   });
-
-  return {
-    token: token.token,
-    expires_at: expiryAt.toISOString(),
-  };
 }
 
 function normalizePlanListForPackages(plans) {
@@ -728,6 +701,15 @@ router.post("/purchase", async (req, res) => {
     const resellerId = linked.customer?.reseller_id || (await getDefaultTrialResellerId());
     const reseller = await getResellerById(resellerId);
 
+    const activePurchase = await getActivePurchaseOrder(linked.customer.id, resellerId);
+    if (activePurchase) {
+      return res.status(409).json({
+        error: "You already have an active purchase",
+        order_id: activePurchase.id,
+        review_status: activePurchase.review_status,
+      });
+    }
+
     const order = await createImmediatePurchaseOrder({
       customer: linked.customer,
       reseller,
@@ -747,19 +729,20 @@ router.post("/purchase", async (req, res) => {
     const servers = activeToken
       ? await getAssignedServersForToken(activeToken.id, activeToken.token)
       : [];
+    const activatedOrder = provisioned.order || order;
 
     return res.status(201).json({
       ok: true,
       message: "Premium access created and waiting for reseller review",
       review_status: "pending_review",
       order: {
-        id: order.id,
-        status: "active",
-        order_type: "purchase",
-        review_status: "pending_review",
-        payment_status: "unpaid",
-        expiry_date: order.expiry_date,
-        payment_screenshot_url: order.payment_screenshot_url,
+        id: activatedOrder.id,
+        status: activatedOrder.status,
+        order_type: activatedOrder.order_type,
+        review_status: activatedOrder.review_status,
+        payment_status: activatedOrder.payment_status,
+        expiry_date: activatedOrder.expiry_date,
+        payment_screenshot_url: activatedOrder.payment_screenshot_url,
       },
       access: {
         token: provisioned.token,
@@ -791,6 +774,13 @@ router.post("/purchase", async (req, res) => {
       message.includes("Missing active server capacity")
     ) {
       return res.status(409).json({ error: message });
+    }
+
+    if (error instanceof OrderLifecycleError) {
+      return res.status(error.status || 400).json({
+        error: message,
+        code: error.code,
+      });
     }
 
     return res.status(500).json({ error: message });

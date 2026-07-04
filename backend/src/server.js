@@ -21,8 +21,10 @@ import adminResellersRouter from "./routes/admin/adminResellersRouter.js";
 import adminPlansRouter from "./routes/admin/adminPlansRouter.js";
 import adminOrderActionsRouter from "./routes/admin/adminOrderActionsRouter.js";
 import adminDataRouter from "./routes/admin/adminDataRouter.js";
+import adminLaunchReadinessRouter from "./routes/admin/launchReadinessRouter.js";
 import resellerMeRouter from "./routes/reseller/resellerMeRouter.js";
 import resellerWorkspaceRouter from "./routes/reseller/resellerWorkspaceRouter.js";
+import resellerLaunchReadinessRouter from "./routes/reseller/launchReadinessRouter.js";
 
 import resellerOrdersRouter from "./routes/reseller/resellerOrdersRouter.js";
 import resellerKeysRouter from "./routes/reseller/resellerKeysRouter.js";
@@ -110,7 +112,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, ngrok-skip-browser-warning"
+    "Content-Type, Authorization, X-Telegram-Init-Data, ngrok-skip-browser-warning"
   );
 
   if (req.method === "OPTIONS") {
@@ -199,6 +201,14 @@ app.use(
 );
 
 app.use(
+  "/api/reseller/launch-readiness",
+  requireTrustedOrigin,
+  requireAuth,
+  requireActiveReseller,
+  resellerLaunchReadinessRouter
+);
+
+app.use(
   "/api/reseller/orders",
   requireTrustedOrigin,
   requireAuth,
@@ -268,6 +278,14 @@ app.use(
   requireAdminAuth,
   requireAdmin,
   adminOrderActionsRouter
+);
+
+app.use(
+  "/api/admin/launch-readiness",
+  requireTrustedOrigin,
+  requireAdminAuth,
+  requireAdmin,
+  adminLaunchReadinessRouter
 );
 
 // Generic data endpoints: /api/admin/customers, /orders, /plans, /keys

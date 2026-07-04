@@ -10,6 +10,7 @@ import {
 } from "../components/ui/primitives";
 import { cn } from "@/lib/utils";
 import { useLinkServer } from "../features/access/hooks";
+import { getTelegramInitData } from "../lib/telegram";
 
 // ── Helpers (logic unchanged from MUI version) ────────────────────────────────
 
@@ -201,9 +202,17 @@ function CountryGroup({ group, expanded, onToggle, linking, onSelect, locked = f
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange, onOpenSettings }) {
+export default function ServersPage({
+  data,
+  initData: initDataProp = "",
+  onToast,
+  onRefreshAuth,
+  onTabChange,
+  onOpenSettings,
+}) {
   const servers = useMemo(() => data?.servers || [], [data?.servers]);
   const telegramUserId = data?.user?.telegram_user_id;
+  const initData = initDataProp || data?.init_data || "";
   const hasActivePackage = Boolean(data?.subscription);
   const currentServer = data?.current_server || null;
   const brand = data?.config?.brand || null;
@@ -256,6 +265,21 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange,
 
   const toggleGroup = (key) => {
     setOpenGroups((prev) => ({ ...prev, [key]: !(prev[key] ?? false) }));
+  };
+
+  const handleConnectSelectedServer = () => {
+    const authInitData = initData || getTelegramInitData();
+
+    if (!authInitData) {
+      onToast("Open from Telegram bot again.", "error");
+      return;
+    }
+
+    linkMutation.mutate({
+      server_id: selectedServer.id,
+      telegram_user_id: telegramUserId,
+      init_data: authInitData,
+    });
   };
 
   return (
@@ -334,12 +358,7 @@ export default function ServersPage({ data, onToast, onRefreshAuth, onTabChange,
 
             <div className="flex flex-col gap-2">
               <PrimaryButton
-                onClick={() =>
-                  linkMutation.mutate({
-                    server_id: selectedServer.id,
-                    telegram_user_id: telegramUserId,
-                  })
-                }
+                onClick={handleConnectSelectedServer}
                 disabled={linkMutation.isPending}
               >
                 {linkMutation.isPending ? "Connecting…" : "Connect"}

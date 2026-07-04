@@ -33,12 +33,31 @@ async function registerWebhook(bot, resellerId) {
   return secretToken;
 }
 
+async function persistBotStatus(resellerId, patch) {
+  try {
+    const { error } = await supabase
+      .from("reseller_miniapps")
+      .update({
+        ...patch,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("reseller_id", resellerId);
+
+    if (error) {
+      console.warn(`[bot:${resellerId}] status update warning:`, error.message);
+    }
+  } catch (err) {
+    console.warn(`[bot:${resellerId}] status update warning:`, err.message);
+  }
+}
+
 async function startBotForReseller(row) {
   const { reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled } = row;
   const miniappBaseUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").replace(/\/$/, "");
 
   const plainToken = decrypt(bot_token_encrypted);
   const bot = new Telegraf(plainToken);
+  const botInfo = await withTimeout(bot.telegram.getMe(), 10_000, "Bot identity lookup");
 
   setupHandlers(bot, {
     resellerId: reseller_id,
@@ -73,7 +92,20 @@ async function startBotForReseller(row) {
     console.warn(`[bot:${reseller_id}] menu/commands setup warning (non-fatal):`, err.message);
   }
 
-  activeBots.set(reseller_id, { bot, secretToken, tokenEncrypted: bot_token_encrypted });
+  activeBots.set(reseller_id, {
+    bot,
+    secretToken,
+    tokenEncrypted: bot_token_encrypted,
+    botInfo,
+    webhookRegisteredAt: new Date().toISOString(),
+  });
+
+  await persistBotStatus(reseller_id, {
+    bot_connected: true,
+    bot_username: botInfo?.username || null,
+    bot_id: botInfo?.id || null,
+  });
+
   console.log(`[bot:${reseller_id}] online`);
 }
 
@@ -86,6 +118,7 @@ async function stopBotForReseller(resellerId) {
     console.warn(`[bot:${resellerId}] deleteWebhook warning:`, err.message);
   }
   activeBots.delete(resellerId);
+  await persistBotStatus(resellerId, { bot_connected: false });
   console.log(`[bot:${resellerId}] stopped`);
 }
 
@@ -107,6 +140,7 @@ export async function start() {
     try {
       await startBotForReseller(row);
     } catch (err) {
+      await persistBotStatus(row.reseller_id, { bot_connected: false });
       console.error(`[bot:${row.reseller_id}] startup failed (skipped):`, err.message);
     }
   }
@@ -128,9 +162,28 @@ export async function restartBot(resellerId) {
     .maybeSingle();
 
   if (error) throw new Error(`Failed to fetch bot config: ${error.message}`);
-  if (!data) return; // token removed or reseller disabled — already stopped above
+  if (!data) {
+    await persistBotStatus(resellerId, { bot_connected: false });
+    return;
+  }
 
-  await startBotForReseller(data); // throws on bad token or timeout
+  try {
+    await startBotForReseller(data); // throws on bad token or timeout
+  } catch (err) {
+    await persistBotStatus(resellerId, { bot_connected: false });
+    throw err;
+  }
+}
+
+export function getRuntimeStatus(resellerId) {
+  const entry = activeBots.get(resellerId);
+  return {
+    running: Boolean(entry),
+    webhook_registered: Boolean(entry?.secretToken),
+    webhook_registered_at: entry?.webhookRegisteredAt || null,
+    bot_username: entry?.botInfo?.username || null,
+    bot_id: entry?.botInfo?.id || null,
+  };
 }
 
 // Called from webhookRouter — never throws.

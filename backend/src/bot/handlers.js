@@ -5,6 +5,8 @@ import {
   START_CTA_TEXT,
   START_BTN_BUY,
   START_BTN_ADMIN,
+  APP_BTN_OPEN,
+  appOpenText,
   PLACEHOLDER,
   keyFoundHeader,
   keyServerLine,
@@ -162,6 +164,22 @@ export function setupHandlers(bot, {
       }
     } catch (err) {
       console.error(`[bot:${resellerId}] /start error:`, err.message);
+    }
+  });
+
+  bot.command("app", async (ctx) => {
+    try {
+      if (!homeUrl) {
+        await ctx.reply("Mini App is not configured yet. Please contact support.");
+        return;
+      }
+
+      await ctx.replyWithHTML(
+        appOpenText(brandName),
+        Markup.inlineKeyboard([[Markup.button.webApp(APP_BTN_OPEN, homeUrl)]])
+      );
+    } catch (err) {
+      console.error(`[bot:${resellerId}] /app error:`, err.message);
     }
   });
 

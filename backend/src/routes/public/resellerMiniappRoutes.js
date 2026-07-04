@@ -17,7 +17,10 @@ import {
   setServerError,
   clearServerError,
 } from "../../services/serverService.js";
-import { deleteProvisionedKeysForOrder } from "../../services/subscriptionProvisionService.js";
+import {
+  activatePendingReviewPurchase,
+  OrderLifecycleError,
+} from "../../services/orderLifecycleService.js";
 import { createTrialOrder, provisionTrialKey } from "../../services/trialService.js";
 
 const router = express.Router();
@@ -73,6 +76,69 @@ function verifyTelegramInitData(initData, botToken) {
   if (!user?.id) return { valid: false, user: null };
 
   return { valid: true, user };
+}
+
+function miniAppAuthError(message, status = 401, code = "MINIAPP_AUTH_FAILED") {
+  return Object.assign(new Error(message), { status, code });
+}
+
+function miniAppAuthResponse(res, error) {
+  return res.status(error.status || 401).json({
+    success: false,
+    code: error.code || "MINIAPP_AUTH_FAILED",
+    message: error.message,
+  });
+}
+
+function parseTelegramUserId(value) {
+  if (value == null || value === "") return null;
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : NaN;
+}
+
+function verifyMiniAppRequestUser({ miniapp, initData, expectedTelegramUserId }) {
+  const initDataString = typeof initData === "string" ? initData.trim() : "";
+
+  if (IS_DEV && !initDataString) {
+    return { id: expectedTelegramUserId || 123456789 };
+  }
+
+  if (!initDataString) {
+    throw miniAppAuthError(
+      "Missing Telegram Mini App authentication data. Open the Mini App from the bot's Web App button.",
+      401,
+      "MISSING_INIT_DATA"
+    );
+  }
+
+  if (!miniapp?.bot_token_encrypted) {
+    throw miniAppAuthError("Mini App bot is not configured", 503, "BOT_NOT_CONFIGURED");
+  }
+
+  let botToken;
+  try {
+    botToken = decrypt(miniapp.bot_token_encrypted);
+  } catch (err) {
+    console.error("Bot token decrypt error:", err);
+    throw miniAppAuthError("Failed to process authentication", 500, "BOT_TOKEN_DECRYPT_FAILED");
+  }
+
+  const { valid, user } = verifyTelegramInitData(initDataString, botToken);
+
+  if (!valid) {
+    throw miniAppAuthError(
+      "Invalid or expired Telegram Mini App authentication. Reopen the Mini App from the reseller bot.",
+      401,
+      "INVALID_INIT_DATA"
+    );
+  }
+
+  if (expectedTelegramUserId && Number(user.id) !== Number(expectedTelegramUserId)) {
+    throw miniAppAuthError("Telegram user does not match this request", 403, "TELEGRAM_USER_MISMATCH");
+  }
+
+  return user;
 }
 
 // ── Screenshot upload infrastructure ─────────────────────────────────────────
@@ -559,11 +625,21 @@ router.post("/:slug/auth", async (req, res) => {
       verifiedUser = { id: 123456789, first_name: "Kyaw", last_name: "Linn", username: "kyawlinn" };
     } else {
       if (!initDataString) {
-        return res.status(401).json({ success: false, message: "Authentication required" });
+        return miniAppAuthResponse(
+          res,
+          miniAppAuthError(
+            "Missing Telegram Mini App authentication data. Open the Mini App from the bot's Web App button.",
+            401,
+            "MISSING_INIT_DATA"
+          )
+        );
       }
 
       if (!miniapp.bot_token_encrypted) {
-        return res.status(503).json({ success: false, message: "Mini App bot is not configured" });
+        return miniAppAuthResponse(
+          res,
+          miniAppAuthError("Mini App bot is not configured", 503, "BOT_NOT_CONFIGURED")
+        );
       }
 
       let botToken;
@@ -571,14 +647,24 @@ router.post("/:slug/auth", async (req, res) => {
         botToken = decrypt(miniapp.bot_token_encrypted);
       } catch (err) {
         console.error("Bot token decrypt error:", err);
-        return res.status(500).json({ success: false, message: "Failed to process authentication" });
+        return miniAppAuthResponse(
+          res,
+          miniAppAuthError("Failed to process authentication", 500, "BOT_TOKEN_DECRYPT_FAILED")
+        );
       }
 
       const { valid, user } = verifyTelegramInitData(initDataString, botToken);
       // botToken goes out of scope here — not logged, not stored, not returned
 
       if (!valid) {
-        return res.status(401).json({ success: false, message: "Invalid or expired Telegram authentication" });
+        return miniAppAuthResponse(
+          res,
+          miniAppAuthError(
+            "Invalid or expired Telegram Mini App authentication. Reopen the Mini App from the reseller bot.",
+            401,
+            "INVALID_INIT_DATA"
+          )
+        );
       }
 
       verifiedUser = user;
@@ -700,6 +786,7 @@ router.post("/:slug/auth", async (req, res) => {
     if (!activeOrder && miniapp.trial_enabled && !telegramLink.trial_used_at) {
       // Delegate to shared trialService — handles atomic claim, TOCTOU guard,
       // rollback on failure, and immediate key provisioning on the default server.
+      try {
       const { order, plan, created } = await createTrialOrder({
         customerId: customer.id,
         resellerId: miniapp.reseller_id,
@@ -726,6 +813,9 @@ router.post("/:slug/auth", async (req, res) => {
           trialCreated = true;
         }
         activeOrder = order;
+      }
+      } catch (trialErr) {
+        console.warn("[auth] trial auto-create failed (non-fatal):", trialErr.message);
       }
     }
 
@@ -819,12 +909,14 @@ router.post("/:slug/auth", async (req, res) => {
         subscription: activeOrder
           ? {
               order_id: activeOrder.id,
+              plan_id: activeOrder.plan_id,
               type: activeOrder.order_type,
               status: activeOrder.status,
               payment_status: activeOrder.payment_status,
               review_status: activeOrder.review_status,
               plan_name: activeOrder.vpn_plans?.name,
               data_limit_gb: activeOrder.vpn_plans?.data_limit_gb,
+              duration_days: activeOrder.vpn_plans?.duration_days,
               start_date: activeOrder.start_date,
               expiry_date: activeOrder.expiry_date,
             }
@@ -921,16 +1013,17 @@ router.get("/:slug/plans", async (req, res) => {
   }
 });
 
-router.get("/:slug/servers", async (req, res) => {
+async function handleMiniAppServers(
+  req,
+  res,
+  { telegramUserId = null, initData = "", personalization_notice = null } = {}
+) {
   try {
     const { slug } = req.params;
-    const telegramUserId = req.query.telegram_user_id
-      ? Number(req.query.telegram_user_id)
-      : null;
 
     const { data: miniapp, error: miniappError } = await supabase
       .from("reseller_miniapps")
-      .select("id, reseller_id, miniapp_slug, is_enabled")
+      .select("id, reseller_id, miniapp_slug, is_enabled, bot_token_encrypted")
       .eq("miniapp_slug", slug)
       .maybeSingle();
 
@@ -960,6 +1053,16 @@ router.get("/:slug/servers", async (req, res) => {
     let currentServerId = null;
 
     if (telegramUserId) {
+      try {
+        verifyMiniAppRequestUser({
+          miniapp,
+          initData,
+          expectedTelegramUserId: telegramUserId,
+        });
+      } catch (authErr) {
+        return miniAppAuthResponse(res, authErr);
+      }
+
       const { data: link, error: linkError } = await supabase
         .from("telegram_links")
         .select("customer_id, reseller_id")
@@ -1071,6 +1174,7 @@ router.get("/:slug/servers", async (req, res) => {
       success: true,
       data: {
         servers: mappedServers,
+        personalization_notice,
       },
     });
   } catch (err) {
@@ -1080,6 +1184,44 @@ router.get("/:slug/servers", async (req, res) => {
       message: "Unexpected server error",
     });
   }
+}
+
+router.get("/:slug/servers", async (req, res) => {
+  const telegramUserId = parseTelegramUserId(req.query.telegram_user_id);
+  const initData = req.get("x-telegram-init-data") || req.query.init_data || "";
+
+  if (Number.isNaN(telegramUserId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid telegram_user_id",
+    });
+  }
+
+  const missingInitData = telegramUserId && !String(initData).trim();
+
+  return handleMiniAppServers(req, res, {
+    telegramUserId: missingInitData ? null : telegramUserId,
+    initData,
+    personalization_notice: missingInitData
+      ? "Telegram initData was missing; returned public server list without customer personalization."
+      : null,
+  });
+});
+
+router.post("/:slug/servers", async (req, res) => {
+  const telegramUserId = parseTelegramUserId(req.body.telegram_user_id);
+
+  if (Number.isNaN(telegramUserId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid telegram_user_id",
+    });
+  }
+
+  return handleMiniAppServers(req, res, {
+    telegramUserId,
+    initData: req.body.init_data,
+  });
 });
 
 router.post("/:slug/servers/:serverId/link", async (req, res) => {
@@ -1091,6 +1233,7 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
   try {
     const { slug, serverId } = req.params;
     const { telegram_user_id } = req.body;
+    const initData = req.body.init_data || req.get("x-telegram-init-data") || "";
 
     if (!slug) {
       return res.status(400).json({
@@ -1115,9 +1258,16 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
 
     const telegramUserId = Number(telegram_user_id);
 
+    if (!String(initData).trim()) {
+      return miniAppAuthResponse(
+        res,
+        miniAppAuthError("Open from Telegram bot again.", 401, "MISSING_INIT_DATA")
+      );
+    }
+
     const { data: miniapp, error: miniappError } = await supabase
       .from("reseller_miniapps")
-      .select("id, reseller_id, miniapp_slug, brand_name, is_enabled")
+      .select("id, reseller_id, miniapp_slug, brand_name, is_enabled, bot_token_encrypted")
       .eq("miniapp_slug", slug)
       .maybeSingle();
 
@@ -1141,6 +1291,16 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
         success: false,
         message: "Mini App is disabled",
       });
+    }
+
+    try {
+      verifyMiniAppRequestUser({
+        miniapp,
+        initData,
+        expectedTelegramUserId: telegramUserId,
+      });
+    } catch (authErr) {
+      return miniAppAuthResponse(res, authErr);
     }
 
     const { data: link, error: linkError } = await supabase
@@ -1473,14 +1633,9 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
 });
 
 router.post("/:slug/orders", async (req, res) => {
-  let createdOutlineKeyId = null;
-  let createdServer = null;
-  let insertedVpnKeyId = null;
-  let incrementedServer = false;
-
   try {
     const { slug } = req.params;
-    const { telegram_user_id, plan_id, payment_screenshot_url, payment_note } =
+    const { telegram_user_id, plan_id, payment_screenshot_url, payment_note, init_data } =
       req.body;
 
     if (!slug) {
@@ -1513,7 +1668,8 @@ router.post("/:slug/orders", async (req, res) => {
         reseller_id,
         miniapp_slug,
         brand_name,
-        is_enabled
+        is_enabled,
+        bot_token_encrypted
       `)
       .eq("miniapp_slug", slug)
       .maybeSingle();
@@ -1538,6 +1694,16 @@ router.post("/:slug/orders", async (req, res) => {
         success: false,
         message: "Mini App is disabled",
       });
+    }
+
+    try {
+      verifyMiniAppRequestUser({
+        miniapp,
+        initData: init_data,
+        expectedTelegramUserId: telegramUserId,
+      });
+    } catch (authErr) {
+      return miniAppAuthResponse(res, authErr);
     }
 
     // Require a non-empty path that was produced by our own upload endpoint.
@@ -1608,6 +1774,7 @@ router.post("/:slug/orders", async (req, res) => {
         data_limit_gb,
         duration_days,
         max_devices,
+        allowed_regions,
         is_active,
         is_trial
       `)
@@ -1667,99 +1834,6 @@ router.post("/:slug/orders", async (req, res) => {
       });
     }
 
-    // Rule 1: End the customer's active trial before creating the purchase order.
-    // If cleanup throws, abort — never leave both a live trial and a new purchase active.
-    const { data: activeTrialOrder, error: activeTrialError } = await supabase
-      .from("vpn_orders")
-      .select("id")
-      .eq("customer_id", customer.id)
-      .eq("reseller_id", miniapp.reseller_id)
-      .eq("status", "active")
-      .eq("order_type", "trial")
-      .limit(1)
-      .maybeSingle();
-
-    if (activeTrialError) {
-      console.error("Active trial check error:", activeTrialError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to check active trial",
-      });
-    }
-
-    if (activeTrialOrder) {
-      try {
-        await deleteProvisionedKeysForOrder(activeTrialOrder.id);
-      } catch (err) {
-        console.error("Trial key cleanup error:", err);
-        return res.status(500).json({
-          success: false,
-          message: "Failed to end trial before creating purchase order",
-        });
-      }
-
-      const { error: stopTrialError } = await supabase
-        .from("vpn_orders")
-        .update({
-          status: "stopped",
-          stopped_at: new Date().toISOString(),
-        })
-        .eq("id", activeTrialOrder.id);
-
-      if (stopTrialError) {
-        console.error("Trial order stop error:", stopTrialError);
-        return res.status(500).json({
-          success: false,
-          message: "Failed to stop trial order",
-        });
-      }
-    }
-
-    const { data: defaultServer, error: defaultServerError } = await supabase
-      .from("vpn_servers")
-      .select(`
-        id,
-        name,
-        region,
-        region_code,
-        display_country,
-        display_city,
-        flag_emoji,
-        server_number,
-        outline_api_url,
-        outline_cert_sha256,
-        status,
-        is_active,
-        is_default
-      `)
-      .eq("is_default", true)
-      .eq("is_active", true)
-      .eq("status", "active")
-      .limit(1)
-      .maybeSingle();
-
-    if (defaultServerError) {
-      console.error("Default server lookup error:", defaultServerError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to load default server",
-      });
-    }
-
-    if (!defaultServer) {
-      return res.status(500).json({
-        success: false,
-        message: "Default server is not configured",
-      });
-    }
-
-    if (!defaultServer.outline_api_url || !defaultServer.outline_cert_sha256) {
-      return res.status(500).json({
-        success: false,
-        message: "Default server Outline config is missing",
-      });
-    }
-
     const { data: reseller, error: resellerError } = await supabase
       .from("resellers")
       .select("id, commission_percent")
@@ -1780,13 +1854,6 @@ router.post("/:slug/orders", async (req, res) => {
       (priceMmk * commissionPercent) / 100
     );
 
-    const startDate = new Date();
-    const expiryDate = new Date();
-    expiryDate.setDate(startDate.getDate() + Number(plan.duration_days || 30));
-
-    const startDateText = startDate.toISOString().slice(0, 10);
-    const expiryDateText = expiryDate.toISOString().slice(0, 10);
-
     const { data: createdOrder, error: orderError } = await supabase
       .from("vpn_orders")
       .insert({
@@ -1794,14 +1861,10 @@ router.post("/:slug/orders", async (req, res) => {
         reseller_id: miniapp.reseller_id,
         plan_id: plan.id,
 
-        status: "active",
+        status: "pending",
         price_mmk: priceMmk,
         commission_percent: commissionPercent,
         commission_amount_mmk: commissionAmountMmk,
-
-        start_date: startDateText,
-        expiry_date: expiryDateText,
-        activated_at: new Date().toISOString(),
 
         payment_status: "unpaid",
         total_paid_mmk: 0,
@@ -1848,105 +1911,81 @@ router.post("/:slug/orders", async (req, res) => {
       });
     }
 
-    const dataLimitBytes = gbToBytes(plan.data_limit_gb);
-
-    const outlineKey = await createOutlineKey({
-      apiUrl: defaultServer.outline_api_url,
-      certSha256: defaultServer.outline_cert_sha256,
-      name: buildMiniAppKeyName({
-        customer,
-        server: defaultServer,
-        order: createdOrder,
-        plan,
-      }),
-      dataLimitBytes,
+    const activation = await activatePendingReviewPurchase({
+      order: { ...createdOrder, customer },
+      reseller,
+      plan,
     });
 
-    createdOutlineKeyId = outlineKey.outline_key_id;
-    createdServer = defaultServer;
+    const activatedOrder = activation.order || {
+      ...createdOrder,
+      status: "active",
+      expiry_date: activation.expiry_date,
+    };
 
     const { data: insertedKey, error: insertKeyError } = await supabase
       .from("vpn_keys")
-      .insert({
-        order_id: createdOrder.id,
-        customer_id: customer.id,
-        reseller_id: miniapp.reseller_id,
-        server_id: defaultServer.id,
-        outline_key_id: outlineKey.outline_key_id,
-        key_name: outlineKey.key_name,
-        access_url: outlineKey.access_url,
-        data_limit_bytes: dataLimitBytes,
-        used_bytes: 0,
-        status: "active",
-        is_used: true,
-        used_at: new Date().toISOString(),
-      })
-      .select("id, data_limit_bytes, used_bytes")
-      .single();
+      .select(`
+        id,
+        data_limit_bytes,
+        used_bytes,
+        vpn_servers (
+          id,
+          name,
+          region,
+          region_code,
+          display_country,
+          display_city,
+          flag_emoji,
+          server_number,
+          is_default
+        )
+      `)
+      .eq("order_id", createdOrder.id)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (insertKeyError || !insertedKey) {
-      throw new Error(insertKeyError?.message || "Failed to store VPN key");
+      throw new Error(insertKeyError?.message || "Failed to load provisioned VPN key");
     }
 
-    insertedVpnKeyId = insertedKey.id;
-
-    await incrementServerUsage(defaultServer.id);
-    incrementedServer = true;
-    await clearServerError(defaultServer.id);
+    const currentServer = insertedKey.vpn_servers || null;
 
     return res.status(201).json({
       success: true,
       message: "Order submitted. Premium access is active while waiting for reseller approval.",
       data: {
         order: {
-          id: createdOrder.id,
-          status: createdOrder.status,
-          payment_status: createdOrder.payment_status,
-          review_status: createdOrder.review_status,
-          order_type: createdOrder.order_type,
-          source: createdOrder.source,
-          price_mmk: createdOrder.price_mmk,
-          start_date: createdOrder.start_date,
-          expiry_date: createdOrder.expiry_date,
-          payment_screenshot_url: createdOrder.payment_screenshot_url,
-          payment_note: createdOrder.payment_note,
-          created_at: createdOrder.created_at,
+          id: activatedOrder.id,
+          status: activatedOrder.status,
+          payment_status: activatedOrder.payment_status,
+          review_status: activatedOrder.review_status,
+          order_type: activatedOrder.order_type,
+          source: activatedOrder.source,
+          price_mmk: activatedOrder.price_mmk,
+          start_date: activatedOrder.start_date,
+          expiry_date: activatedOrder.expiry_date,
+          payment_screenshot_url: activatedOrder.payment_screenshot_url,
+          payment_note: activatedOrder.payment_note,
+          created_at: activatedOrder.created_at,
           plan: createdOrder.vpn_plans,
         },
-        current_server: mapServerForMiniApp(defaultServer, true),
+        current_server: mapServerForMiniApp(currentServer, true),
         outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, insertedKey, label, 0),
       },
     });
   } catch (err) {
     console.error("Mini App order exception:", err);
 
-    if (incrementedServer && createdServer?.id) {
-      try {
-        await decrementServerUsage(createdServer.id);
-      } catch {}
-    }
-
-    if (insertedVpnKeyId) {
-      try {
-        await supabase
-          .from("vpn_keys")
-          .update({
-            status: "deleted",
-            deleted_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", insertedVpnKeyId);
-      } catch {}
-    }
-
-    if (createdOutlineKeyId && createdServer?.outline_api_url) {
-      try {
-        await deleteOutlineKey({
-          apiUrl: createdServer.outline_api_url,
-          certSha256: createdServer.outline_cert_sha256,
-          outlineKeyId: createdOutlineKeyId,
-        });
-      } catch {}
+    if (err instanceof OrderLifecycleError) {
+      return res.status(err.status || 400).json({
+        success: false,
+        message: err.message,
+        code: err.code,
+      });
     }
 
     return res.status(500).json({
@@ -1975,7 +2014,7 @@ router.post(
       // ── 1. Resolve miniapp ────────────────────────────────────────────────
       const { data: miniapp, error: miniappError } = await supabase
         .from("reseller_miniapps")
-        .select("id, reseller_id, miniapp_slug, is_enabled")
+        .select("id, reseller_id, miniapp_slug, is_enabled, bot_token_encrypted")
         .eq("miniapp_slug", slug)
         .maybeSingle();
 
@@ -1989,6 +2028,16 @@ router.post(
       // ── 2. Verify Telegram user is a registered customer of this reseller ─
       if (!telegramUserId) {
         return res.status(400).json({ error: "telegram_user_id is required" });
+      }
+
+      try {
+        verifyMiniAppRequestUser({
+          miniapp,
+          initData: req.body.init_data,
+          expectedTelegramUserId: telegramUserId,
+        });
+      } catch (authErr) {
+        return miniAppAuthResponse(res, authErr);
       }
 
       const { data: link, error: linkError } = await supabase

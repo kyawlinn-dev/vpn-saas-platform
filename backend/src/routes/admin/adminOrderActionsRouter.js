@@ -1,17 +1,12 @@
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
-import { getActiveServers } from "../../services/serverService.js";
 import {
-  ensureOrderToken,
-  getTokenByOrderId,
-  deactivateToken,
-} from "../../services/tokenService.js";
-import {
-  provisionServersForToken,
-  deleteProvisionedKeysForOrder,
-  updateProvisionedKeyLimitsForOrder,
-  deactivateTokenAssignments,
-} from "../../services/subscriptionProvisionService.js";
+  activateOrder,
+  extendOrder,
+  renewOrder,
+  stopOrder,
+  OrderLifecycleError,
+} from "../../services/orderLifecycleService.js";
 
 const router = express.Router();
 
@@ -45,6 +40,18 @@ function adminTag(req) {
   return `admin:${req.admin?.id} (${req.admin?.full_name || req.admin?.email})`;
 }
 
+function sendLifecycleError(res, err, fallback) {
+  if (err instanceof OrderLifecycleError) {
+    return res.status(err.status || 400).json({
+      success: false,
+      error: err.message,
+      code: err.code,
+    });
+  }
+
+  return res.status(500).json({ success: false, error: err.message || fallback });
+}
+
 // POST /api/admin/order-actions/:orderId/activate
 router.post("/:orderId/activate", async (req, res) => {
   const { orderId } = req.params;
@@ -67,58 +74,15 @@ router.post("/:orderId/activate", async (req, res) => {
         `customer: ${order.customer?.full_name}, reseller: ${order.reseller_id}, plan: ${plan.name}`
     );
 
-    const regions = Array.isArray(plan.allowed_regions)
-      ? plan.allowed_regions.filter(Boolean)
-      : [];
-    const limit = regions.length || 1;
-
-    const selectedServers = await getActiveServers({ regions, limit });
-    if (!selectedServers.length) {
-      return res.status(409).json({ error: "No active server available" });
-    }
-
-    const now = new Date();
-    const expiryAt = calcExpiryDate(now, plan.duration_days);
-
-    const token = await ensureOrderToken({
-      customerId: order.customer_id,
-      resellerId: order.reseller_id,
-      orderId: order.id,
-      expiresAt: expiryAt.toISOString(),
-    });
-
-    await provisionServersForToken({
-      token,
-      order,
-      customer: order.customer,
+    const result = await activateOrder({
+      orderId,
       reseller: { id: order.reseller_id },
-      plan,
-      servers: selectedServers,
     });
 
-    const { error: updateErr } = await supabase
-      .from("vpn_orders")
-      .update({
-        status: "active",
-        activated_at: now.toISOString(),
-        start_date: toDateOnly(now),
-        expiry_date: toDateOnly(expiryAt),
-        stopped_at: null,
-        updated_at: now.toISOString(),
-      })
-      .eq("id", orderId);
-
-    if (updateErr) throw new Error(updateErr.message);
-
-    return res.json({
-      success: true,
-      message: "Order activated",
-      order_id: orderId,
-      expiry_date: toDateOnly(expiryAt),
-    });
+    return res.json(result);
   } catch (err) {
     console.error(`[${adminTag(req)}] activate order ${orderId} crash:`, err);
-    return res.status(500).json({ error: err.message || "Failed to activate order" });
+    return sendLifecycleError(res, err, "Failed to activate order");
   }
 });
 
@@ -180,24 +144,19 @@ router.post("/:orderId/extend", async (req, res) => {
         `customer: ${order.customer?.full_name}, plan: ${plan.name}, new expiry: ${toDateOnly(expiryAt)}`
     );
 
-    const { error: updateErr } = await supabase
-      .from("vpn_orders")
-      .update(updates)
-      .eq("id", orderId);
+    const result =
+      order.status === "active"
+        ? await extendOrder({ orderId, resellerId: order.reseller_id, planId: newPlanId })
+        : await renewOrder({
+            orderId,
+            reseller: { id: order.reseller_id },
+            planId: newPlanId,
+          });
 
-    if (updateErr) throw new Error(updateErr.message);
-
-    await updateProvisionedKeyLimitsForOrder({ orderId, plan });
-
-    return res.json({
-      success: true,
-      message: "Order extended",
-      order_id: orderId,
-      expiry_date: toDateOnly(expiryAt),
-    });
+    return res.json(result);
   } catch (err) {
     console.error(`[${adminTag(req)}] extend order ${orderId} crash:`, err);
-    return res.status(500).json({ error: err.message || "Failed to extend order" });
+    return sendLifecycleError(res, err, "Failed to extend order");
   }
 });
 
@@ -219,35 +178,16 @@ router.post("/:orderId/stop", async (req, res) => {
         `customer: ${order.customer?.full_name}, reseller: ${order.reseller_id} — DELETING VPN KEYS`
     );
 
-    await deleteProvisionedKeysForOrder(orderId);
-
-    // Deactivate legacy access token + assignments if present
-    const token = await getTokenByOrderId(orderId);
-    if (token) {
-      await deactivateTokenAssignments(token.id);
-      await deactivateToken(token.id);
-    }
-
-    const now = new Date();
-    const { error: updateErr } = await supabase
-      .from("vpn_orders")
-      .update({
-        status: "stopped",
-        stopped_at: now.toISOString(),
-        updated_at: now.toISOString(),
-      })
-      .eq("id", orderId);
-
-    if (updateErr) throw new Error(updateErr.message);
-
-    return res.json({
-      success: true,
-      message: "Order stopped — VPN keys deleted",
-      order_id: orderId,
+    const result = await stopOrder({
+      orderId,
+      resellerId: order.reseller_id,
     });
+
+    return res.json(result);
+
   } catch (err) {
     console.error(`[${adminTag(req)}] stop order ${orderId} crash:`, err);
-    return res.status(500).json({ error: err.message || "Failed to stop order" });
+    return sendLifecycleError(res, err, "Failed to stop order");
   }
 });
 

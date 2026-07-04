@@ -164,6 +164,7 @@ const chipTones = {
   violet: "bg-violet/15 text-violet border-violet/30",
   success: "bg-success/15 text-success border-success/25",
   warning: "bg-warning/15 text-warning border-warning/25",
+  danger: "bg-destructive/15 text-red-400 border-destructive/25",
   muted: "bg-secondary/70 text-muted-foreground border-border",
 };
 

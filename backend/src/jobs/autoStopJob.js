@@ -8,8 +8,7 @@
  */
 
 import { supabase } from "../lib/supabase.js";
-import { deleteOutlineKey } from "../services/outlineService.js";
-import { getServerById, decrementServerUsage } from "../services/serverService.js";
+import { stopOrder } from "../services/orderLifecycleService.js";
 
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -33,69 +32,10 @@ async function stopExpiredOrders() {
 
   for (const order of orders) {
     try {
-      const { data: keys, error: keysError } = await supabase
-        .from("vpn_keys")
-        .select("id, outline_key_id, server_id")
-        .eq("order_id", order.id)
-        .eq("status", "active")
-        .is("deleted_at", null);
-
-      if (keysError) {
-        console.warn(
-          `[autoStop] Failed to fetch keys for order ${order.id}:`,
-          keysError.message
-        );
-      }
-
-      for (const key of keys || []) {
-        const server = key.server_id ? await getServerById(key.server_id) : null;
-
-        if (server?.outline_api_url && key.outline_key_id) {
-          try {
-            await deleteOutlineKey({
-              apiUrl: server.outline_api_url,
-              certSha256: server.outline_cert_sha256,
-              outlineKeyId: key.outline_key_id,
-            });
-          } catch (e) {
-            console.warn(
-              `[autoStop] Failed to delete Outline key for order ${order.id}:`,
-              e.message
-            );
-          }
-
-          try {
-            await decrementServerUsage(key.server_id);
-          } catch (_) {}
-        }
-
-        const { error: deleteKeyError } = await supabase
-          .from("vpn_keys")
-          .delete()
-          .eq("id", key.id);
-
-        if (deleteKeyError) {
-          console.warn(
-            `[autoStop] Failed to delete vpn_keys row for order ${order.id}:`,
-            deleteKeyError.message
-          );
-        }
-      }
-
-      const { error: updateOrderError } = await supabase
-        .from("vpn_orders")
-        .update({
-          status: "stopped",
-          stopped_at: new Date().toISOString(),
-        })
-        .eq("id", order.id);
-
-      if (updateOrderError) {
-        throw new Error(updateOrderError.message);
-      }
+      await stopOrder({ orderId: order.id, resellerId: order.reseller_id });
 
       console.log(
-        `[autoStop] Auto-stopped order ${order.id} (${(keys || []).length} key(s) removed).`
+        `[autoStop] Auto-stopped order ${order.id}.`
       );
     } catch (err) {
       console.error(`[autoStop] Error stopping order ${order.id}:`, err.message);
