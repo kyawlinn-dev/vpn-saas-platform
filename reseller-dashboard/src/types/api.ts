@@ -86,6 +86,10 @@ export interface VpnKey {
   outline_key_id: string;
   key_name: string;
   access_url: string;
+  dynamic_access_url?: Nullable<string>;
+  ssconf_url?: Nullable<string>;
+  ssconf_token?: Nullable<string>;
+  preferred_access_url?: Nullable<string>;
   data_limit_bytes: Nullable<number>;
   used_bytes: Nullable<number>;
   status: "active" | "deleted" | string;
@@ -95,6 +99,9 @@ export interface VpnKey {
 
   used_bytes_30d?: number;
   used_gb_30d?: number;
+  order_total_used_bytes?: number;
+  order_total_used_gb?: number;
+  order_total_remaining_gb?: Nullable<number>;
   data_limit_gb?: Nullable<number>;
   remaining_gb_30d?: Nullable<number>;
   recent_connections_24h?: number;

@@ -17,6 +17,49 @@ import {
 
 const router = express.Router();
 
+function bytesToGb(bytes) {
+  const value = Number(bytes || 0);
+  return value > 0 ? Number((value / 1024 / 1024 / 1024).toFixed(2)) : 0;
+}
+
+function getRequestBaseUrl(req) {
+  const proto =
+    String(req.headers["x-forwarded-proto"] || "")
+      .split(",")[0]
+      .trim() ||
+    req.protocol ||
+    "http";
+
+  const host =
+    String(req.headers["x-forwarded-host"] || "")
+      .split(",")[0]
+      .trim() || req.get("host");
+
+  return `${proto}://${host}`.replace(/\/$/, "");
+}
+
+function buildSsconfHttpUrl(req, slug, token) {
+  if (!slug || !token) return null;
+  return `${getRequestBaseUrl(req)}/api/miniapp/${encodeURIComponent(
+    slug
+  )}/ssconf/${encodeURIComponent(token)}`;
+}
+
+function buildDynamicAccessUrl(req, slug, token, label) {
+  const httpUrl = buildSsconfHttpUrl(req, slug, token);
+  if (!httpUrl) return null;
+
+  const url = new URL(httpUrl);
+  const fragment = label ? `#${label}` : "";
+  return `ssconf://${url.host}${url.pathname}${fragment}`;
+}
+
+function usageBytesForOrderTotal(key) {
+  const storedBytes = Number(key?.used_bytes || 0);
+  const liveBytes = Number(key?.used_bytes_30d || 0);
+  return Math.max(storedBytes, liveBytes, 0);
+}
+
 // ─── GET /api/reseller/keys ───────────────────────────────────────────────────
 
 router.get("/", async (req, res) => {
@@ -37,7 +80,8 @@ router.get("/", async (req, res) => {
           id,
           full_name,
           telegram_username,
-          phone
+          phone,
+          ssconf_token
         )
       `)
       .eq("reseller_id", reseller.id)
@@ -49,6 +93,16 @@ router.get("/", async (req, res) => {
     }
 
     const keys = data ?? [];
+
+    const { data: miniapp, error: miniappError } = await supabase
+      .from("reseller_miniapps")
+      .select("miniapp_slug, brand_name")
+      .eq("reseller_id", reseller.id)
+      .maybeSingle();
+
+    if (miniappError) {
+      console.error("Failed to load reseller miniapp for key links:", miniappError);
+    }
 
     // Batch-fetch all unique servers referenced by these keys
     const serverIds = [...new Set(keys.map((k) => k.server_id).filter(Boolean))];
@@ -80,7 +134,7 @@ router.get("/", async (req, res) => {
       )
     );
 
-    const enriched = keys.map((key) => {
+    const enrichedBase = keys.map((key) => {
       const server = key.server_id ? serversById[key.server_id] : null;
       const metrics =
         server?.id && key?.outline_key_id
@@ -96,6 +150,40 @@ router.get("/", async (req, res) => {
         },
         metrics
       );
+    });
+
+    const totalUsedBytesByOrderId = {};
+    for (const key of enrichedBase) {
+      if (!key.order_id) continue;
+      totalUsedBytesByOrderId[key.order_id] =
+        Number(totalUsedBytesByOrderId[key.order_id] || 0) + usageBytesForOrderTotal(key);
+    }
+
+    const enriched = enrichedBase.map((key) => {
+      const orderTotalUsedBytes = Number(totalUsedBytesByOrderId[key.order_id] || 0);
+      const dataLimitBytes =
+        typeof key?.data_limit_bytes === "number" ? key.data_limit_bytes : null;
+      const orderRemainingBytes =
+        typeof dataLimitBytes === "number"
+          ? Math.max(dataLimitBytes - orderTotalUsedBytes, 0)
+          : null;
+      const customerSsconfToken = key?.customer?.ssconf_token || null;
+      const miniappSlug = miniapp?.miniapp_slug || null;
+      const label = miniapp?.brand_name || key?.server?.name || "VPN";
+      const ssconfUrl = buildSsconfHttpUrl(req, miniappSlug, customerSsconfToken);
+      const dynamicAccessUrl = buildDynamicAccessUrl(req, miniappSlug, customerSsconfToken, label);
+
+      return {
+        ...key,
+        order_total_used_bytes: orderTotalUsedBytes,
+        order_total_used_gb: bytesToGb(orderTotalUsedBytes),
+        order_total_remaining_gb:
+          typeof orderRemainingBytes === "number" ? bytesToGb(orderRemainingBytes) : null,
+        ssconf_token: customerSsconfToken,
+        ssconf_url: ssconfUrl,
+        dynamic_access_url: dynamicAccessUrl,
+        preferred_access_url: dynamicAccessUrl || ssconfUrl || key.access_url || null,
+      };
     });
 
     return res.json(enriched);

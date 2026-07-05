@@ -51,6 +51,45 @@ export function buildWebAppUrl(miniappBaseUrl, miniappSlug, path = "") {
   return path ? `${base}${path}${qs}` : `${base}${qs}`;
 }
 
+function miniAppButton(text, url) {
+  return Markup.button.webApp(text, url);
+}
+
+function safeButtonUrlMeta(url) {
+  try {
+    const parsed = new URL(url);
+    return {
+      host: parsed.host,
+      path: parsed.pathname || "/",
+      has_slug: parsed.searchParams.has("slug"),
+      slug: parsed.searchParams.get("slug") || "",
+    };
+  } catch {
+    return {
+      host: "",
+      path: "",
+      has_slug: false,
+      slug: "",
+    };
+  }
+}
+
+function logInlineButtonPayload(resellerId, source, markup) {
+  const rows = markup?.reply_markup?.inline_keyboard || [];
+  const buttons = rows.flat().map((button) => ({
+    text: button.text,
+    has_web_app: Boolean(button.web_app),
+    web_app_url: button.web_app?.url ? safeButtonUrlMeta(button.web_app.url) : null,
+    has_url: Boolean(button.url),
+    url: button.url ? safeButtonUrlMeta(button.url) : null,
+  }));
+
+  console.info(`[bot:${resellerId}] miniapp inline payload`, {
+    source,
+    buttons,
+  });
+}
+
 /**
  * Registers all bot handlers for a single reseller bot.
  *
@@ -70,8 +109,7 @@ export function setupHandlers(bot, {
   supportUsername,
   trialEnabled,
 }) {
-  const homeUrl     = buildWebAppUrl(miniappBaseUrl, miniappSlug);
-  const packagesUrl = buildWebAppUrl(miniappBaseUrl, miniappSlug, "/packages");
+  const homeUrl = buildWebAppUrl(miniappBaseUrl, miniappSlug);
 
   // ── Persistent reply keyboard ────────────────────────────────────────────────
   // Sent on /start and persists in the user's chat. Layout: 2-2-1.
@@ -151,8 +189,8 @@ export function setupHandlers(bot, {
 
       // 5. CTA inline buttons (second message)
       const ctaButtons = [];
-      if (packagesUrl) {
-        ctaButtons.push([Markup.button.webApp(START_BTN_BUY, packagesUrl)]);
+      if (homeUrl) {
+        ctaButtons.push([miniAppButton(START_BTN_BUY, homeUrl)]);
       }
       if (supportUsername) {
         ctaButtons.push([
@@ -160,7 +198,9 @@ export function setupHandlers(bot, {
         ]);
       }
       if (ctaButtons.length > 0) {
-        await ctx.reply(START_CTA_TEXT, Markup.inlineKeyboard(ctaButtons));
+        const markup = Markup.inlineKeyboard(ctaButtons);
+        logInlineButtonPayload(resellerId, "/start", markup);
+        await ctx.reply(START_CTA_TEXT, markup);
       }
     } catch (err) {
       console.error(`[bot:${resellerId}] /start error:`, err.message);
@@ -174,10 +214,9 @@ export function setupHandlers(bot, {
         return;
       }
 
-      await ctx.replyWithHTML(
-        appOpenText(brandName),
-        Markup.inlineKeyboard([[Markup.button.webApp(APP_BTN_OPEN, homeUrl)]])
-      );
+      const markup = Markup.inlineKeyboard([[miniAppButton(APP_BTN_OPEN, homeUrl)]]);
+      logInlineButtonPayload(resellerId, "/app", markup);
+      await ctx.replyWithHTML(appOpenText(brandName), markup);
     } catch (err) {
       console.error(`[bot:${resellerId}] /app error:`, err.message);
     }
@@ -244,9 +283,13 @@ export function setupHandlers(bot, {
 
   bot.hears(BTN.BALANCE, async (ctx) => {
     try {
+      const markup = homeUrl
+        ? Markup.inlineKeyboard([[miniAppButton(BALANCE_BTN_OPEN, homeUrl)]])
+        : {};
+      logInlineButtonPayload(resellerId, "balance", markup);
       await ctx.replyWithHTML(
         BALANCE_TEXT,
-        homeUrl ? Markup.inlineKeyboard([[Markup.button.webApp(BALANCE_BTN_OPEN, homeUrl)]]) : {}
+        markup
       );
     } catch (err) {
       console.error(`[bot:${resellerId}] BALANCE handler error:`, err.message);
@@ -257,9 +300,13 @@ export function setupHandlers(bot, {
   // Deep-linking to the servers tab requires the miniapp to read start_param (future stage).
   bot.hears(BTN.SERVER, async (ctx) => {
     try {
+      const markup = homeUrl
+        ? Markup.inlineKeyboard([[miniAppButton(SERVER_BTN_OPEN, homeUrl)]])
+        : {};
+      logInlineButtonPayload(resellerId, "server", markup);
       await ctx.replyWithHTML(
         SERVER_TEXT,
-        homeUrl ? Markup.inlineKeyboard([[Markup.button.webApp(SERVER_BTN_OPEN, homeUrl)]]) : {}
+        markup
       );
     } catch (err) {
       console.error(`[bot:${resellerId}] SERVER handler error:`, err.message);

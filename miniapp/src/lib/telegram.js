@@ -60,6 +60,28 @@ export function getTelegramInitDataStatus() {
   };
 }
 
+export function getTelegramLaunchDebug() {
+  const webApp = getTelegramWebApp();
+  const params = new URLSearchParams(window.location.search || "");
+  const liveInitData = webApp?.initData || "";
+  const cachedInitData = getTelegramInitData();
+  const startParam = webApp?.initDataUnsafe?.start_param || "";
+  const slug = params.get("slug") || startParam || "";
+
+  return {
+    entry_source: params.get("source") || (webApp ? "telegram_webapp" : "browser"),
+    has_telegram_bridge: Boolean(webApp),
+    init_data_present: Boolean(liveInitData || cachedInitData),
+    live_init_data_present: Boolean(liveInitData),
+    init_data_length: (liveInitData || cachedInitData).length,
+    slug,
+    start_param: startParam,
+    path: window.location.pathname || "/",
+    platform: webApp?.platform || "unknown",
+    version: webApp?.version || "unknown",
+  };
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

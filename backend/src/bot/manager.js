@@ -51,6 +51,25 @@ async function persistBotStatus(resellerId, patch) {
   }
 }
 
+function safeWebAppUrlMeta(url) {
+  try {
+    const parsed = new URL(url);
+    return {
+      host: parsed.host,
+      path: parsed.pathname || "/",
+      has_slug: parsed.searchParams.has("slug"),
+      slug: parsed.searchParams.get("slug") || "",
+    };
+  } catch {
+    return {
+      host: "",
+      path: "",
+      has_slug: false,
+      slug: "",
+    };
+  }
+}
+
 async function startBotForReseller(row) {
   const { reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled } = row;
   const miniappBaseUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").replace(/\/$/, "");
@@ -80,6 +99,11 @@ async function startBotForReseller(row) {
     const label = brand_name || "App";
     const webAppUrl = buildWebAppUrl(miniappBaseUrl, miniapp_slug || "");
     if (webAppUrl) {
+      console.info(`[bot:${reseller_id}] menu web_app payload`, {
+        text: `Open ${label}`,
+        has_web_app: true,
+        web_app_url: safeWebAppUrlMeta(webAppUrl),
+      });
       await bot.telegram.setChatMenuButton({
         menu_button: { type: "web_app", text: `Open ${label}`, web_app: { url: webAppUrl } },
       });

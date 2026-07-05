@@ -1458,11 +1458,14 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       });
     }
 
-    const existingCurrentKey = (existingActiveKeys || [])[0];
+    const activeKeys = existingActiveKeys || [];
+    const activeTargetKey = activeKeys.find(
+      (key) => key.server_id === server.id && key.access_url
+    );
 
     if (
-      existingCurrentKey?.server_id === server.id &&
-      existingCurrentKey?.access_url
+      activeTargetKey &&
+      activeKeys.length === 1
     ) {
       const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
       return res.json({
@@ -1470,29 +1473,61 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
         message: "Server already linked",
         data: {
           current_server: mapServerForMiniApp(server, true),
-          outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, existingCurrentKey, label, totalUsedBytes),
+          outline_key: toPublicOutlineKey(req, slug, customerSsconfToken, activeTargetKey, label, totalUsedBytes),
         },
       });
     }
 
-    const outlineKey = await createOutlineKey({
-      apiUrl: server.outline_api_url,
-      certSha256: server.outline_cert_sha256,
-      name: buildMiniAppKeyName({
-        customer,
-        server,
-        order: activeOrder,
-        plan,
-      }),
-      dataLimitBytes,
-    });
-
-    createdOutlineKeyId = outlineKey.outline_key_id;
-    createdServer = server;
-
-    const { data: insertedKey, error: insertKeyError } = await supabase
+    // uq_vpn_keys_order_server is UNIQUE on (order_id, server_id), so every
+    // switch must resolve the target row first and update/reuse it when present.
+    const { data: existingTargetKey, error: existingTargetKeyError } = await supabase
       .from("vpn_keys")
-      .insert({
+      .select("id, outline_key_id, server_id, access_url, data_limit_bytes, used_bytes, status, deleted_at")
+      .eq("order_id", activeOrder.id)
+      .eq("server_id", server.id)
+      .maybeSingle();
+
+    if (existingTargetKeyError) {
+      console.error("Existing target key lookup error:", existingTargetKeyError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to check existing server link",
+      });
+    }
+
+    let insertedKey = activeTargetKey || null;
+    let targetKeyWasActive = Boolean(
+      existingTargetKey?.status === "active" && !existingTargetKey?.deleted_at
+    );
+
+    if (!insertedKey) {
+      let outlineKey;
+
+      try {
+        outlineKey = await createOutlineKey({
+          apiUrl: server.outline_api_url,
+          certSha256: server.outline_cert_sha256,
+          name: buildMiniAppKeyName({
+            customer,
+            server,
+            order: activeOrder,
+            plan,
+          }),
+          dataLimitBytes,
+        });
+      } catch (outlineErr) {
+        console.error("Outline key create error:", outlineErr);
+        const friendlyErr = new Error(
+          "Could not create VPN key on this server. Please try another server or contact support."
+        );
+        friendlyErr.status = 502;
+        throw friendlyErr;
+      }
+
+      createdOutlineKeyId = outlineKey.outline_key_id;
+      createdServer = server;
+
+      const keyPatch = {
         order_id: activeOrder.id,
         customer_id: customer.id,
         reseller_id: miniapp.reseller_id,
@@ -1505,21 +1540,89 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
         status: "active",
         is_used: true,
         used_at: new Date().toISOString(),
-      })
-      .select("id, outline_key_id, server_id, data_limit_bytes, used_bytes")
-      .single();
+        deleted_at: null,
+        updated_at: new Date().toISOString(),
+      };
 
-    if (insertKeyError || !insertedKey) {
-      throw new Error(insertKeyError?.message || "Failed to store VPN key");
+      let insertKeyError = null;
+
+      if (existingTargetKey) {
+        ({ data: insertedKey, error: insertKeyError } = await supabase
+          .from("vpn_keys")
+          .update(keyPatch)
+          .eq("id", existingTargetKey.id)
+          .select("id, outline_key_id, server_id, access_url, data_limit_bytes, used_bytes")
+          .single());
+      } else {
+        const insertPayload = { ...keyPatch };
+        delete insertPayload.updated_at;
+
+        ({ data: insertedKey, error: insertKeyError } = await supabase
+          .from("vpn_keys")
+          .insert(insertPayload)
+          .select("id, outline_key_id, server_id, access_url, data_limit_bytes, used_bytes")
+          .single());
+
+        if (insertKeyError?.code === "23505") {
+          const { data: racedTargetKey, error: racedTargetKeyError } = await supabase
+            .from("vpn_keys")
+            .select("id, outline_key_id, server_id, access_url, data_limit_bytes, used_bytes, status, deleted_at")
+            .eq("order_id", activeOrder.id)
+            .eq("server_id", server.id)
+            .maybeSingle();
+
+          if (!racedTargetKeyError && racedTargetKey?.id) {
+            targetKeyWasActive = Boolean(
+              racedTargetKey.status === "active" && !racedTargetKey.deleted_at
+            );
+
+            if (targetKeyWasActive && racedTargetKey.access_url) {
+              insertedKey = racedTargetKey;
+              insertKeyError = null;
+
+              try {
+                await deleteOutlineKey({
+                  apiUrl: server.outline_api_url,
+                  certSha256: server.outline_cert_sha256,
+                  outlineKeyId: outlineKey.outline_key_id,
+                });
+                createdOutlineKeyId = null;
+              } catch (cleanupErr) {
+                console.warn(
+                  "[link] Failed to clean up duplicate raced Outline key:",
+                  cleanupErr.message
+                );
+              }
+            } else {
+              ({ data: insertedKey, error: insertKeyError } = await supabase
+                .from("vpn_keys")
+                .update(keyPatch)
+                .eq("id", racedTargetKey.id)
+                .select("id, outline_key_id, server_id, access_url, data_limit_bytes, used_bytes")
+                .single());
+            }
+          }
+        }
+      }
+
+      if (insertKeyError || !insertedKey) {
+        console.error("VPN key store error:", insertKeyError);
+        const friendlyErr = new Error("Failed to store VPN key. Please try again.");
+        friendlyErr.status = 500;
+        throw friendlyErr;
+      }
+
+      if (!targetKeyWasActive) {
+        insertedVpnKeyId = insertedKey.id;
+
+        await incrementServerUsage(server.id);
+        incrementedNewServer = true;
+      }
+
+      await clearServerError(server.id);
     }
 
-    insertedVpnKeyId = insertedKey.id;
-
-    await incrementServerUsage(server.id);
-    incrementedNewServer = true;
-    await clearServerError(server.id);
-
-    for (const oldKey of existingActiveKeys || []) {
+    for (const oldKey of activeKeys) {
       if (oldKey.id === insertedKey.id) continue;
 
       // Best-effort: freeze used_bytes at the live Outline value before this key is deleted.
@@ -1625,9 +1728,15 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       } catch {}
     }
 
-    return res.status(500).json({
+    const status = Number.isInteger(err.status) ? err.status : 500;
+    const message =
+      status === 500
+        ? "Failed to link server. Please try again."
+        : err.message || "Failed to link server";
+
+    return res.status(status).json({
       success: false,
-      message: err.message || "Failed to link server",
+      message,
     });
   }
 });

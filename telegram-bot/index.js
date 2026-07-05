@@ -3,14 +3,19 @@ import { Telegraf, Markup } from "telegraf";
 import { createClient } from "@supabase/supabase-js";
 
 const botToken = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
-const miniAppUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").trim();
+const miniAppBaseUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").trim();
+const miniAppSlug = String(process.env.MINIAPP_SLUG || "").trim();
 const supabaseUrl = String(process.env.SUPABASE_URL || "").trim();
 const supabaseServiceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 
-console.log("TELEGRAM_MINIAPP_URL =", process.env.TELEGRAM_MINIAPP_URL);
+const miniAppUrl = miniAppSlug
+  ? `${miniAppBaseUrl.replace(/\/$/, "")}?slug=${encodeURIComponent(miniAppSlug)}`
+  : miniAppBaseUrl;
+
+console.log("TELEGRAM_MINIAPP_URL =", miniAppUrl);
 
 if (!botToken) throw new Error("Missing TELEGRAM_BOT_TOKEN");
-if (!miniAppUrl) throw new Error("Missing TELEGRAM_MINIAPP_URL");
+if (!miniAppBaseUrl) throw new Error("Missing TELEGRAM_MINIAPP_URL");
 if (!supabaseUrl) throw new Error("Missing SUPABASE_URL");
 if (!supabaseServiceRoleKey) throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
 

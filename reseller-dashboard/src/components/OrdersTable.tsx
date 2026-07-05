@@ -94,6 +94,57 @@ function mapActionError(errorData?: { error?: string; code?: string }) {
   }
 }
 
+function getPaymentDisplayStatus(order: Order) {
+  return order.order_type === "trial" ? "trial" : order.payment_status;
+}
+
+function getPreferredAccessUrl(key?: VpnKey | null) {
+  return (
+    key?.dynamic_access_url ||
+    key?.ssconf_url ||
+    key?.preferred_access_url ||
+    key?.access_url ||
+    ""
+  );
+}
+
+function getPreferredAccessUrlFromPayload(data: any) {
+  return (
+    data?.key?.dynamic_access_url ||
+    data?.key?.ssconf_url ||
+    data?.key?.preferred_access_url ||
+    data?.vpn_key?.dynamic_access_url ||
+    data?.vpn_key?.ssconf_url ||
+    data?.vpn_key?.preferred_access_url ||
+    data?.dynamic_access_url ||
+    data?.ssconf_url ||
+    data?.preferred_access_url ||
+    data?.data?.dynamic_access_url ||
+    data?.data?.ssconf_url ||
+    data?.data?.preferred_access_url ||
+    data?.key?.access_url ||
+    data?.vpn_key?.access_url ||
+    data?.access_url ||
+    data?.data?.access_url ||
+    ""
+  );
+}
+
+function getOrderUsageGb(key?: VpnKey | null) {
+  if (!key) return 0;
+  if (typeof key.order_total_used_gb === "number") return key.order_total_used_gb;
+  if (typeof key.order_total_used_bytes === "number") {
+    return key.order_total_used_bytes / 1024 / 1024 / 1024;
+  }
+  return Number(key.used_gb_30d || 0);
+}
+
+function getOrderRemainingGb(key?: VpnKey | null) {
+  if (!key) return null;
+  if (typeof key.order_total_remaining_gb === "number") return key.order_total_remaining_gb;
+  return key.remaining_gb_30d == null ? null : Number(key.remaining_gb_30d);
+}
+
 function useMediaQuery(query: string) {
   const [matches, setMatches] = useState(
     () => typeof window !== "undefined" && window.matchMedia(query).matches
@@ -306,7 +357,9 @@ export function OrdersTable({
   const activeKeyByOrderId = useMemo(() => {
     const map: Record<string, VpnKey> = {};
     for (const key of keys) {
-      if (key.order_id && key.status === "active") map[key.order_id] = key;
+      if (key.order_id && key.status === "active" && !map[key.order_id]) {
+        map[key.order_id] = key;
+      }
     }
     return map;
   }, [keys]);
@@ -322,8 +375,8 @@ export function OrdersTable({
         String(order.customer?.phone || "").toLowerCase().includes(query) ||
         String(order.plan?.name || "").toLowerCase().includes(query) ||
         String(order.status || "").toLowerCase().includes(query) ||
-        String(order.payment_status || "").toLowerCase().includes(query) ||
-        String(key?.access_url || "").toLowerCase().includes(query) ||
+        String(getPaymentDisplayStatus(order) || "").toLowerCase().includes(query) ||
+        String(getPreferredAccessUrl(key) || "").toLowerCase().includes(query) ||
         String(order.access_tokens?.[0]?.token || "").toLowerCase().includes(query);
 
       if (!matchesSearch) return false;
@@ -387,8 +440,7 @@ export function OrdersTable({
       await onSuccess();
 
       const data = res?.data;
-      const accessUrl: string =
-        data?.key?.access_url || data?.vpn_key?.access_url || data?.access_url || data?.data?.access_url || "";
+      const accessUrl: string = getPreferredAccessUrlFromPayload(data);
       const customerName = order.customer?.full_name || "Customer";
 
       if (accessUrl || data?.token || data?.subscription_url) {
@@ -430,7 +482,7 @@ export function OrdersTable({
       await onSuccess();
 
       const data = res?.data;
-      const accessUrl: string = data?.key?.access_url || data?.access_url || "";
+      const accessUrl: string = getPreferredAccessUrlFromPayload(data);
       const customerName = order.customer?.full_name || "Customer";
 
       if (action === "renew" && (accessUrl || data?.token || data?.subscription_url)) {
@@ -476,9 +528,9 @@ export function OrdersTable({
     if (!key) return <span className="text-muted-foreground">-</span>;
     return (
       <UsageBar
-        used={Number(key.used_gb_30d || 0)}
+        used={getOrderUsageGb(key)}
         limit={Number(key.data_limit_gb || 0)}
-        remaining={key.remaining_gb_30d == null ? null : Number(key.remaining_gb_30d)}
+        remaining={getOrderRemainingGb(key)}
         connections={Number(key.recent_connections_24h || 0)}
       />
     );
@@ -486,16 +538,17 @@ export function OrdersTable({
 
   const renderAccess = (order: Order) => {
     const key = activeKeyByOrderId[order.id];
-    if (!key?.access_url) return <span className="text-muted-foreground">-</span>;
+    const accessUrl = getPreferredAccessUrl(key);
+    if (!accessUrl) return <span className="text-muted-foreground">-</span>;
     return (
       <div className="flex items-center gap-2">
-        <span className="text-sm">Active key</span>
+        <span className="text-sm">{key?.dynamic_access_url || key?.ssconf_url ? "Dynamic key" : "Active key"}</span>
         <Button
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          title="Copy access URL"
-          onClick={() => void copyText(key.access_url!, "Access URL")}
+          title="Copy access key"
+          onClick={() => void copyText(accessUrl, "Access key")}
         >
           <Copy size={15} />
         </Button>
@@ -724,7 +777,7 @@ export function OrdersTable({
                         <StatusBadge status={order.status} />
                       </TableCell>
                       <TableCell>
-                        <StatusBadge status={order.payment_status} />
+                        <StatusBadge status={getPaymentDisplayStatus(order)} />
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">{formatDate(order.expiry_date)}</div>
@@ -734,17 +787,17 @@ export function OrdersTable({
                       </TableCell>
                       <TableCell>
                         <div className="text-sm">
-                          {key ? formatUsageGb(Number(key.used_gb_30d || 0)) : "-"}
+                          {key ? formatUsageGb(getOrderUsageGb(key)) : "-"}
                         </div>
                       </TableCell>
                       <TableCell>
-                        {key?.access_url ? (
+                        {getPreferredAccessUrl(key) ? (
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            title="Copy access URL"
-                            onClick={() => void copyText(key.access_url!, "Access URL")}
+                            title="Copy access key"
+                            onClick={() => void copyText(getPreferredAccessUrl(key), "Access key")}
                           >
                             <Copy size={15} />
                           </Button>
@@ -958,7 +1011,7 @@ export function OrdersTable({
                 <DetailItem label="Plan" value={detailsDialog.order.plan?.name || "-"} />
                 <DetailItem
                   label="Payment"
-                  value={<StatusBadge status={detailsDialog.order.payment_status} />}
+                  value={<StatusBadge status={getPaymentDisplayStatus(detailsDialog.order)} />}
                 />
                 <DetailItem label="Price" value={formatMMK(detailsDialog.order.price_mmk)} />
                 <DetailItem label="Expiry" value={formatDate(detailsDialog.order.expiry_date)} />
@@ -1054,7 +1107,7 @@ export function OrdersTable({
               ) : null}
               {accessKeyDialog.accessUrl ? (
                 <div>
-                  <div className="text-xs text-muted-foreground">Fallback raw access URL</div>
+                  <div className="text-xs text-muted-foreground">Access key</div>
                   <div className="break-all font-mono text-[13px] font-medium text-primary leading-relaxed">
                     {accessKeyDialog.accessUrl}
                   </div>
