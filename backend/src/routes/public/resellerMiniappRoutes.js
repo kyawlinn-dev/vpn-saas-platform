@@ -1493,12 +1493,18 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
     });
 
     // Background: snapshot usage on old keys and delete them from Outline + DB.
-    // Metrics were pre-fetched concurrently with key creation, so they're usually
-    // already resolved by the time this runs.
+    // A 30-second grace period runs first so customers who are actively connected
+    // to the old server have time to disconnect manually. Manual disconnect causes
+    // Outline to fetch fresh ssconf (now pointing to the new server) and reconnect
+    // in 1-2s. Without the grace period, Outline gets force-dropped mid-connection
+    // and its auto-reconnect retry loop takes 20-30s to resolve.
+    const OLD_KEY_GRACE_MS = 30_000;
     const oldKeysToClean = activeKeys.filter((k) => k.id !== insertedKey.id);
     if (oldKeysToClean.length > 0) {
       Promise.allSettled(
         oldKeysToClean.map(async (oldKey) => {
+          await new Promise((resolve) => setTimeout(resolve, OLD_KEY_GRACE_MS));
+
           if (
             oldKey.outline_key_id &&
             oldKey.vpn_servers?.outline_api_url &&
