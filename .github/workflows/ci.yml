@@ -72,5 +72,6 @@ jobs:
       - run: npm run build
         working-directory: miniapp
         env:
-          VITE_BACKEND_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_BACKEND_BASE_URL: ${{ vars.VITE_BACKEND_BASE_URL }}
           VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_MINIAPP_SLUG: ${{ vars.VITE_MINIAPP_SLUG }}
