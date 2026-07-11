@@ -1355,10 +1355,29 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
 
     let insertedKey = activeTargetKey || null;
 
-    // Pre-fetched usage metrics for old keys. Populated during new-key creation so
-    // metrics and create run in parallel — saves one full Outline round-trip on the
-    // critical path. Map: oldKey.id → metricsMap (null if pre-fetch failed).
-    const prefetchedMetrics = new Map();
+    // Start metrics pre-fetches for old keys immediately — they run while the new key
+    // is being created (or while we do DB work). Results are consumed in the background
+    // cleanup that fires after the response is sent. Map: oldKey.id → Promise<map|null>.
+    const metricsPreFetchMap = new Map(
+      activeKeys
+        .filter(
+          (k) =>
+            k.id !== (activeTargetKey?.id ?? -1) &&
+            k.outline_key_id &&
+            k.vpn_servers?.outline_api_url &&
+            k.vpn_servers?.outline_cert_sha256
+        )
+        .map((k) => [
+          k.id,
+          getOutlineTransferMetrics({
+            apiUrl: k.vpn_servers.outline_api_url,
+            certSha256: k.vpn_servers.outline_cert_sha256,
+          }).catch((err) => {
+            console.warn(`[link] Metrics pre-fetch failed for key ${k.id}:`, err.message);
+            return null;
+          }),
+        ])
+    );
 
     // Append-only: the partial unique index keeps one ACTIVE key per (order, server),
     // but deleted history rows never conflict -> a switch is always a fresh INSERT.
@@ -1370,43 +1389,16 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
           ? Math.max(planLimitBytes - (await getOrderTotalUsedBytes(activeOrder.id)), 0)
           : null;
 
-      // Build metrics pre-fetch promises for every old key that will be deleted.
-      // These run in parallel with createOutlineKey below.
-      const metricsPreFetches = activeKeys
-        .filter(
-          (k) =>
-            k.outline_key_id &&
-            k.vpn_servers?.outline_api_url &&
-            k.vpn_servers?.outline_cert_sha256
-        )
-        .map((k) =>
-          getOutlineTransferMetrics({
-            apiUrl: k.vpn_servers.outline_api_url,
-            certSha256: k.vpn_servers.outline_cert_sha256,
-          })
-            .then((m) => ({ id: k.id, map: m }))
-            .catch((err) => {
-              console.warn(`[link] Metrics pre-fetch failed for key ${k.id}:`, err.message);
-              return { id: k.id, map: null };
-            })
-        );
-
       let outlineKey;
       try {
-        // createOutlineKey and metrics pre-fetches run concurrently.
-        const [created, ...metricsResults] = await Promise.all([
-          createOutlineKey({
-            apiUrl: server.outline_api_url,
-            certSha256: server.outline_cert_sha256,
-            name: buildMiniAppKeyName({ customer, server, order: activeOrder, plan }),
-            dataLimitBytes: remainingBytes,
-          }),
-          ...metricsPreFetches,
-        ]);
-        outlineKey = created;
-        for (const r of metricsResults) {
-          if (r?.map) prefetchedMetrics.set(r.id, r.map);
-        }
+        // Only await key creation. Metrics pre-fetches run concurrently as background
+        // Promises and are consumed after the response is sent.
+        outlineKey = await createOutlineKey({
+          apiUrl: server.outline_api_url,
+          certSha256: server.outline_cert_sha256,
+          name: buildMiniAppKeyName({ customer, server, order: activeOrder, plan }),
+          dataLimitBytes: remainingBytes,
+        });
       } catch (outlineErr) {
         console.error("Outline key create error:", outlineErr);
         const friendlyErr = new Error(
@@ -1487,77 +1479,11 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       await clearServerError(server.id);
     }
 
-    for (const oldKey of activeKeys) {
-      if (oldKey.id === insertedKey.id) continue;
-
-      // Best-effort: freeze used_bytes at the live Outline value before this key is deleted.
-      // Use pre-fetched metrics when available (collected in parallel with key creation),
-      // fall back to a live fetch when not. Never block the switch on failure.
-      if (
-        oldKey.outline_key_id &&
-        oldKey.vpn_servers?.outline_api_url &&
-        oldKey.vpn_servers?.outline_cert_sha256
-      ) {
-        const fetchedMap = prefetchedMetrics.get(oldKey.id);
-        const metricsMap = fetchedMap ?? await getOutlineTransferMetrics({
-          apiUrl: oldKey.vpn_servers.outline_api_url,
-          certSha256: oldKey.vpn_servers.outline_cert_sha256,
-        }).catch((err) => {
-          console.warn(
-            `[link] Usage snapshot failed for key ${oldKey.id}, using last sync value:`,
-            err.message
-          );
-          return null;
-        });
-
-        if (metricsMap) {
-          const liveBytes = metricsMap[String(oldKey.outline_key_id)];
-          if (liveBytes !== undefined) {
-            await supabase
-              .from("vpn_keys")
-              .update({ used_bytes: liveBytes })
-              .eq("id", oldKey.id);
-          }
-        }
-      }
-
-      try {
-        if (
-          oldKey.outline_key_id &&
-          oldKey.vpn_servers?.outline_api_url &&
-          oldKey.vpn_servers?.outline_cert_sha256
-        ) {
-          await deleteOutlineKey({
-            apiUrl: oldKey.vpn_servers.outline_api_url,
-            certSha256: oldKey.vpn_servers.outline_cert_sha256,
-            outlineKeyId: oldKey.outline_key_id,
-          });
-        }
-      } catch (err) {
-        console.error("Old Outline key delete error:", err);
-        if (oldKey.server_id) {
-          await setServerError(oldKey.server_id, err.message);
-        }
-      }
-
-      try {
-        if (oldKey.server_id) {
-          await decrementServerUsage(oldKey.server_id);
-        }
-      } catch {}
-
-      await supabase
-        .from("vpn_keys")
-        .update({
-          status: "deleted",
-          deleted_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", oldKey.id);
-    }
-
+    // Respond as soon as the new key is confirmed in the DB. Old key cleanup
+    // (metrics snapshot + Outline delete + DB update) runs in the background
+    // so it never blocks the customer's switch response.
     const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
-    return res.json({
+    res.json({
       success: true,
       message: "Server linked successfully",
       data: {
@@ -1565,8 +1491,67 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
         outline_key: toPublicOutlineKey(req, customerSsconfToken, insertedKey, label, totalUsedBytes),
       },
     });
+
+    // Background: snapshot usage on old keys and delete them from Outline + DB.
+    // Metrics were pre-fetched concurrently with key creation, so they're usually
+    // already resolved by the time this runs.
+    const oldKeysToClean = activeKeys.filter((k) => k.id !== insertedKey.id);
+    if (oldKeysToClean.length > 0) {
+      Promise.allSettled(
+        oldKeysToClean.map(async (oldKey) => {
+          if (
+            oldKey.outline_key_id &&
+            oldKey.vpn_servers?.outline_api_url &&
+            oldKey.vpn_servers?.outline_cert_sha256
+          ) {
+            const metricsMap = metricsPreFetchMap.has(oldKey.id)
+              ? await metricsPreFetchMap.get(oldKey.id)
+              : null;
+
+            if (metricsMap) {
+              const liveBytes = metricsMap[String(oldKey.outline_key_id)];
+              if (liveBytes !== undefined) {
+                await supabase
+                  .from("vpn_keys")
+                  .update({ used_bytes: liveBytes })
+                  .eq("id", oldKey.id);
+              }
+            }
+
+            try {
+              await deleteOutlineKey({
+                apiUrl: oldKey.vpn_servers.outline_api_url,
+                certSha256: oldKey.vpn_servers.outline_cert_sha256,
+                outlineKeyId: oldKey.outline_key_id,
+              });
+            } catch (err) {
+              console.error("[link] Old Outline key delete error:", err);
+              if (oldKey.server_id) {
+                await setServerError(oldKey.server_id, err.message).catch(() => {});
+              }
+            }
+          }
+
+          if (oldKey.server_id) {
+            await decrementServerUsage(oldKey.server_id).catch(() => {});
+          }
+
+          await supabase
+            .from("vpn_keys")
+            .update({
+              status: "deleted",
+              deleted_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", oldKey.id);
+        })
+      ).catch((err) => console.error("[link] Background old key cleanup error:", err));
+    }
   } catch (err) {
     console.error("Mini App link server exception:", err);
+
+    // Guard: only send an error response if the success response hasn't been sent yet.
+    if (res.headersSent) return;
 
     if (incrementedNewServer && createdServer?.id) {
       try {
