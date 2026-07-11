@@ -11,6 +11,7 @@ import { requireActiveReseller } from "./middleware/requireActiveReseller.js";
 import { requireTrustedOrigin } from "./middleware/requireTrustedOrigin.js";
 import { startAutoStopJob } from "./jobs/autoStopJob.js";
 import { startSyncUsageJob } from "./jobs/syncUsageJob.js";
+import { startCleanupScreenshotsJob } from "./jobs/cleanupScreenshotsJob.js";
 import { validateEncryptionKey } from "./lib/tokenEncryption.js";
 
 import resellerSessionRouter from "./routes/auth/resellerSessionRouter.js";
@@ -313,5 +314,6 @@ app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   startAutoStopJob();
   startSyncUsageJob();
+  startCleanupScreenshotsJob();
   void botManager.start(); // registers webhooks for all configured reseller bots
 });
