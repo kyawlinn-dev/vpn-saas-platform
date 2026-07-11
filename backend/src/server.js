@@ -34,6 +34,7 @@ import subscriptionRoutes from "./routes/public/subscriptionRoutes.js";
 
 import telegramMiniAppRoutes from "./routes/public/telegramMiniAppRoutes.js";
 import resellerMiniappRoutes from "./routes/public/resellerMiniappRoutes.js";
+import ssconfRouter from "./routes/public/ssconfRouter.js";
 import botWebhookRouter from "./bot/webhookRouter.js";
 import * as botManager from "./bot/manager.js";
 
@@ -158,6 +159,7 @@ app.use("/api/public/plans", planRoutes);
 app.use("/api/public", subscriptionRoutes);
 app.use("/api/public/telegram-miniapp", telegramMiniAppRoutes);
 app.use("/api/miniapp", resellerMiniappRoutes);
+app.use("/k", ssconfRouter);
 // Bot webhooks — public, authenticated only by X-Telegram-Bot-Api-Secret-Token header
 app.use("/api/bot-webhook", botWebhookRouter);
 

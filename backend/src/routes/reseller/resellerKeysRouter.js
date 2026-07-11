@@ -38,15 +38,13 @@ function getRequestBaseUrl(req) {
   return `${proto}://${host}`.replace(/\/$/, "");
 }
 
-function buildSsconfHttpUrl(req, slug, token) {
-  if (!slug || !token) return null;
-  return `${getRequestBaseUrl(req)}/api/miniapp/${encodeURIComponent(
-    slug
-  )}/ssconf/${encodeURIComponent(token)}`;
+function buildSsconfHttpUrl(req, token) {
+  if (!token) return null;
+  return `${getRequestBaseUrl(req)}/k/${encodeURIComponent(token)}.json`;
 }
 
-function buildDynamicAccessUrl(req, slug, token, label) {
-  const httpUrl = buildSsconfHttpUrl(req, slug, token);
+function buildDynamicAccessUrl(req, token, label) {
+  const httpUrl = buildSsconfHttpUrl(req, token);
   if (!httpUrl) return null;
 
   const url = new URL(httpUrl);
@@ -170,8 +168,8 @@ router.get("/", async (req, res) => {
       const customerSsconfToken = key?.customer?.ssconf_token || null;
       const miniappSlug = miniapp?.miniapp_slug || null;
       const label = miniapp?.brand_name || key?.server?.name || "VPN";
-      const ssconfUrl = buildSsconfHttpUrl(req, miniappSlug, customerSsconfToken);
-      const dynamicAccessUrl = buildDynamicAccessUrl(req, miniappSlug, customerSsconfToken, label);
+      const ssconfUrl = buildSsconfHttpUrl(req, customerSsconfToken);
+      const dynamicAccessUrl = buildDynamicAccessUrl(req, customerSsconfToken, label);
 
       return {
         ...key,

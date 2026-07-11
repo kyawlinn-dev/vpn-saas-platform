@@ -236,9 +236,8 @@ export async function ensureCustomerSsconfToken(customerId) {
 /**
  * @param {string} backendBaseUrl  e.g. process.env.WEBHOOK_BASE_URL (no trailing slash)
  */
-export function buildDynamicAccessUrl(backendBaseUrl, slug, ssconfToken, label) {
-  const httpUrl =
-    `${backendBaseUrl}/api/miniapp/${encodeURIComponent(slug)}/ssconf/${encodeURIComponent(ssconfToken)}`;
+export function buildDynamicAccessUrl(backendBaseUrl, ssconfToken, label) {
+  const httpUrl = `${backendBaseUrl}/k/${encodeURIComponent(ssconfToken)}.json`;
   const url = new URL(httpUrl);
   const fragment = label ? `#${label}` : "";
   return `ssconf://${url.host}${url.pathname}${fragment}`;

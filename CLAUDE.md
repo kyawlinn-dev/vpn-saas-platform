@@ -1,23 +1,31 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with code in this repository.
 
 ## Project Overview
 
-**NovaNet MM** — a multi-tenant VPN reseller platform. Resellers buy and distribute Outline VPN access keys to customers. Customers connect via the Telegram Mini App or a token-based browser portal. Servers are provisioned automatically on DigitalOcean and managed via the Outline VPN API.
+**NovaNet MM** — a multi-tenant VPN reseller platform. Resellers buy and distribute Outline VPN access keys to customers. Customers connect via the Telegram Mini App. Servers are provisioned automatically on DigitalOcean and managed via the Outline VPN API.
+
+## Required Context Before Coding
+
+Read these files before making implementation decisions:
+
+- `AGENTS.md` — project overview and agent workflow
+- `SCHEMA.md` — canonical column/table reference (authoritative)
+- `SYSTEM_DESIGN.md` — tenancy model, build plan, current state vs missing
+- Relevant skill file: `SKILL_BACKEND.md`, `SKILL_FRONTEND.md`, `SKILL_MINIAPP.md`, `SKILL_DATABASE.md`, `SKILL_API_CONTRACTS.md`
 
 ## Workspace Structure
 
-Five independent Node.js projects — each must be `cd`'d into and run separately:
+Four independent Node.js projects plus one Cloudflare Worker — each must be run separately:
 
 | Directory | Role | Port |
 |-----------|------|------|
-| `backend/` | Express API server | 3000 |
-| `admin-dashboard/` | Super-admin UI (Vite + React + MUI) | 3001 |
-| `reseller-dashboard/` | Reseller UI (Vite + React + MUI + React Router) | 3002 |
+| `backend/` | Express API server + multi-tenant bot service | 3000 |
+| `admin-dashboard/` | Super-admin UI (Vite + React + shadcn/Tailwind) | 3001 |
+| `reseller-dashboard/` | Reseller UI (Vite + React + shadcn/Tailwind) | 3002 |
 | `miniapp/` | Telegram Mini App (Vite + React + Tailwind + Zustand + TanStack Query) | — |
-| `telegram-bot/` | Telegraf bot | — |
-| `worker/` | Cloudflare Worker (no npm — deploy via `wrangler deploy`) | — |
+| `worker/` | Cloudflare Worker — legacy tok_xxx portal (retire when worker is removed) | — |
 
 ## Commands
 
@@ -36,16 +44,6 @@ npm run build    # tsc -b && vite build  (admin/reseller) or vite build (miniapp
 npm run preview  # Preview production build
 ```
 
-**Miniapp only:**
-```bash
-npm run lint   # ESLint
-```
-
-**Telegram bot:**
-```bash
-npm run dev    # node index.js
-```
-
 **Cloudflare Worker:**
 ```bash
 wrangler deploy   # Deploy worker/worker.js using worker/wrangler.toml
@@ -55,98 +53,78 @@ No test runner is configured anywhere in the project.
 
 ## Architecture
 
-### Data Flow
+### Data Flow (current — slug-based miniapp)
 
-**Miniapp (primary) flow:**
-1. Customer opens Telegram Bot → clicks "Open App" (WebApp button)
-2. Miniapp posts Telegram `initData` to `POST /api/miniapp/:slug/auth`
-3. Backend verifies HMAC-SHA256 signature, upserts customer + `telegram_links` record, creates trial order on first visit
-4. Customer uses Outline app with `ssconf://` URL served by `GET /api/miniapp/:slug/ssconf/:token`
-
-**Token portal (legacy) flow:**
-1. Reseller creates/activates an order in the reseller dashboard
-2. Backend provisions an Outline key and generates a `tok_xxx` access token
-3. Token URL sent to customer → opens the **Cloudflare Worker** (`/t/<token>`)
-4. Worker renders HTML portal; "Add To Outline" button opens `ssconf://` deep link
-5. Outline app fetches Shadowsocks config from Worker → Worker proxies to Backend `/api/public/subscription`
+1. Customer opens reseller's Telegram bot → clicks "Open App" (WebApp button passes `start_param=<slug>`)
+2. Miniapp reads slug from `Telegram.WebApp.initDataUnsafe.start_param` at runtime
+3. Miniapp posts `{ initData }` to `POST /api/miniapp/:slug/auth`
+4. Backend verifies HMAC-SHA256 signature (using that reseller's bot token), upserts customer + `telegram_links`, creates trial order on first visit
+5. Customer gets a VPN key via `ssconf://` URL served by `GET /k/:ssconf_token.json`
 
 ### Auth Model
 
-- **Resellers/Admins:** Supabase email+password auth; backend issues httpOnly cookies (`reseller_access_token`, `reseller_refresh_token`). `requireActiveReseller` middleware validates cookie against the `resellers` table; `requireAdmin` checks the `admins` table.
-- **Miniapp customers:** Stateless — every request re-verifies Telegram `initData` HMAC signature. No passwords or sessions.
+- **Resellers/Admins:** Supabase email+password auth; backend issues httpOnly cookies. `requireActiveReseller` validates cookie against `resellers`; `requireAdmin` checks `admins`.
+- **Miniapp customers:** Stateless — every request re-verifies Telegram `initData` HMAC-SHA256. No cookies.
 
-### Backend Service Layer (`backend/src/services/`)
+### Backend Service Layer
 
 | Service | Responsibility |
 |---------|---------------|
-| `outlineService.js` | Outline VPN API calls (create/delete/list keys, set data limits) with TLS cert pinning |
-| `serverService.js` | CRUD on `vpn_servers`, key capacity checks |
-| `serverProvisionService.js` | DigitalOcean droplet creation → SSH → Outline install script → parse `apiUrl`+`certSha256` |
-| `subscriptionProvisionService.js` | Provision/stop Outline keys for orders; manages `vpn_keys`, updates server key counts |
-| `tokenService.js` | Generate/validate `tok_xxx` access tokens; manage `access_tokens` + `token_server_assignments` |
-| `digitalOceanService.js` | DigitalOcean API wrapper (create/poll droplet) |
-| `sshService.js` | SSH into servers via `ssh2` to run the Outline installer |
+| `outlineService.js` | Outline VPN API calls with TLS cert pinning |
+| `serverService.js` | CRUD on `vpn_servers`, capacity checks |
+| `serverProvisionService.js` | DigitalOcean droplet → SSH → Outline install → parse API URL + cert |
+| `subscriptionProvisionService.js` | Provision/stop Outline keys; manages `vpn_keys`, server key counts |
+| `digitalOceanService.js` | DigitalOcean API wrapper |
+| `sshService.js` | SSH into servers via `ssh2` |
+| `orderLifecycleService.js` | Order state transitions (activate, stop, extend) |
 
-### Background Job
+### Background Jobs
 
-`backend/src/jobs/autoStopJob.js` — runs hourly inside the backend process (plain `setInterval`). Finds `vpn_orders` with `status=active` and `expiry_date < today`, deletes their Outline keys via the Outline API, and sets status to `stopped`.
+- `autoStopJob.js` — hourly; expires orders past `expiry_date`
+- `syncUsageJob.js` — periodic; syncs `used_bytes` from Outline API
 
-### Database (Supabase — no migration files in repo)
+### Database
 
-Schema is managed directly in the hosted Supabase project. Key tables: `vpn_servers`, `vpn_customers`, `vpn_plans`, `vpn_orders`, `vpn_keys`, `access_tokens`, `token_server_assignments`, `resellers`, `admins`, `telegram_links`, `commission_ledger`, `reseller_miniapps`.
+Schema is version-controlled in `backend/supabase/migrations/`. Run migrations against a new Supabase project to bootstrap. See `SKILL_DATABASE.md` for setup steps.
 
-The backend accesses Supabase exclusively with the service-role key (bypasses RLS). Frontend apps use the anon key where applicable.
+The backend uses the Supabase service-role key (bypasses RLS). Frontend apps use the anon key where applicable.
 
 ## Key Architectural Notes
 
-**Two miniapp paradigms exist side-by-side:**
-- *Legacy:* token-based (`access_tokens` + `token_server_assignments`) — used by the Cloudflare Worker portal
-- *Current:* slug-based (`reseller_miniapps` + `ssconf_token` on `vpn_keys`) — used by the Telegram Mini App
+**Dead code warning — admin-dashboard:** `src/app/` (Next.js scaffold) is dead. The real app is `src/App.tsx` (Vite). Ignore `next.config.ts` and `.next/` artifacts.
 
-**Admin Dashboard has a vestigial Next.js scaffold** (`src/app/` with `layout.tsx`, `page.tsx`) that is dead code — no `next` dependency in `package.json`. The real app is `src/App.tsx` (Vite). Ignore the `next.config.ts` and `.next/` artifacts.
+**Outline API TLS pinning:** `outlineService.js` verifies against `certSha256` in `vpn_servers`. Set `OUTLINE_API_INSECURE=true` in local `.env` to skip.
 
-**Outline API TLS pinning:** All calls to the Outline management API in `outlineService.js` use `OUTLINE_API_INSECURE=true` to skip cert verification OR verify against `certSha256` stored in `vpn_servers`. The certSha256 is parsed from the Outline install script output during provisioning.
+**Server capacity concurrency:** `subscriptionProvisionService.js` uses an optimistic-concurrency loop when incrementing `vpn_servers.current_active_keys`. Do not bypass it.
 
-**Server capacity concurrency:** `subscriptionProvisionService.js` uses an optimistic-concurrency loop when incrementing `vpn_servers.current_active_keys` to avoid over-provisioning.
+**Column name traps:** `resellers.name` vs `admins.full_name` vs `vpn_customers.full_name` — see `SCHEMA.md`.
 
 ## Environment Setup
 
-Each service needs its own `.env` file (copy from `.env.example` in each directory). Critical variables:
+Each service needs its own `.env` file. Critical variables:
 
-- `backend/.env`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TELEGRAM_BOT_TOKEN`, `DIGITALOCEAN_TOKEN`, `SERVER_BOOTSTRAP_PRIVATE_KEY_PATH`
+- `backend/.env`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DIGITALOCEAN_TOKEN`, `SERVER_BOOTSTRAP_PRIVATE_KEY_PATH`, `BOT_ENCRYPTION_KEY`
 - `reseller-dashboard/.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_BASE_URL`
 - `admin-dashboard/.env`: `VITE_API_BASE_URL`
-- `miniapp/.env`: `VITE_BACKEND_BASE_URL`, `VITE_API_BASE_URL`, `VITE_MINIAPP_SLUG`
+- `miniapp/.env` / `miniapp/.env.production`: `VITE_BACKEND_BASE_URL`, `VITE_API_BASE_URL`, `VITE_MINIAPP_SLUG` (slug is fallback only; runtime reads start_param)
 - `worker/wrangler.toml`: `BACKEND_BASE_URL`
 
-## Developer Context & Roadmap
+## ngrok Setup
 
-### ngrok Setup
+Backend is exposed via a **static reserved ngrok domain**. If it changes, update 3 files (`miniapp/.env`, `miniapp/.env.production`, `worker/wrangler.toml`), then rebuild miniapp and redeploy both Cloudflare apps.
 
-The backend is exposed to the internet via a **static reserved ngrok domain** (URL does not change between restarts).
-
-The ngrok domain is referenced in exactly 3 files:
-- `miniapp/.env` — `VITE_BACKEND_BASE_URL`, `VITE_API_BASE_URL`
-- `miniapp/.env.production` — `VITE_BACKEND_BASE_URL`, `VITE_API_BASE_URL`
-- `worker/wrangler.toml` — `BACKEND_BASE_URL`
-
-If the ngrok domain ever changes, all 3 must be updated, then:
-1. Rebuild miniapp: `npm run build` (VITE_ vars are baked in at build time)
-2. Redeploy miniapp: `npx wrangler pages deploy dist`
-3. Redeploy worker: `npx wrangler deploy`
-
-### Deployment
+## Deployment
 
 - **miniapp** → Cloudflare Pages: `npm run build` then `npx wrangler pages deploy dist`
 - **worker** → Cloudflare Workers: `npx wrangler deploy`
-- **backend** and **telegram-bot** run locally on Windows during development
+- **backend** runs locally on Windows during development
 
-### Unfinished Work
+## Unfinished Work
 
-- `miniapp/src/features/access/` and `miniapp/src/features/auth/` are currently empty (0 bytes) and need to be built out.
+- `miniapp/src/features/access/` and `miniapp/src/features/auth/` — empty, need to be built
+- Dynamic slug: miniapp must read slug from `start_param` instead of env var (multi-tenancy blocker)
 
-### Roadmap
+## Roadmap
 
-- **RAG customer service bot:** Integrate a 24/7 RAG-based customer service bot into `telegram-bot/`, reusing the architecture pattern from the developer's separate "flexibot" project (Gemini + Vertex AI RAG + Supabase + Redis memory layers).
-- **Automated key delivery:** Trigger VPN key provisioning automatically on payment confirmation — `subscriptionProvisionService.js` already exists for this.
-- **Myanmar payment integration:** KBZPay and Wave Money.
+- **RAG customer service bot:** 24/7 bot inside `backend/src/bot/`, using flexibot pattern (Gemini + Vertex AI RAG + Supabase + Redis)
+- **Myanmar payment integration:** KBZPay and Wave Money

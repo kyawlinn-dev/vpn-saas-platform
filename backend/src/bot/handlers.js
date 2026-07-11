@@ -255,7 +255,7 @@ export function setupHandlers(bot, {
       const backendBase = String(process.env.WEBHOOK_BASE_URL || "").replace(/\/$/, "");
       const telegramUsername = ctx.from?.username || null;
       const label = [brandName, telegramUsername].filter(Boolean).join("-");
-      const dynamicUrl = buildDynamicAccessUrl(backendBase, miniappSlug, customer.ssconfToken, label);
+      const dynamicUrl = buildDynamicAccessUrl(backendBase, customer.ssconfToken, label);
 
       // 5. Bridge URL — worker /open-key renders the "Add to Outline" interstitial
       const workerBase = String(process.env.PUBLIC_WORKER_BASE_URL || "").replace(/\/$/, "");
