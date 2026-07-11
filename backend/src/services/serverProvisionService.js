@@ -91,19 +91,26 @@ function clearStageMessageForSuccess() {
   return null;
 }
 
-function getProvisioningContext() {
+function getProvisioningContext({ regionOverride, sizeOverride } = {}) {
   return {
-    region: getRequiredEnv("DIGITALOCEAN_REGION"),
-    size: getRequiredEnv("DIGITALOCEAN_SIZE"),
+    region: regionOverride || getRequiredEnv("DIGITALOCEAN_REGION"),
+    size: sizeOverride || getRequiredEnv("DIGITALOCEAN_SIZE"),
     image: getRequiredEnv("DIGITALOCEAN_IMAGE"),
     sshKeyFingerprint: getRequiredEnv("DIGITALOCEAN_SSH_KEY_FINGERPRINT"),
   };
 }
 
-export async function startProvisionOutlineServer() {
-  const { region, size, image, sshKeyFingerprint } = getProvisioningContext();
+export async function startProvisionOutlineServer({
+  region: regionOverride,
+  name: nameOverride,
+  size: sizeOverride,
+} = {}) {
+  const { region, size, image, sshKeyFingerprint } = getProvisioningContext({
+    regionOverride,
+    sizeOverride,
+  });
 
-  const dropletName = buildDropletName();
+  const dropletName = nameOverride?.trim() || buildDropletName();
 
   const droplet = await createDroplet({
     name: dropletName,
@@ -132,6 +139,7 @@ async function continueProvisionInBackground({ serverId, dropletId }) {
   const timeoutMs = getProvisionTimeoutMinutes() * 60 * 1000;
 
   try {
+    console.log(`[provision:${serverId}] Waiting for droplet ${dropletId} to become active...`);
     await markProvisionStage(
       serverId,
       "Provisioning started: waiting for droplet network readiness"
@@ -144,6 +152,7 @@ async function continueProvisionInBackground({ serverId, dropletId }) {
       throw new Error("Droplet became active but no public IPv4 address was found");
     }
 
+    console.log(`[provision:${serverId}] Droplet active at ${ip}, waiting for SSH...`);
     await markProvisionStage(serverId, "Droplet is active: waiting for SSH", {
       host_ip: ip,
     });
@@ -152,6 +161,7 @@ async function continueProvisionInBackground({ serverId, dropletId }) {
       throw new Error("Provisioning timed out before Outline installation started");
     }
 
+    console.log(`[provision:${serverId}] SSH ready, starting Outline installation on ${ip}...`);
     const outlineConfig = await installOutlineOnServer(ip);
 
     if (!outlineConfig?.apiUrl || !outlineConfig?.certSha256) {

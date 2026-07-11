@@ -104,7 +104,14 @@ export async function createDroplet({
     tags: ["vpn-reseller", "outline-server"],
   };
 
-  const res = await client.post("/droplets", payload);
+  let res;
+  try {
+    res = await client.post("/droplets", payload);
+  } catch (err) {
+    const status = err?.response?.status;
+    const doMessage = err?.response?.data?.message || err?.response?.data?.id || err?.message;
+    throw new Error(`DigitalOcean droplet creation failed (${status}): ${doMessage}`);
+  }
 
   if (!res?.data?.droplet) {
     throw new Error("DigitalOcean API did not return a droplet object");

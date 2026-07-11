@@ -1,5 +1,21 @@
 export type Nullable<T> = T | null;
 
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface OverviewStats {
+  active_orders: number;
+  pending_orders: number;
+  stopped_orders: number;
+  active_keys: number;
+  total_value_mmk: number;
+  recent_orders: Order[];
+}
+
 export interface Reseller {
   id: string;
   name: string;
@@ -18,6 +34,7 @@ export interface Customer {
   telegram_username: Nullable<string>;
   phone: Nullable<string>;
   notes: Nullable<string>;
+  customer_type?: 'normal' | 'telegram';
   created_at?: string;
   reseller?: Reseller;
 }
@@ -42,6 +59,7 @@ export interface Server {
   name: string;
   provider: string | null;
   region: string;
+  droplet_id: number | string | null;
   status: string;
   host_ip: string | null;
   current_active_keys: number;

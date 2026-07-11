@@ -556,67 +556,79 @@ export function OrdersTable({
     );
   };
 
-  const renderActions = (order: Order) => (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {order.status === "pending" &&
-        order.payment_status === "paid" &&
-        order.review_status !== "rejected" && (
-        <ActionButton
-          variant="secondary"
-          onClick={() => void runActivate(order)}
-          loading={loadingId === `${order.id}:activate`}
-          loadingText="Activating…"
+  const renderActions = (order: Order) => {
+    const isTelegramCustomer = order.customer?.customer_type === "telegram";
+
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {isTelegramCustomer ? (
+          <span className="inline-flex items-center rounded-full border border-border bg-secondary px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+            Telegram
+          </span>
+        ) : (
+          <>
+            {order.status === "pending" &&
+              order.payment_status === "paid" &&
+              order.review_status !== "rejected" && (
+              <ActionButton
+                variant="secondary"
+                onClick={() => void runActivate(order)}
+                loading={loadingId === `${order.id}:activate`}
+                loadingText="Activating…"
+              >
+                Activate
+              </ActionButton>
+            )}
+
+            {order.status === "active" && (
+              <>
+                <ActionButton
+                  variant="primary"
+                  onClick={() =>
+                    setRenewDialog({ open: true, order, planId: order.plan_id, action: "extend" })
+                  }
+                  loading={loadingId === `${order.id}:extend`}
+                  loadingText="Extending…"
+                >
+                  Extend
+                </ActionButton>
+                <ActionButton
+                  variant="destructiveOutline"
+                  onClick={() => setStopDialog({ open: true, order })}
+                >
+                  Stop
+                </ActionButton>
+              </>
+            )}
+
+            {(order.status === "stopped" || order.status === "expired") &&
+              order.review_status !== "rejected" && (
+              <ActionButton
+                variant="primary"
+                onClick={() =>
+                  setRenewDialog({ open: true, order, planId: order.plan_id, action: "renew" })
+                }
+                loading={loadingId === `${order.id}:renew`}
+                loadingText="Renewing…"
+              >
+                Renew
+              </ActionButton>
+            )}
+          </>
+        )}
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          title="Details"
+          onClick={() => setDetailsDialog({ open: true, order })}
         >
-          Activate
-        </ActionButton>
-      )}
-
-      {order.status === "active" && (
-        <>
-          <ActionButton
-            variant="primary"
-            onClick={() =>
-              setRenewDialog({ open: true, order, planId: order.plan_id, action: "extend" })
-            }
-            loading={loadingId === `${order.id}:extend`}
-            loadingText="Extending…"
-          >
-            Extend
-          </ActionButton>
-          <ActionButton
-            variant="destructiveOutline"
-            onClick={() => setStopDialog({ open: true, order })}
-          >
-            Stop
-          </ActionButton>
-        </>
-      )}
-
-      {(order.status === "stopped" || order.status === "expired") &&
-        order.review_status !== "rejected" && (
-        <ActionButton
-          variant="primary"
-          onClick={() =>
-            setRenewDialog({ open: true, order, planId: order.plan_id, action: "renew" })
-          }
-          loading={loadingId === `${order.id}:renew`}
-          loadingText="Renewing…"
-        >
-          Renew
-        </ActionButton>
-      )}
-
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8"
-        title="Details"
-        onClick={() => setDetailsDialog({ open: true, order })}
-      >
-        <Info size={18} />
-      </Button>
-    </div>
-  );
+          <Info size={18} />
+        </Button>
+      </div>
+    );
+  };
 
   if (loading) return <LoadingView />;
 

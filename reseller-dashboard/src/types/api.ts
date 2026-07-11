@@ -16,6 +16,7 @@ export interface Customer {
   telegram_username: Nullable<string>;
   phone: Nullable<string>;
   notes: Nullable<string>;
+  customer_type?: "normal" | "telegram";
   created_at?: string;
   reseller?: Reseller;
 }

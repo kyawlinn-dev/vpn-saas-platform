@@ -71,7 +71,8 @@ router.get("/", async (req, res) => {
           id,
           full_name,
           telegram_username,
-          phone
+          phone,
+          customer_type
         ),
         plan:vpn_plans (
           id,
@@ -183,6 +184,7 @@ router.post("/", async (req, res) => {
           phone,
           notes,
           status: "active",
+          customer_type: "normal",
         })
         .select()
         .single();
@@ -247,7 +249,8 @@ router.post("/", async (req, res) => {
           id,
           full_name,
           telegram_username,
-          phone
+          phone,
+          customer_type
         ),
         plan:vpn_plans (
           id,

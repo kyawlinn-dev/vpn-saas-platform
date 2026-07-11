@@ -12,6 +12,7 @@ import {
   clearServerError,
   getServerById,
 } from "./serverService.js";
+import { getTokenByOrderId } from "./tokenService.js";
 
 function gbToBytes(gb) {
   if (!gb || Number(gb) <= 0) return null;
@@ -386,4 +387,97 @@ export async function provisionServersForToken({
   }
 
   return created;
+}
+
+// Migrate a single active order from a decommissioned server to `newServer`.
+// Creates a fresh Outline key, stores it, wires up token/miniapp assignments.
+// The order stays active with its existing expiry — only the key location changes.
+export async function migrateActiveOrderToServer({ order, newServer, oldServerId }) {
+  const dataLimitBytes = gbToBytes(order.plan?.data_limit_gb);
+  const keyName = [
+    order.customer?.full_name || "Customer",
+    newServer.name,
+    order.plan?.name || "Plan",
+    `ORD-${order.id}`,
+  ].join(" | ");
+
+  let outlineKeyId = null;
+  let vpnKey = null;
+
+  try {
+    const outlineKey = await createOutlineKey({
+      apiUrl: newServer.outline_api_url,
+      certSha256: newServer.outline_cert_sha256,
+      name: keyName,
+      dataLimitBytes,
+    });
+    outlineKeyId = outlineKey.outline_key_id;
+
+    const { data: inserted, error: keyErr } = await supabase
+      .from("vpn_keys")
+      .insert({
+        order_id: order.id,
+        customer_id: order.customer_id,
+        reseller_id: order.reseller_id,
+        server_id: newServer.id,
+        outline_key_id: outlineKey.outline_key_id,
+        key_name: keyName,
+        access_url: outlineKey.access_url,
+        data_limit_bytes: dataLimitBytes,
+        used_bytes: 0,
+        status: "active",
+        is_used: true,
+        used_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (keyErr || !inserted) {
+      throw new Error(keyErr?.message || "Failed to store migrated vpn key");
+    }
+    vpnKey = inserted;
+
+    await incrementServerUsage(newServer.id);
+
+    // Token portal: update server assignment so the existing ssconf:// URL keeps working
+    const token = await getTokenByOrderId(order.id);
+    if (token?.id) {
+      await ensureAssignmentForToken({
+        tokenId: token.id,
+        serverId: newServer.id,
+        vpnKeyId: vpnKey.id,
+      });
+    }
+
+    // Miniapp: update the customer's current server so the UI reflects the new server
+    await supabase
+      .from("telegram_links")
+      .update({ current_server_id: newServer.id })
+      .eq("customer_id", order.customer_id)
+      .eq("current_server_id", oldServerId);
+
+    await clearServerError(newServer.id);
+    return vpnKey;
+  } catch (err) {
+    // Best-effort rollback: remove the Outline key and DB row we just created
+    if (outlineKeyId) {
+      try {
+        await deleteOutlineKey({
+          apiUrl: newServer.outline_api_url,
+          certSha256: newServer.outline_cert_sha256,
+          outlineKeyId,
+        });
+      } catch {}
+    }
+    if (vpnKey?.id) {
+      try {
+        await supabase
+          .from("vpn_keys")
+          .update({ status: "deleted", deleted_at: new Date().toISOString() })
+          .eq("id", vpnKey.id);
+        await decrementServerUsage(newServer.id);
+      } catch {}
+    }
+    throw err;
+  }
 }

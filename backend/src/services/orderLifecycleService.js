@@ -39,12 +39,8 @@ function buildSubscriptionUrl(token) {
 }
 
 function getPlanRegions(plan) {
-  const allowed = Array.isArray(plan?.allowed_regions)
-    ? plan.allowed_regions.filter(Boolean)
-    : [];
-
-  if (allowed.length > 0) return allowed;
-  return ["india", "singapore"];
+  if (!Array.isArray(plan?.allowed_regions)) return [];
+  return plan.allowed_regions.filter(Boolean);
 }
 
 export async function getResellerScopedOrder(orderId, resellerId) {
@@ -209,9 +205,12 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
     await stopOrderAccess(order.id);
   }
 
+  // With regions: pick one server per region. Without: pick the single least-loaded server.
+  const serverLimit = regions.length > 0 ? regions.length : 1;
+
   const selectedServers = await getActiveServers({
     regions,
-    limit: regions.length,
+    limit: serverLimit,
   });
 
   if (!selectedServers.length) {

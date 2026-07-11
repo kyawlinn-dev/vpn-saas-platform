@@ -1,13 +1,54 @@
 import { supabase } from "../lib/supabase.js";
 import { getOutlineTransferMetrics } from "../services/outlineService.js";
+import { stopOrder } from "../services/orderLifecycleService.js";
 
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+function planLimitToBytes(gb) {
+  if (!gb || Number(gb) <= 0) return null;
+  return Math.floor(Number(gb) * 1024 * 1024 * 1024);
+}
+
+async function stopOrdersOverDataLimit() {
+  const { data: orders, error } = await supabase
+    .from("vpn_orders")
+    .select("id, reseller_id, vpn_plans ( data_limit_gb )")
+    .eq("status", "active");
+
+  if (error) {
+    console.error("[syncUsage] over-limit query error:", error.message);
+    return;
+  }
+
+  for (const order of orders || []) {
+    const limitBytes = planLimitToBytes(order.vpn_plans?.data_limit_gb);
+    if (!limitBytes) continue;
+
+    const { data: keys, error: keysErr } = await supabase
+      .from("vpn_keys")
+      .select("used_bytes")
+      .eq("order_id", order.id)
+      .in("status", ["active", "deleted"]);
+
+    if (keysErr) continue;
+
+    const total = (keys || []).reduce((sum, k) => sum + Number(k.used_bytes || 0), 0);
+    if (total < limitBytes) continue;
+
+    try {
+      await stopOrder({ orderId: order.id, resellerId: order.reseller_id });
+      console.log(`[syncUsage] Auto-stopped order ${order.id} (data limit reached).`);
+    } catch (err) {
+      console.error(`[syncUsage] Failed to stop over-limit order ${order.id}:`, err.message);
+    }
+  }
+}
 
 async function syncUsage() {
   const { data: servers, error: serverError } = await supabase
     .from("vpn_servers")
     .select("id, outline_api_url, outline_cert_sha256")
-    .eq("is_active", true)
+    .eq("status", "active")
     .not("outline_api_url", "is", null);
 
   if (serverError) {
@@ -75,6 +116,7 @@ async function syncUsage() {
 async function runSyncUsage() {
   console.log("[syncUsage] Running...");
   await syncUsage();
+  await stopOrdersOverDataLimit();
 }
 
 export function startSyncUsageJob() {

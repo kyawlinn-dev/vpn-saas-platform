@@ -196,12 +196,8 @@ function calcExpiryDate(fromDate, durationDays) {
 }
 
 function getPlanRegions(plan) {
-  const allowed = Array.isArray(plan?.allowed_regions)
-    ? plan.allowed_regions.filter(Boolean)
-    : [];
-
-  if (allowed.length > 0) return allowed;
-  return ["india", "singapore"];
+  if (!Array.isArray(plan?.allowed_regions)) return [];
+  return plan.allowed_regions.filter(Boolean);
 }
 
 async function getDefaultTrialPlan() {
@@ -236,6 +232,7 @@ async function createCustomerShellFromTelegramUser(user) {
       telegram_username: user.username || null,
       phone: null,
       status: "active",
+      customer_type: "telegram",
     })
     .select()
     .single();
@@ -431,9 +428,11 @@ async function activateTrialOrder({ order, plan }) {
   const expiryAt = calcExpiryDate(now, plan.duration_days);
   const regions = getPlanRegions(plan);
 
+  const serverLimit = regions.length > 0 ? regions.length : 1;
+
   const selectedServers = await getActiveServers({
     regions,
-    limit: regions.length,
+    limit: serverLimit,
   });
 
   if (!selectedServers.length) {

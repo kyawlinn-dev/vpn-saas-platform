@@ -33,12 +33,50 @@ function generateTempPassword() {
 }
 
 // GET /api/admin/resellers — list all resellers with miniapp_slug
+// Supports ?page=1&limit=20 for pagination; omitting page returns paginated shape too.
+// Also accepts ?all=1 to return a flat array (used by dropdown selects).
 router.get("/", async (req, res) => {
   try {
-    const { data: resellers, error } = await supabase
+    if (req.query.all === "1") {
+      // Lightweight flat list for dropdown selects — no pagination
+      const { data: resellers, error } = await supabase
+        .from("resellers")
+        .select("id, name, email, status, commission_percent, created_at")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("admin GET resellers (all) error:", error);
+        return res.status(500).json({ error: error.message });
+      }
+
+      const resellerIds = (resellers ?? []).map((r) => r.id);
+      let miniappsById = {};
+      if (resellerIds.length > 0) {
+        const { data: miniapps } = await supabase
+          .from("reseller_miniapps")
+          .select("reseller_id, miniapp_slug, is_enabled")
+          .in("reseller_id", resellerIds);
+        for (const m of miniapps ?? []) miniappsById[m.reseller_id] = m;
+      }
+
+      return res.json(
+        (resellers ?? []).map((r) => ({
+          ...r,
+          miniapp_slug: miniappsById[r.id]?.miniapp_slug ?? null,
+          miniapp_enabled: miniappsById[r.id]?.is_enabled ?? null,
+        }))
+      );
+    }
+
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
+    const offset = (page - 1) * limit;
+
+    const { data: resellers, error, count } = await supabase
       .from("resellers")
-      .select("id, name, email, status, commission_percent, created_at")
-      .order("created_at", { ascending: false });
+      .select("id, name, email, status, commission_percent, created_at", { count: "exact" })
+      .order("created_at", { ascending: false })
+      .range(offset, offset + limit - 1);
 
     if (error) {
       console.error("admin GET resellers error:", error);
@@ -65,7 +103,7 @@ router.get("/", async (req, res) => {
       miniapp_enabled: miniappsById[r.id]?.is_enabled ?? null,
     }));
 
-    return res.json(enriched);
+    return res.json({ data: enriched, total: count ?? 0, page, limit });
   } catch (err) {
     console.error("admin GET resellers crash:", err);
     return res.status(500).json({ error: err.message });

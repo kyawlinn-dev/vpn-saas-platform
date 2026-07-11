@@ -1,4 +1,5 @@
 import express from "express";
+import { supabase } from "../../lib/supabase.js";
 import { ServerAvailabilityError } from "../../services/serverService.js";
 import { normalizePaymentStatus } from "../../utils/validators.js";
 import {
@@ -13,6 +14,29 @@ import {
 } from "../../services/orderLifecycleService.js";
 
 const router = express.Router();
+
+// Throws OrderLifecycleError(403) if the order belongs to a telegram customer.
+// Telegram customers are managed via the miniapp flow — resellers cannot
+// manually activate/extend/stop/renew their subscriptions.
+async function assertNormalCustomer(orderId, resellerId) {
+  const { data, error } = await supabase
+    .from("vpn_orders")
+    .select("id, customer:vpn_customers(customer_type)")
+    .eq("id", orderId)
+    .eq("reseller_id", resellerId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) throw new OrderLifecycleError("Order not found", 404, "ORDER_NOT_FOUND");
+
+  if (data.customer?.customer_type === "telegram") {
+    throw new OrderLifecycleError(
+      "This action is not available for Telegram customers",
+      403,
+      "TELEGRAM_CUSTOMER_ACTION"
+    );
+  }
+}
 
 function sendActionError(res, err, fallbackMessage) {
   if (err instanceof OrderLifecycleError) {
@@ -40,6 +64,7 @@ function sendActionError(res, err, fallbackMessage) {
 
 router.post("/:orderId/activate", async (req, res) => {
   try {
+    await assertNormalCustomer(req.params.orderId, req.reseller.id);
     const result = await activateOrder({
       orderId: req.params.orderId,
       reseller: req.reseller,
@@ -53,6 +78,7 @@ router.post("/:orderId/activate", async (req, res) => {
 
 router.post("/:orderId/extend", async (req, res) => {
   try {
+    await assertNormalCustomer(req.params.orderId, req.reseller.id);
     const result = await extendOrder({
       orderId: req.params.orderId,
       resellerId: req.reseller.id,
@@ -67,6 +93,7 @@ router.post("/:orderId/extend", async (req, res) => {
 
 router.post("/:orderId/renew", async (req, res) => {
   try {
+    await assertNormalCustomer(req.params.orderId, req.reseller.id);
     const result = await renewOrder({
       orderId: req.params.orderId,
       reseller: req.reseller,
@@ -81,6 +108,7 @@ router.post("/:orderId/renew", async (req, res) => {
 
 router.post("/:orderId/stop", async (req, res) => {
   try {
+    await assertNormalCustomer(req.params.orderId, req.reseller.id);
     const result = await stopOrder({
       orderId: req.params.orderId,
       resellerId: req.reseller.id,

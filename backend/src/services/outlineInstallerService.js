@@ -205,13 +205,25 @@ function parseOutlineManagerConfig(rawOutput) {
   );
 }
 
-function buildInstallCommand() {
+// Fresh DO droplets run `apt-get upgrade` via cloud-init, holding the apt lock.
+// `cloud-init status --wait` blocks until cloud-init finishes all startup tasks
+// before we touch apt. The `|| true` keeps the chain alive if cloud-init isn't
+// available. Timeouts are kept as a second line of defence.
+function buildDockerPreinstallCommand() {
+  return [
+    "export DEBIAN_FRONTEND=noninteractive",
+    "cloud-init status --wait || true",
+    "apt-get update -qq -o Acquire::Lock::Timeout=300 -o DPkg::Lock::Timeout=300",
+    "apt-get install -y -o DPkg::Lock::Timeout=300 docker.io",
+  ].join(" && ");
+}
+
+function buildOutlineInstallCommand() {
   const scriptUrl = getInstallScriptUrl();
 
   return [
     "bash -lc",
     [
-      "set -euo pipefail",
       "export DEBIAN_FRONTEND=noninteractive",
       `curl -fsSL ${JSON.stringify(scriptUrl)} -o /tmp/install_outline.sh`,
       "bash /tmp/install_outline.sh",
@@ -226,12 +238,22 @@ export async function installOutlineOnServer(host) {
 
   await waitForSshReady(host);
 
-  const installCommand = buildInstallCommand();
+  // Step 1: Install Docker via apt (handles cloud-init apt lock; skips the
+  // Outline installer's interactive Docker prompt since Docker is already present)
+  try {
+    await runSshCommand(host, buildDockerPreinstallCommand(), 10 * 60 * 1000);
+  } catch (error) {
+    const stderr = String(error?.stderr || "").trim();
+    throw new Error(
+      `Docker pre-installation failed on ${host}: ${stderr || error.message}`
+    );
+  }
 
+  // Step 2: Run Outline installer (Docker already installed, no prompts)
   try {
     const { stdout, stderr } = await runSshCommand(
       host,
-      installCommand,
+      buildOutlineInstallCommand(),
       DEFAULT_INSTALL_TIMEOUT_MS
     );
 
@@ -243,7 +265,7 @@ export async function installOutlineOnServer(host) {
     const combinedOutput = [stdout, stderr].filter(Boolean).join("\n").trim();
 
     const usefulTail = combinedOutput
-      ? combinedOutput.split("\n").slice(-30).join("\n")
+      ? combinedOutput.split("\n").slice(-60).join("\n")
       : "No installer output captured";
 
     throw new Error(
