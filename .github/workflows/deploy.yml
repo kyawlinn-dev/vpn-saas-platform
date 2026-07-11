@@ -3,6 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 # DO App Platform auto-deploys the backend directly from GitHub — no job needed here.
 
