@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Search, Zap } from "lucide-react";
 import { Dialog } from "@base-ui/react/dialog";
 import {
@@ -11,6 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useLinkServer } from "../features/access/hooks";
 import { getTelegramInitData } from "../lib/telegram";
+import { attachKeyToServer } from "../hooks/useMiniAppAuth";
 
 // ── Helpers (logic unchanged from MUI version) ────────────────────────────────
 
@@ -217,6 +219,7 @@ export default function ServersPage({
   const currentServer = data?.current_server || null;
   const brand = data?.config?.brand || null;
 
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const [openGroups, setOpenGroups] = useState({});
   const [selectedServer, setSelectedServer] = useState(null);
@@ -248,14 +251,34 @@ export default function ServersPage({
       .filter((g) => g.servers.length > 0);
   }, [groups, query]);
 
-  // ── Mutation (payload and callbacks UNCHANGED) ────────────────────────────────
+  // ── Mutation ──────────────────────────────────────────────────────────────────
   const linkMutation = useLinkServer({
-    onSuccess: async () => {
+    onSuccess: (responseData) => {
+      const newServer = responseData?.current_server;
+      const newKey = responseData?.outline_key;
+
       onToast("Server linked successfully", "success");
       setSelectedServer(null);
-      if (onRefreshAuth) {
-        await onRefreshAuth();
+
+      if (newServer && newKey) {
+        // Patch the cache directly from the link response — avoids 4 sequential
+        // HTTP round trips on mobile (config + auth + plans + servers refetch).
+        queryClient.setQueryData(["miniapp-dashboard"], (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            current_server: attachKeyToServer(newServer, newKey),
+            outline_key: newKey,
+            servers: (old.servers || []).map((s) => ({
+              ...s,
+              is_current: s.id === newServer.id,
+            })),
+          };
+        });
+      } else if (onRefreshAuth) {
+        onRefreshAuth();
       }
+
       onTabChange?.("home");
     },
     onError: (error) => {

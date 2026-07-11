@@ -8,7 +8,7 @@ import {
 import { getTelegramInitData, prepareTelegramWebApp } from "../lib/telegram";
 import { useEffect } from "react";
 
-function attachKeyToServer(server, outlineKey) {
+export function attachKeyToServer(server, outlineKey) {
   if (!server) return null;
 
   return {

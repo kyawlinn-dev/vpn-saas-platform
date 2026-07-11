@@ -1355,6 +1355,11 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
 
     let insertedKey = activeTargetKey || null;
 
+    // Pre-fetched usage metrics for old keys. Populated during new-key creation so
+    // metrics and create run in parallel — saves one full Outline round-trip on the
+    // critical path. Map: oldKey.id → metricsMap (null if pre-fetch failed).
+    const prefetchedMetrics = new Map();
+
     // Append-only: the partial unique index keeps one ACTIVE key per (order, server),
     // but deleted history rows never conflict -> a switch is always a fresh INSERT.
     if (!insertedKey) {
@@ -1365,14 +1370,43 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
           ? Math.max(planLimitBytes - (await getOrderTotalUsedBytes(activeOrder.id)), 0)
           : null;
 
+      // Build metrics pre-fetch promises for every old key that will be deleted.
+      // These run in parallel with createOutlineKey below.
+      const metricsPreFetches = activeKeys
+        .filter(
+          (k) =>
+            k.outline_key_id &&
+            k.vpn_servers?.outline_api_url &&
+            k.vpn_servers?.outline_cert_sha256
+        )
+        .map((k) =>
+          getOutlineTransferMetrics({
+            apiUrl: k.vpn_servers.outline_api_url,
+            certSha256: k.vpn_servers.outline_cert_sha256,
+          })
+            .then((m) => ({ id: k.id, map: m }))
+            .catch((err) => {
+              console.warn(`[link] Metrics pre-fetch failed for key ${k.id}:`, err.message);
+              return { id: k.id, map: null };
+            })
+        );
+
       let outlineKey;
       try {
-        outlineKey = await createOutlineKey({
-          apiUrl: server.outline_api_url,
-          certSha256: server.outline_cert_sha256,
-          name: buildMiniAppKeyName({ customer, server, order: activeOrder, plan }),
-          dataLimitBytes: remainingBytes,
-        });
+        // createOutlineKey and metrics pre-fetches run concurrently.
+        const [created, ...metricsResults] = await Promise.all([
+          createOutlineKey({
+            apiUrl: server.outline_api_url,
+            certSha256: server.outline_cert_sha256,
+            name: buildMiniAppKeyName({ customer, server, order: activeOrder, plan }),
+            dataLimitBytes: remainingBytes,
+          }),
+          ...metricsPreFetches,
+        ]);
+        outlineKey = created;
+        for (const r of metricsResults) {
+          if (r?.map) prefetchedMetrics.set(r.id, r.map);
+        }
       } catch (outlineErr) {
         console.error("Outline key create error:", outlineErr);
         const friendlyErr = new Error(
@@ -1457,17 +1491,26 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       if (oldKey.id === insertedKey.id) continue;
 
       // Best-effort: freeze used_bytes at the live Outline value before this key is deleted.
-      // If the metrics call fails, proceed with the last sync value — never block the switch.
+      // Use pre-fetched metrics when available (collected in parallel with key creation),
+      // fall back to a live fetch when not. Never block the switch on failure.
       if (
         oldKey.outline_key_id &&
         oldKey.vpn_servers?.outline_api_url &&
         oldKey.vpn_servers?.outline_cert_sha256
       ) {
-        try {
-          const metricsMap = await getOutlineTransferMetrics({
-            apiUrl: oldKey.vpn_servers.outline_api_url,
-            certSha256: oldKey.vpn_servers.outline_cert_sha256,
-          });
+        const fetchedMap = prefetchedMetrics.get(oldKey.id);
+        const metricsMap = fetchedMap ?? await getOutlineTransferMetrics({
+          apiUrl: oldKey.vpn_servers.outline_api_url,
+          certSha256: oldKey.vpn_servers.outline_cert_sha256,
+        }).catch((err) => {
+          console.warn(
+            `[link] Usage snapshot failed for key ${oldKey.id}, using last sync value:`,
+            err.message
+          );
+          return null;
+        });
+
+        if (metricsMap) {
           const liveBytes = metricsMap[String(oldKey.outline_key_id)];
           if (liveBytes !== undefined) {
             await supabase
@@ -1475,11 +1518,6 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
               .update({ used_bytes: liveBytes })
               .eq("id", oldKey.id);
           }
-        } catch (snapshotErr) {
-          console.warn(
-            `[link] Usage snapshot failed for key ${oldKey.id}, using last sync value:`,
-            snapshotErr.message
-          );
         }
       }
 
