@@ -23,6 +23,7 @@ export default function AppShell() {
   const [prevTab, setPrevTab] = useState(DEFAULT_TAB);
   const [toast, setToast] = useState({ open: false, message: "", severity: "info" });
   const [checkoutPlan, setCheckoutPlan] = useState(null);
+  const [switchedServer, setSwitchedServer] = useState(null);
 
   const {
     data,
@@ -62,6 +63,9 @@ export default function AppShell() {
     setTab(TAB_KEYS.SETTINGS);
   };
 
+  const handleServerSwitched = (server) => setSwitchedServer(server);
+  const handleClearSwitchedServer = () => setSwitchedServer(null);
+
   const isSubScreen = SUB_SCREENS.has(tab);
 
   let content = null;
@@ -83,6 +87,9 @@ export default function AppShell() {
       onRefreshAuth: refreshAuth,
       onNavigateToCheckout: navigateToCheckout,
       onOpenSettings: openSettings,
+      switchedServer,
+      onServerSwitched: handleServerSwitched,
+      onClearSwitchedServer: handleClearSwitchedServer,
     });
   }
 

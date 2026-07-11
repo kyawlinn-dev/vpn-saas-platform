@@ -211,6 +211,7 @@ export default function ServersPage({
   onRefreshAuth,
   onTabChange,
   onOpenSettings,
+  onServerSwitched,
 }) {
   const servers = useMemo(() => data?.servers || [], [data?.servers]);
   const telegramUserId = data?.user?.telegram_user_id;
@@ -257,7 +258,6 @@ export default function ServersPage({
       const newServer = responseData?.current_server;
       const newKey = responseData?.outline_key;
 
-      onToast("Server linked successfully", "success");
       setSelectedServer(null);
 
       if (newServer && newKey) {
@@ -275,8 +275,14 @@ export default function ServersPage({
             })),
           };
         });
-      } else if (onRefreshAuth) {
-        onRefreshAuth();
+        onServerSwitched?.(newServer);
+        onToast(
+          `Switched to ${newServer.city || newServer.country || "new server"}. Reconnect VPN to apply.`,
+          "success"
+        );
+      } else {
+        if (onRefreshAuth) onRefreshAuth();
+        onToast("Server linked. Reconnect VPN to apply.", "success");
       }
 
       onTabChange?.("home");

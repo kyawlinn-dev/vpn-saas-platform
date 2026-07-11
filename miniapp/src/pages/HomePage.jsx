@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronRight, Download, Package, Send, Server, Share2, Wifi } from "lucide-react";
+import { ArrowUp, ChevronRight, Download, Package, RefreshCw, Send, Server, Share2, Wifi, X } from "lucide-react";
 import {
   BrandBar,
   Chip,
@@ -176,7 +176,33 @@ function EmptyStateCard({ icon, title, description, children, danger = false }) 
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast, onTabChange, onOpenSettings }) {
+function ReconnectBanner({ server, onDismiss }) {
+  const label = server?.city || server?.country || "new server";
+  return (
+    <div className="flex items-start gap-3 rounded-2xl border border-amber-400/20 bg-amber-400/8 p-4">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-400/15 text-amber-400">
+        <RefreshCw size={16} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-amber-400">Reconnect your VPN</p>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
+          Server switched to <strong className="font-semibold text-foreground">{label}</strong>.
+          Disconnect and reconnect in the Outline app to use the new server.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+      >
+        <X size={16} />
+      </button>
+    </div>
+  );
+}
+
+export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast, onTabChange, onOpenSettings, switchedServer, onClearSwitchedServer }) {
   const subscription = data?.subscription || null;
   const currentServer = data?.current_server || null;
   const outlineKey = data?.outline_key || null;
@@ -230,6 +256,10 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
           onOpenSettings={onOpenSettings}
         />
       </div>
+
+      {switchedServer && (
+        <ReconnectBanner server={switchedServer} onDismiss={onClearSwitchedServer} />
+      )}
 
       {hasActivePackage ? (
         <>
