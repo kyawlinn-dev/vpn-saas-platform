@@ -1355,30 +1355,6 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
 
     let insertedKey = activeTargetKey || null;
 
-    // Start metrics pre-fetches for old keys immediately — they run while the new key
-    // is being created (or while we do DB work). Results are consumed in the background
-    // cleanup that fires after the response is sent. Map: oldKey.id → Promise<map|null>.
-    const metricsPreFetchMap = new Map(
-      activeKeys
-        .filter(
-          (k) =>
-            k.id !== (activeTargetKey?.id ?? -1) &&
-            k.outline_key_id &&
-            k.vpn_servers?.outline_api_url &&
-            k.vpn_servers?.outline_cert_sha256
-        )
-        .map((k) => [
-          k.id,
-          getOutlineTransferMetrics({
-            apiUrl: k.vpn_servers.outline_api_url,
-            certSha256: k.vpn_servers.outline_cert_sha256,
-          }).catch((err) => {
-            console.warn(`[link] Metrics pre-fetch failed for key ${k.id}:`, err.message);
-            return null;
-          }),
-        ])
-    );
-
     // Append-only: the partial unique index keeps one ACTIVE key per (order, server),
     // but deleted history rows never conflict -> a switch is always a fresh INSERT.
     if (!insertedKey) {
@@ -1391,8 +1367,10 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
 
       let outlineKey;
       try {
-        // Only await key creation. Metrics pre-fetches run concurrently as background
-        // Promises and are consumed after the response is sent.
+        // Critical path: only touch the NEW server here. Any call to the OLD server
+        // (metrics, delete) is deferred to background after the response is sent.
+        // Hitting the old server during the request can disrupt the customer's active
+        // VPN connection (which routes through that same server), causing "Load failed".
         outlineKey = await createOutlineKey({
           apiUrl: server.outline_api_url,
           certSha256: server.outline_cert_sha256,
@@ -1479,25 +1457,35 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       await clearServerError(server.id);
     }
 
-    // Respond as soon as the new key is confirmed in the DB. Old key cleanup
-    // (metrics snapshot + Outline delete + DB update) runs in the background
-    // so it never blocks the customer's switch response.
-    const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
+    // Respond immediately — use already-fetched used_bytes (avoids a second DB
+    // round-trip) and send before touching the old server at all.
+    const knownUsedBytes = activeKeys.reduce(
+      (sum, k) => sum + Number(k.used_bytes || 0), 0
+    );
     res.json({
       success: true,
       message: "Server linked successfully",
       data: {
         current_server: mapServerForMiniApp(server, true),
-        outline_key: toPublicOutlineKey(req, customerSsconfToken, insertedKey, label, totalUsedBytes),
+        outline_key: toPublicOutlineKey(req, customerSsconfToken, insertedKey, label, knownUsedBytes),
       },
     });
 
-    // Background: snapshot usage on old keys and delete them from Outline + DB.
-    // A 30-second grace period runs first so customers who are actively connected
-    // to the old server have time to disconnect manually. Manual disconnect causes
-    // Outline to fetch fresh ssconf (now pointing to the new server) and reconnect
-    // in 1-2s. Without the grace period, Outline gets force-dropped mid-connection
-    // and its auto-reconnect retry loop takes 20-30s to resolve.
+    // Background: 30-second grace period, then snapshot usage + delete old keys.
+    //
+    // WHY 30 seconds: customers who are actively connected to the old server via
+    // Outline VPN will have their connection dropped the moment the old key is
+    // deleted. Outline's auto-reconnect then takes 20-30s (retries with cached
+    // credentials). Manual disconnect is instant — Outline fetches fresh ssconf
+    // (now pointing to the new server) and reconnects in 1-2s.
+    //
+    // The grace period gives them time to disconnect cleanly. The old key stays
+    // valid during this window; the ssconf URL already points to the new server.
+    //
+    // WHY NO CALLS TO OLD SERVER DURING THE REQUEST: the old server is the one
+    // routing the customer's VPN traffic. An unexpected API hit to it during the
+    // switch can momentarily disrupt the VPN tunnel and cause "Load failed" in the
+    // miniapp fetch — only happens when the customer is connected to that server.
     const OLD_KEY_GRACE_MS = 30_000;
     const oldKeysToClean = activeKeys.filter((k) => k.id !== insertedKey.id);
     if (oldKeysToClean.length > 0) {
@@ -1510,9 +1498,14 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
             oldKey.vpn_servers?.outline_api_url &&
             oldKey.vpn_servers?.outline_cert_sha256
           ) {
-            const metricsMap = metricsPreFetchMap.has(oldKey.id)
-              ? await metricsPreFetchMap.get(oldKey.id)
-              : null;
+            // Snapshot live usage before deleting the key
+            const metricsMap = await getOutlineTransferMetrics({
+              apiUrl: oldKey.vpn_servers.outline_api_url,
+              certSha256: oldKey.vpn_servers.outline_cert_sha256,
+            }).catch((err) => {
+              console.warn(`[link] Usage snapshot failed for key ${oldKey.id}:`, err.message);
+              return null;
+            });
 
             if (metricsMap) {
               const liveBytes = metricsMap[String(oldKey.outline_key_id)];
