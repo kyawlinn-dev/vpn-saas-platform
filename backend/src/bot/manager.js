@@ -22,12 +22,13 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timer]);
 }
 
-async function registerWebhook(bot, resellerId) {
-  await withTimeout(
-    bot.telegram.setWebhook(getWebhookUrl(resellerId)),
-    10_000,
-    "Webhook registration"
-  );
+async function registerWebhook(plainToken, resellerId) {
+  const apiUrl = new URL(`https://api.telegram.org/bot${plainToken}/setWebhook`);
+  apiUrl.searchParams.set("url", getWebhookUrl(resellerId));
+
+  const res = await withTimeout(fetch(apiUrl.toString()), 10_000, "Webhook registration");
+  const data = await res.json();
+  if (!data.ok) throw new Error(`${data.error_code}: ${data.description}`);
 }
 
 async function persistBotStatus(resellerId, patch) {
@@ -89,7 +90,7 @@ async function startBotForReseller(row) {
   });
 
   // Throws on bad token or timeout — callers handle the error
-  await registerWebhook(bot, reseller_id);
+  await registerWebhook(plainToken, reseller_id);
 
   // Menu button + commands are non-fatal — a failure here doesn't prevent the bot going live
   try {
