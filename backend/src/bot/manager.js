@@ -23,11 +23,15 @@ function withTimeout(promise, ms, label) {
 }
 
 async function registerWebhook(plainToken, resellerId) {
+  const webhookUrl = getWebhookUrl(resellerId);
+  console.log(`[registerWebhook] webhook URL: ${webhookUrl}`);
+
   const apiUrl = new URL(`https://api.telegram.org/bot${plainToken}/setWebhook`);
-  apiUrl.searchParams.set("url", getWebhookUrl(resellerId));
+  apiUrl.searchParams.set("url", webhookUrl);
 
   const res = await withTimeout(fetch(apiUrl.toString()), 10_000, "Webhook registration");
   const data = await res.json();
+  console.log(`[registerWebhook] Telegram response:`, JSON.stringify(data));
   if (!data.ok) throw new Error(`${data.error_code}: ${data.description}`);
 }
 
