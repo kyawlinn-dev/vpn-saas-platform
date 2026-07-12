@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { Telegraf } from "telegraf";
 import { supabase } from "../lib/supabase.js";
 import { decrypt } from "../lib/tokenEncryption.js";
@@ -24,13 +23,11 @@ function withTimeout(promise, ms, label) {
 }
 
 async function registerWebhook(bot, resellerId) {
-  const secretToken = crypto.randomBytes(32).toString("hex");
   await withTimeout(
-    bot.telegram.setWebhook(getWebhookUrl(resellerId), { secret_token: secretToken }),
+    bot.telegram.setWebhook(getWebhookUrl(resellerId)),
     10_000,
     "Webhook registration"
   );
-  return secretToken;
 }
 
 async function persistBotStatus(resellerId, patch) {
@@ -92,7 +89,7 @@ async function startBotForReseller(row) {
   });
 
   // Throws on bad token or timeout — callers handle the error
-  const secretToken = await registerWebhook(bot, reseller_id);
+  await registerWebhook(bot, reseller_id);
 
   // Menu button + commands are non-fatal — a failure here doesn't prevent the bot going live
   try {
@@ -118,7 +115,6 @@ async function startBotForReseller(row) {
 
   activeBots.set(reseller_id, {
     bot,
-    secretToken,
     tokenEncrypted: bot_token_encrypted,
     botInfo,
     webhookRegisteredAt: new Date().toISOString(),
@@ -203,7 +199,7 @@ export function getRuntimeStatus(resellerId) {
   const entry = activeBots.get(resellerId);
   return {
     running: Boolean(entry),
-    webhook_registered: Boolean(entry?.secretToken),
+    webhook_registered: Boolean(entry?.webhookRegisteredAt),
     webhook_registered_at: entry?.webhookRegisteredAt || null,
     bot_username: entry?.botInfo?.username || null,
     bot_id: entry?.botInfo?.id || null,
@@ -211,24 +207,14 @@ export function getRuntimeStatus(resellerId) {
 }
 
 // Called from webhookRouter — never throws.
-export async function processUpdate(resellerId, incomingSecret, update) {
+export async function processUpdate(resellerId, update) {
   const entry = activeBots.get(resellerId);
   if (!entry) return { found: false };
-
-  const expected = entry.secretToken;
-  let authorized = false;
-  if (incomingSecret.length === expected.length) {
-    authorized = crypto.timingSafeEqual(
-      Buffer.from(incomingSecret, "utf8"),
-      Buffer.from(expected, "utf8")
-    );
-  }
-  if (!authorized) return { found: true, authorized: false };
 
   try {
     await entry.bot.handleUpdate(update);
   } catch (err) {
     console.error(`[bot:${resellerId}] handleUpdate error:`, err.message);
   }
-  return { found: true, authorized: true };
+  return { found: true };
 }

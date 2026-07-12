@@ -9,12 +9,8 @@ const router = express.Router();
 // timingSafeEqual in botManager.processUpdate before any update is processed.
 router.post("/:resellerId", async (req, res) => {
   const { resellerId } = req.params;
-  const incomingSecret = String(req.headers["x-telegram-bot-api-secret-token"] || "");
-
-  const result = await botManager.processUpdate(resellerId, incomingSecret, req.body);
-
+  const result = await botManager.processUpdate(resellerId, req.body);
   if (!result.found) return res.sendStatus(404);
-  if (!result.authorized) return res.sendStatus(403);
   return res.sendStatus(200);
 });
 
