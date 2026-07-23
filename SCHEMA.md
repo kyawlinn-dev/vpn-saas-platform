@@ -1,7 +1,7 @@
 # NovaNet MM — Database Schema Reference
 
 **Source:** Live Supabase project (`huqmzvlzfcexycdrsxpn`), queried via PostgREST OpenAPI spec.  
-**Last updated:** 2026-07-01
+**Last updated:** 2026-07-22
 
 > **NOT NULL semantics:** The `Required` column below means the column is `NOT NULL` in Postgres.  
 > Many required columns have server-side defaults (UUIDs, timestamps, booleans) — they don't need to be  
@@ -14,6 +14,8 @@
 - [access\_tokens](#access_tokens)
 - [admins](#admins)
 - [commission\_ledger](#commission_ledger)
+- [monthly\_settlements](#monthly_settlements)
+- [order\_payments](#order_payments)
 - [reseller\_miniapps](#reseller_miniapps)
 - [resellers](#resellers)
 - [telegram\_links](#telegram_links)
@@ -75,6 +77,84 @@ Records commission earned by resellers on paid orders.
 | `status` | text | ✓ | — | `pending` \| `paid` |
 | `created_at` | timestamptz | ✓ | now() | |
 | `paid_at` | timestamptz | | — | |
+| `updated_at` | timestamptz | ✓ | now() | |
+
+---
+
+## monthly_settlements
+
+Month-end reseller transfer snapshots. Resellers submit transfer details after
+paying the platform owner; admins confirm or reopen the submitted settlement.
+
+| Column | Type | NOT NULL | Default | Notes |
+|--------|------|----------|---------|-------|
+| `id` | uuid | ✓ | gen_random_uuid() | PK |
+| `reseller_id` | uuid | ✓ | — | FK → resellers.id |
+| `settlement_month` | date | ✓ | — | First day of the settlement month |
+| `status` | text | ✓ | `'draft'` | `draft` \| `submitted` \| `confirmed` \| `reopened` |
+| `gross_paid_mmk` | integer | ✓ | `0` | Confirmed paid purchase total |
+| `reseller_commission_mmk` | integer | ✓ | `0` | Commission retained by reseller |
+| `platform_due_mmk` | integer | ✓ | `0` | Amount reseller transfers to platform owner |
+| `pending_review_mmk` | integer | ✓ | `0` | Pending payment review total at submission time |
+| `unpaid_mmk` | integer | ✓ | `0` | Unpaid purchase total at submission time |
+| `rejected_mmk` | integer | ✓ | `0` | Rejected purchase total at submission time |
+| `confirmed_order_count` | integer | ✓ | `0` | |
+| `pending_review_count` | integer | ✓ | `0` | |
+| `unpaid_order_count` | integer | ✓ | `0` | |
+| `rejected_order_count` | integer | ✓ | `0` | |
+| `total_order_count` | integer | ✓ | `0` | |
+| `transfer_note` | text | | — | Reseller note |
+| `transfer_reference` | text | | — | Transaction/account reference |
+| `transfer_proof_url` | text | | — | Optional proof URL/path |
+| `submitted_at` | timestamptz | | — | |
+| `confirmed_at` | timestamptz | | — | |
+| `confirmed_by_admin_id` | uuid | | — | FK → admins.id |
+| `reopened_at` | timestamptz | | — | |
+| `admin_note` | text | | — | |
+| `snapshot_basis` | jsonb | ✓ | `'{}'` | Frozen calculation details |
+| `created_at` | timestamptz | ✓ | now() | |
+| `updated_at` | timestamptz | ✓ | now() | |
+
+Unique constraint: `(reseller_id, settlement_month)`.
+
+---
+
+## order_payments
+
+Payment ledger rows. Each customer payment/recharge is recorded separately and
+reviewed independently. This table is the source of truth for gross paid,
+commission, and platform due calculations; `vpn_orders` keeps cached summary
+fields for compatibility and fast dashboard display.
+
+| Column | Type | NOT NULL | Default | Notes |
+|--------|------|----------|---------|-------|
+| `id` | uuid | ✓ | gen_random_uuid() | PK |
+| `order_id` | uuid | ✓ | — | FK → vpn_orders.id |
+| `customer_id` | uuid | ✓ | — | FK → vpn_customers.id |
+| `reseller_id` | uuid | ✓ | — | FK → resellers.id |
+| `amount_mmk` | integer | ✓ | — | Actual paid/submitted amount |
+| `commission_percent` | numeric | ✓ | — | Snapshotted at payment creation |
+| `commission_amount_mmk` | integer | ✓ | `0` | `floor(amount_mmk * commission_percent / 100)` |
+| `platform_due_mmk` | integer | ✓ | `0` | `amount_mmk - commission_amount_mmk` |
+| `payment_method` | text | | — | Optional method label |
+| `payment_note` | text | | — | Customer/reseller note |
+| `payment_screenshot_url` | text | | — | Private storage path |
+| `review_status` | text | ✓ | `'pending_review'` | `pending_review` \| `confirmed` \| `rejected` |
+| `payment_type` | text | ✓ | `'initial'` | `initial` \| `extend` \| `renew` |
+| `apply_status` | text | ✓ | `'applied'` | `pending` \| `applied` \| `failed` \| `reversed` |
+| `plan_id` | uuid | | — | FK → vpn_plans.id; plan bought for this package event |
+| `package_duration_days` | integer | | — | Snapshotted plan duration for this package event |
+| `package_data_limit_gb` | numeric | | — | Snapshotted plan data limit for this package event |
+| `applied_at` | timestamptz | | — | Set when package duration/data has been applied |
+| `apply_error` | text | | — | Failure reason when `apply_status = failed` |
+| `idempotency_key` | text | | — | Optional duplicate-protection key per reseller |
+| `source` | text | | — | `miniapp` \| `dashboard` \| future sources |
+| `submitted_at` | timestamptz | ✓ | now() | |
+| `reviewed_at` | timestamptz | | — | |
+| `reviewed_by_reseller_id` | uuid | | — | FK → resellers.id |
+| `reviewed_by_admin_id` | uuid | | — | FK → admins.id |
+| `review_note` | text | | — | |
+| `created_at` | timestamptz | ✓ | now() | |
 | `updated_at` | timestamptz | ✓ | now() | |
 
 ---
@@ -183,6 +263,8 @@ End customers (VPN subscribers). One customer belongs to one reseller. Telegram 
 | `updated_at` | timestamptz | ✓ | now() | |
 | `ssconf_token` | text | | — | Permanent per-customer token for ssconf:// URLs · UNIQUE |
 
+| `customer_type` | text | yes | `'normal'` | `normal` \| `telegram` |
+
 > **Column trap:** this table uses `full_name`, not `name`.
 
 ---
@@ -213,6 +295,8 @@ Active and historical Outline VPN keys. One key per order (swapped when customer
 
 ---
 
+Partial unique index: one active, non-deleted key per `(order_id, server_id)`.
+
 ## vpn_orders
 
 A customer's VPN subscription period. Drives billing, key provisioning, and expiry.
@@ -242,6 +326,10 @@ A customer's VPN subscription period. Drives billing, key provisioning, and expi
 | `updated_at` | timestamptz | ✓ | now() | |
 
 ---
+
+Partial unique index: one active purchase per `(reseller_id, customer_id)`.
+Migration `0006_business_integrity_constraints.sql` also enforces composite
+customer/order/key tenant ownership for all new writes.
 
 ## vpn_plans
 
@@ -298,6 +386,11 @@ Outline VPN servers (DigitalOcean droplets). Provisioned automatically or added 
 
 ## Foreign Key Map
 
+> `vpn_servers.server_tier` was added in migration `0005_add_server_tier.sql`.
+> It is NOT NULL, defaults to `'premium'`, and accepts `trial` or `premium`.
+> Trial orders select only `trial` servers; paid purchase/renew orders select
+> only `premium` servers.
+
 | Column | References |
 |--------|-----------|
 | `access_tokens.customer_id` | `vpn_customers.id` |
@@ -306,6 +399,14 @@ Outline VPN servers (DigitalOcean droplets). Provisioned automatically or added 
 | `admins.supabase_user_id` | `auth.users.id` (Supabase auth) |
 | `commission_ledger.order_id` | `vpn_orders.id` |
 | `commission_ledger.reseller_id` | `resellers.id` |
+| `monthly_settlements.reseller_id` | `resellers.id` |
+| `monthly_settlements.confirmed_by_admin_id` | `admins.id` |
+| `order_payments.order_id` | `vpn_orders.id` |
+| `order_payments.customer_id` | `vpn_customers.id` |
+| `order_payments.reseller_id` | `resellers.id` |
+| `order_payments.plan_id` | `vpn_plans.id` |
+| `order_payments.reviewed_by_reseller_id` | `resellers.id` |
+| `order_payments.reviewed_by_admin_id` | `admins.id` |
 | `reseller_miniapps.reseller_id` | `resellers.id` |
 | `resellers.supabase_user_id` | `auth.users.id` (Supabase auth) |
 | `telegram_links.customer_id` | `vpn_customers.id` |
@@ -339,7 +440,9 @@ Three tables use different name columns — this has caused bugs:
 
 ## Key Enumerations
 
-These are stored as plain `text` with no DB-level enum constraint:
+These are stored as `text`. Critical customer, order, key, payment, settlement,
+and server lifecycle values have DB-level CHECK constraints; the remaining rows
+document accepted application values.
 
 | Table.column | Known values |
 |---|---|
@@ -355,4 +458,8 @@ These are stored as plain `text` with no DB-level enum constraint:
 | `vpn_keys.status` | `active`, `deleted` |
 | `access_tokens.status` | `active`, `expired`, `revoked` |
 | `commission_ledger.status` | `pending`, `paid` |
+| `monthly_settlements.status` | `draft`, `submitted`, `confirmed`, `reopened` |
+| `order_payments.review_status` | `pending_review`, `confirmed`, `rejected` |
+| `order_payments.payment_type` | `initial`, `extend`, `renew`, `adjustment` |
+| `order_payments.apply_status` | `pending`, `applied`, `failed`, `reversed` |
 | `vpn_servers.provider` | `digitalocean` |
