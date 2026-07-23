@@ -35,9 +35,10 @@ api.interceptors.response.use(
     const url = config?.url ?? '';
 
     const isRefreshCall = url.includes('/admin/auth/refresh');
+    const isLoginCall = url.includes('/admin/auth/login');
     const isLogoutCall = url.includes('/admin/auth/logout');
     const canRetry = Boolean(
-      config && !config._retry && status === 401 && !isRefreshCall && !isLogoutCall,
+      config && !config._retry && status === 401 && !isRefreshCall && !isLoginCall && !isLogoutCall,
     );
 
     if (!canRetry || !config) {

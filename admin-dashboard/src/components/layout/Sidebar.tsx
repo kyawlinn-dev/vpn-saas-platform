@@ -1,15 +1,17 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, CreditCard, ShoppingCart,
-  Key, Server, UserCheck, X, Shield,
+  Key, Server, UserCheck, X, Shield, Calculator, BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const NAV = [
-  { to: '/',          label: 'Overview',   icon: LayoutDashboard, exact: true },
+  { to: '/overview',  label: 'Overview',   icon: LayoutDashboard, exact: true },
+  { to: '/analytics', label: 'Analytics',  icon: BarChart3 },
   { to: '/resellers', label: 'Resellers',  icon: UserCheck },
   { to: '/plans',     label: 'Plans',      icon: CreditCard },
   { to: '/orders',    label: 'Orders',     icon: ShoppingCart },
+  { to: '/settlements', label: 'Settlements', icon: Calculator },
   { to: '/customers', label: 'Customers',  icon: Users },
   { to: '/keys',      label: 'VPN Keys',   icon: Key },
   { to: '/servers',   label: 'Servers',    icon: Server },

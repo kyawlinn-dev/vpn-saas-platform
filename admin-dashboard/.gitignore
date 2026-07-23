@@ -33,6 +33,7 @@ yarn-error.log*
 # env files — commit .env.example, ignore everything else
 .env*
 !.env.example
+!.env.*.example
 
 # vercel
 .vercel

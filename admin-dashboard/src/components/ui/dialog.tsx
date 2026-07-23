@@ -7,10 +7,10 @@ interface DialogProps {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-const sizeMap = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl' };
+const sizeMap = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-5xl' };
 
 export function Dialog({ open, onClose, children, size = 'md' }: DialogProps) {
   return (

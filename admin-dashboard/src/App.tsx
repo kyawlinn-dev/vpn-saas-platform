@@ -1,15 +1,19 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAdminAuth } from './providers/AdminAuthProvider';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
-import { OverviewPage } from './pages/OverviewPage';
-import { ResellersPage } from './pages/ResellersPage';
-import { PlansPage } from './pages/PlansPage';
-import { OrdersPage } from './pages/OrdersPage';
-import { CustomersPage } from './pages/CustomersPage';
-import { KeysPage } from './pages/KeysPage';
-import { ServersPage } from './pages/ServersPage';
 import { useDashboardData } from './hooks/useDashboardData';
+
+const OverviewPage = lazy(() => import('./pages/OverviewPage').then((module) => ({ default: module.OverviewPage })));
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((module) => ({ default: module.AnalyticsPage })));
+const ResellersPage = lazy(() => import('./pages/ResellersPage').then((module) => ({ default: module.ResellersPage })));
+const PlansPage = lazy(() => import('./pages/PlansPage').then((module) => ({ default: module.PlansPage })));
+const OrdersPage = lazy(() => import('./pages/OrdersPage').then((module) => ({ default: module.OrdersPage })));
+const CustomersPage = lazy(() => import('./pages/CustomersPage').then((module) => ({ default: module.CustomersPage })));
+const KeysPage = lazy(() => import('./pages/KeysPage').then((module) => ({ default: module.KeysPage })));
+const ServersPage = lazy(() => import('./pages/ServersPage').then((module) => ({ default: module.ServersPage })));
+const SettlementsPage = lazy(() => import('./pages/SettlementsPage').then((module) => ({ default: module.SettlementsPage })));
 
 function LoadingScreen() {
   return (
@@ -30,35 +34,42 @@ function AuthenticatedApp() {
       onRefresh={refresh}
       error={error || undefined}
     >
-      <Routes>
-        <Route index element={<Navigate to="/overview" replace />} />
-        <Route path="overview" element={<OverviewPage />} />
-        <Route
-          path="resellers"
-          element={<ResellersPage onSuccess={refresh} />}
-        />
-        <Route
-          path="plans"
-          element={<PlansPage plans={plans} onSuccess={refresh} />}
-        />
-        <Route
-          path="orders"
-          element={<OrdersPage plans={plans} resellers={resellers} onSuccess={refresh} />}
-        />
-        <Route
-          path="customers"
-          element={<CustomersPage resellers={resellers} />}
-        />
-        <Route
-          path="keys"
-          element={<KeysPage resellers={resellers} />}
-        />
-        <Route
-          path="servers"
-          element={<ServersPage servers={servers} onSuccess={refresh} />}
-        />
-        <Route path="*" element={<Navigate to="/overview" replace />} />
-      </Routes>
+      <Suspense fallback={<LoadingScreen />}>
+        <Routes>
+          <Route index element={<Navigate to="/overview" replace />} />
+          <Route path="overview" element={<OverviewPage />} />
+          <Route path="analytics" element={<AnalyticsPage />} />
+          <Route
+            path="resellers"
+            element={<ResellersPage onSuccess={refresh} />}
+          />
+          <Route
+            path="plans"
+            element={<PlansPage plans={plans} onSuccess={refresh} />}
+          />
+          <Route
+            path="orders"
+            element={<OrdersPage plans={plans} resellers={resellers} onSuccess={refresh} />}
+          />
+          <Route
+            path="settlements"
+            element={<SettlementsPage resellers={resellers} />}
+          />
+          <Route
+            path="customers"
+            element={<CustomersPage resellers={resellers} />}
+          />
+          <Route
+            path="keys"
+            element={<KeysPage resellers={resellers} />}
+          />
+          <Route
+            path="servers"
+            element={<ServersPage servers={servers} onSuccess={refresh} />}
+          />
+          <Route path="*" element={<Navigate to="/overview" replace />} />
+        </Routes>
+      </Suspense>
     </AppLayout>
   );
 }
