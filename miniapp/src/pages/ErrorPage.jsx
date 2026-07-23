@@ -1,10 +1,12 @@
 import { AlertCircle, MessageCircle, RefreshCcw } from "lucide-react";
 import { PrimaryButton, SecondaryButton } from "../components/ui/primitives";
 import { openTelegramNativeLink } from "../lib/telegram";
+import { useLanguage } from "../i18n/language";
 
 export default function ErrorPage({ error, supportUsername }) {
+  const { t } = useLanguage();
   const message =
-    error?.message || "Something went wrong while loading the Mini App.";
+    error?.message || t("error.message");
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 px-6 py-10">
@@ -13,7 +15,7 @@ export default function ErrorPage({ error, supportUsername }) {
       </div>
 
       <div className="text-center">
-        <h1 className="text-[20px] font-bold text-foreground">Unable to load</h1>
+        <h1 className="text-[20px] font-bold text-foreground">{t("error.title")}</h1>
         <p className="mt-2 max-w-xs text-[13px] leading-relaxed text-muted-foreground">
           {message}
         </p>
@@ -22,7 +24,7 @@ export default function ErrorPage({ error, supportUsername }) {
       <div className="flex w-full max-w-xs flex-col gap-3">
         <PrimaryButton onClick={() => window.location.reload()}>
           <RefreshCcw size={17} />
-          Try Again
+          {t("error.retry")}
         </PrimaryButton>
 
         {supportUsername && (
@@ -32,7 +34,7 @@ export default function ErrorPage({ error, supportUsername }) {
             }
           >
             <MessageCircle size={17} />
-            Contact Support
+            {t("error.contactSupport")}
           </SecondaryButton>
         )}
       </div>

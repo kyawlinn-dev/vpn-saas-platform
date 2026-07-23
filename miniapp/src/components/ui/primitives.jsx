@@ -10,8 +10,9 @@
  * vpnPrimitives.jsx is NOT modified until all screens are converted (Phase 7).
  */
 
-import { useId, useState } from "react";
+import { useId } from "react";
 import { cva } from "class-variance-authority";
+import { createElement } from "react";
 import {
   ArrowRight,
   ChevronLeft,
@@ -22,6 +23,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "../../i18n/language";
 
 // ── BrandLogo ──────────────────────────────────────────────────────────────────
 // Gradient avatar with shield icon. Three sizes: sm / md (default) / lg.
@@ -46,27 +48,20 @@ export function BrandLogo({ size = "md" }) {
 }
 
 // ── LanguagePill ───────────────────────────────────────────────────────────────
-// Self-contained EN / MM segmented pill. Local state only — purely visual.
-
-const LANG_OPTIONS = [
-  { code: "EN", emoji: "🇬🇧", label: "English" },
-  { code: "MM", emoji: "🇲🇲", label: "Myanmar" },
-];
-
 export function LanguagePill() {
-  const [lang, setLang] = useState("EN");
+  const { language, languages, setLanguage, t } = useLanguage();
   return (
-    <div className="flex rounded-full border border-border bg-secondary/60 p-0.5" role="group" aria-label="Language">
-      {LANG_OPTIONS.map(({ code, emoji, label }) => (
+    <div className="flex rounded-full border border-border bg-secondary/60 p-0.5" role="group" aria-label={t("common.language")}>
+      {languages.map(({ code, emoji, label }) => (
         <button
           key={code}
           type="button"
-          onClick={() => setLang(code)}
-          aria-pressed={lang === code}
+          onClick={() => setLanguage(code)}
+          aria-pressed={language === code}
           aria-label={label}
           className={cn(
             "rounded-full px-2 py-0.5 text-[15px] leading-none transition-all",
-            lang === code ? "bg-primary/20 opacity-100" : "opacity-40",
+            language === code ? "bg-primary/20 opacity-100" : "opacity-40",
           )}
         >
           {emoji}
@@ -81,6 +76,8 @@ export function LanguagePill() {
 // brandName and subtitle come from data?.config?.brand (passed by AppShell).
 
 export function BrandBar({ brandName, subtitle, onOpenSettings }) {
+  const { t } = useLanguage();
+
   return (
     <header className="flex items-center gap-3">
       <BrandLogo />
@@ -99,7 +96,7 @@ export function BrandBar({ brandName, subtitle, onOpenSettings }) {
         <button
           type="button"
           onClick={onOpenSettings}
-          aria-label="Open settings"
+          aria-label={t("settings.title")}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border bg-secondary/60 text-muted-foreground transition-colors hover:text-foreground active:scale-95"
         >
           <Settings size={18} />
@@ -350,20 +347,23 @@ export function DataRing({ percent, primary, secondary, caption, size = 132 }) {
 //   onChange  — called with the new tab string
 
 const NAV_TABS = [
-  { id: "home", label: "Home", Icon: Home },
-  { id: "servers", label: "Servers", Icon: Server },
-  { id: "packages", label: "Packages", Icon: Package },
+  { id: "home", labelKey: "nav.home", Icon: Home },
+  { id: "servers", labelKey: "nav.servers", Icon: Server },
+  { id: "packages", labelKey: "nav.packages", Icon: Package },
 ];
 
 export function BottomNav({ active, onChange }) {
+  const { t } = useLanguage();
+
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-background/80 backdrop-blur-xl"
       aria-label="Main navigation"
     >
       <ul className="mx-auto flex h-[calc(4rem_+_var(--app-safe-bottom))] max-w-md items-stretch justify-around px-2">
-        {NAV_TABS.map(({ id, label, Icon }) => {
+        {NAV_TABS.map(({ id, labelKey, Icon }) => {
           const isActive = active === id;
+          const label = t(labelKey);
           return (
             <li key={id} className="flex flex-1">
               <button
@@ -378,7 +378,7 @@ export function BottomNav({ active, onChange }) {
                     isActive ? "bg-primary/15 text-primary" : "text-muted-foreground",
                   )}
                 >
-                  <Icon size={20} strokeWidth={isActive ? 2.4 : 2} />
+                  {createElement(Icon, { size: 20, strokeWidth: isActive ? 2.4 : 2 })}
                 </span>
                 <span
                   className={cn(

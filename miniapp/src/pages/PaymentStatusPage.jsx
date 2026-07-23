@@ -4,8 +4,10 @@ import { cn } from "@/lib/utils";
 import { formatCurrencyMmk } from "../lib/format";
 import { openTelegramNativeLink } from "../lib/telegram";
 import { TAB_KEYS } from "../constants/routes";
+import { useLanguage } from "../i18n/language";
 
 export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
+  const { language, t } = useLanguage();
   const subscription = data?.subscription ?? null;
   const recentRejection = data?.recent_rejection ?? null;
   const brand = data?.config?.brand ?? null;
@@ -13,7 +15,7 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
   // Derive plan info: prefer live subscription data (refreshed after submit),
   // fall back to the checkoutPlan snapshot carried through navigation.
   const planName =
-    subscription?.plan_name ?? checkoutPlan?.name ?? "Premium Plan";
+    subscription?.plan_name ?? checkoutPlan?.name ?? t("common.premiumPlan");
   const priceMmk =
     checkoutPlan?.price_mmk ?? null;
   const durationDays =
@@ -32,32 +34,32 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
     ["confirmed", "approved"].includes(reviewStatus);
   const tone = isRejected || isStopped ? "destructive" : isPending ? "warning" : "success";
   const title = isRejected
-    ? "Payment Rejected"
+    ? t("payment.rejected.title")
     : isStopped
-      ? "Access Stopped"
+      ? t("payment.stopped")
       : isPending
-        ? "Payment Submitted!"
+        ? t("payment.pending.title")
         : isApproved
-          ? "Access Activated!"
-          : "Payment Status";
+          ? t("payment.approved.title")
+          : t("payment.statusTitle");
   const description = isRejected
-    ? "Your reseller could not confirm this payment. VPN access has been removed."
+    ? t("payment.rejected.description")
     : isStopped
-      ? "This order is no longer active. Choose a package to renew access."
+      ? t("payment.stopped.description")
       : isPending
-        ? "Your payment is being reviewed. Temporary premium access is active while your reseller checks the screenshot."
+        ? t("payment.pending.description")
         : isApproved
-          ? "Your premium access is confirmed and active."
-          : "No active payment review is available right now.";
+          ? t("payment.approved.description")
+          : t("payment.noActiveOrder");
   const chipLabel = isRejected
-    ? "Rejected"
+    ? t("payment.rejected")
     : isStopped
-      ? orderStatus === "expired" ? "Expired" : "Stopped"
+      ? orderStatus === "expired" ? t("payment.expired") : t("payment.stopped")
       : isPending
-        ? "Pending Review"
+        ? t("payment.pending")
         : isApproved
-          ? "Confirmed"
-          : "No Active Order";
+          ? t("payment.confirmed")
+          : t("payment.noActiveOrder");
 
   const rawHandle = brand?.support_username
     ? String(brand.support_username).replace(/^@/, "")
@@ -109,26 +111,30 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
       <GlassCard className="w-full p-4">
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Plan</span>
+            <span className="text-[13px] text-muted-foreground">{t("payment.plan")}</span>
             <span className="text-[14px] font-semibold text-foreground">{planName}</span>
           </div>
 
           {durationDays && (
             <div className="flex items-center justify-between">
-              <span className="text-[13px] text-muted-foreground">Duration</span>
-              <span className="text-[14px] font-semibold text-foreground">{durationDays} days</span>
+              <span className="text-[13px] text-muted-foreground">{t("payment.duration")}</span>
+              <span className="text-[14px] font-semibold text-foreground">
+                {t("common.days", { count: durationDays })}
+              </span>
             </div>
           )}
 
           {priceMmk != null && (
             <div className="flex items-center justify-between">
-              <span className="text-[13px] text-muted-foreground">Amount paid</span>
-              <span className="text-[14px] font-semibold text-warning">{formatCurrencyMmk(priceMmk)}</span>
+              <span className="text-[13px] text-muted-foreground">{t("payment.amountPaid")}</span>
+              <span className="text-[14px] font-semibold text-warning">
+                {formatCurrencyMmk(priceMmk, language)}
+              </span>
             </div>
           )}
 
           <div className="flex items-center justify-between">
-            <span className="text-[13px] text-muted-foreground">Status</span>
+            <span className="text-[13px] text-muted-foreground">{t("payment.status")}</span>
             <Chip tone={tone === "destructive" ? "danger" : isPending ? "warning" : "success"}>
               {chipLabel}
             </Chip>
@@ -146,8 +152,8 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
           )}
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
             {isPending
-              ? "Your reseller will review your payment screenshot. Access remains pending review."
-              : "Open Packages to submit a new order, or contact support if this looks wrong."}
+              ? t("payment.pending.note")
+              : t("payment.renewNote")}
           </p>
         </div>
       )}
@@ -156,7 +162,7 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
       <div className="flex w-full flex-col gap-3">
         <PrimaryButton onClick={() => onTabChange(TAB_KEYS.HOME)}>
           <Home size={18} />
-          Back to Home
+          {t("common.backToHome")}
         </PrimaryButton>
 
         {rawHandle && (
@@ -164,7 +170,7 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
             onClick={() => openTelegramNativeLink(`https://t.me/${rawHandle}`)}
           >
             <MessageCircle size={18} />
-            Contact Support
+            {t("common.contactSupport")}
           </SecondaryButton>
         )}
       </div>

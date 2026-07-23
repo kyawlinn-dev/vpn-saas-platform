@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { LanguageProvider } from "../i18n/language";
 
 export default function Providers({ children }) {
   const queryClient = useMemo(
@@ -17,7 +18,7 @@ export default function Providers({ children }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {children}
+      <LanguageProvider>{children}</LanguageProvider>
     </QueryClientProvider>
   );
 }

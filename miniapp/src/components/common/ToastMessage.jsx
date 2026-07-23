@@ -24,13 +24,11 @@ const TONES = {
 const AUTO_HIDE_MS = 1800;
 
 export default function ToastMessage({ open, message, severity = "info", onClose }) {
-  // Auto-dismiss after AUTO_HIDE_MS whenever toast opens.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!open) return;
     const id = setTimeout(onClose, AUTO_HIDE_MS);
     return () => clearTimeout(id);
-  }, [open]); // intentional: only re-arm when open state changes
+  }, [onClose, open]);
 
   const tone = TONES[severity] ?? TONES.info;
   const { Icon } = tone;

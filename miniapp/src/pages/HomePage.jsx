@@ -16,6 +16,7 @@ import {
   openTelegramNativeLink,
   openTelegramSharePicker,
 } from "../lib/telegram";
+import { useLanguage } from "../i18n/language";
 
 // ── Helpers (logic unchanged from MUI version) ────────────────────────────────
 
@@ -25,26 +26,25 @@ function formatGb(value) {
   return Number.isInteger(number) ? String(number) : number.toFixed(1);
 }
 
-function getPlanTitle(subscription) {
+function getPlanTitle(subscription, t) {
   const type = String(subscription?.type || "");
   if (
     type === "trial" ||
     String(subscription?.plan_name || "").toLowerCase().includes("trial")
   ) {
-    return "Trial Access";
+    return t("access.trial");
   }
-  return subscription?.plan_name || "Premium Access";
+  return subscription?.plan_name || t("access.premiumAccess");
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function AccessHero({ subscription, outlineKey, keyForActions, hasImportLink, onToast }) {
+  const { t } = useLanguage();
   const usedGb = Number(outlineKey?.used_bytes || 0) / 1024 / 1024 / 1024;
   const limitGb = Number(subscription?.data_limit_gb || 0);
   const percent = limitGb > 0 ? Math.min(100, (usedGb / limitGb) * 100) : 0;
-  const validUntil = subscription?.expiry_date
-    ? formatDate(subscription.expiry_date)
-    : "No expiry shown";
+  const validUntil = subscription?.expiry_date ? formatDate(subscription.expiry_date) : null;
   const secondary = limitGb
     ? `${formatGb(usedGb)} / ${formatGb(limitGb)} GB`
     : `${formatGb(usedGb)} GB`;
@@ -53,7 +53,7 @@ function AccessHero({ subscription, outlineKey, keyForActions, hasImportLink, on
     try {
       openOutlineKey(keyForActions);
     } catch (error) {
-      onToast?.(error?.message || "Failed to open Outline key", "warning");
+      onToast?.(error?.message || t("error.message"), "warning");
     }
   };
 
@@ -66,12 +66,12 @@ function AccessHero({ subscription, outlineKey, keyForActions, hasImportLink, on
             <Wifi size={20} />
           </span>
           <div>
-            <p className="text-[15px] font-semibold text-foreground">VPN Access Active</p>
-            <p className="text-[12px] text-muted-foreground">{getPlanTitle(subscription)}</p>
+            <p className="text-[15px] font-semibold text-foreground">{t("access.active")}</p>
+            <p className="text-[12px] text-muted-foreground">{getPlanTitle(subscription, t)}</p>
           </div>
         </div>
         <Chip tone="success" icon={<span className="h-1.5 w-1.5 rounded-full bg-success" />}>
-          Active
+          {t("common.active")}
         </Chip>
       </div>
 
@@ -83,24 +83,25 @@ function AccessHero({ subscription, outlineKey, keyForActions, hasImportLink, on
           secondary={secondary}
           size={136}
         />
-        <p className="mt-3 text-[12px] text-muted-foreground">Data used this month</p>
+        <p className="mt-3 text-[12px] text-muted-foreground">{t("access.dataUsed")}</p>
       </div>
 
       {/* Expiry */}
       <div className="mb-4 flex items-center justify-center gap-1.5 text-[12px] text-muted-foreground">
         <span className="h-1 w-1 rounded-full bg-muted-foreground" />
-        Valid until {validUntil}
+        {validUntil ? t("access.validUntil", { date: validUntil }) : t("access.validUntilMissing")}
       </div>
 
       <PrimaryButton onClick={handleAddKey} disabled={!hasImportLink}>
         <Download size={18} />
-        Add Key to Outline
+        {t("access.addKey")}
       </PrimaryButton>
     </GlassCard>
   );
 }
 
 function CurrentServerCard({ server, onChangeServer }) {
+  const { t } = useLanguage();
   const location = [server?.country, server?.city || server?.name]
     .filter(Boolean)
     .join(" / ");
@@ -109,14 +110,14 @@ function CurrentServerCard({ server, onChangeServer }) {
     <GlassCard>
       <div className="mb-3 flex items-center justify-between">
         <span className="text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
-          Current Server
+          {t("servers.currentServer")}
         </span>
         <button
           type="button"
           onClick={onChangeServer}
           className="flex items-center gap-0.5 text-[12px] font-semibold text-primary"
         >
-          Change <ChevronRight size={14} />
+          {t("payment.change")} <ChevronRight size={14} />
         </button>
       </div>
 
@@ -129,14 +130,14 @@ function CurrentServerCard({ server, onChangeServer }) {
             {location || server?.name || "Server"}
           </p>
           <p className="text-[12px] text-muted-foreground">
-            {server?.server_number ? `Server #${server.server_number}` : "Server linked"}
+            {server?.server_number ? `Server #${server.server_number}` : `Server ${t("servers.linked")}`}
           </p>
         </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <Chip tone="violet">Premium</Chip>
-        <Chip tone="cyan">High Speed</Chip>
+        <Chip tone="violet">{t("common.premium")}</Chip>
+        <Chip tone="cyan">{t("common.highSpeed")}</Chip>
       </div>
     </GlassCard>
   );
@@ -177,6 +178,7 @@ function EmptyStateCard({ icon, title, description, children, danger = false }) 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast, onTabChange, onOpenSettings }) {
+  const { t } = useLanguage();
   const subscription = data?.subscription || null;
   const currentServer = data?.current_server || null;
   const outlineKey = data?.outline_key || null;
@@ -197,7 +199,7 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
     const shareUrl = getShareUrl(keyForActions);
 
     if (!shareUrl) {
-      onToast("Please choose server first.", "warning");
+      onToast(t("access.chooseServer"), "warning");
       return;
     }
 
@@ -210,13 +212,13 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
 
     try {
       await navigator.clipboard.writeText(shareUrl);
-      onToast("Key copied", "success");
+      onToast(t("access.shareKey"), "success");
       return;
     } catch {
       if (!isTelegramWebBrowser()) {
-        onToast("Unable to open Telegram share. Key copy failed too.", "error");
+        onToast(t("error.message"), "error");
       } else {
-        onToast("Unable to share key", "error");
+        onToast(t("error.message"), "error");
       }
     }
   };
@@ -226,7 +228,7 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
       <div className="sticky top-[var(--app-safe-top)] z-20 -mx-4 px-4 py-3 glass">
         <BrandBar
           brandName={brand?.name || "VPN"}
-          subtitle="Secure private access"
+          subtitle={t("app.subtitle")}
           onOpenSettings={onOpenSettings}
         />
       </div>
@@ -248,11 +250,11 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
 
           {hasLinkedKey && currentServer ? (
             <div>
-              <p className="mb-3 text-[13px] font-bold text-foreground">Quick Actions</p>
+              <p className="mb-3 text-[13px] font-bold text-foreground">{t("access.quickActions")}</p>
               <div className="grid grid-cols-2 gap-3">
                 <QuickAction
                   icon={<Share2 size={18} />}
-                  label="Share Key"
+                  label={t("access.shareKey")}
                   onClick={handleShare}
                   disabled={!hasImportLink}
                   trailingIcon={<ArrowUp size={16} className="text-muted-foreground" />}
@@ -260,7 +262,7 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
                 {handleSupportContact && (
                   <QuickAction
                     icon={<Send size={18} />}
-                    label="Support"
+                    label={t("common.support")}
                     onClick={handleSupportContact}
                   />
                 )}
@@ -269,15 +271,15 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
           ) : (
             <EmptyStateCard
               icon={<Server size={20} />}
-              title="Choose server"
-              description="Your package is active. Select one premium server to create your Outline key."
+              title={t("access.chooseServer")}
+              description={t("access.chooseServer.description")}
             >
               <SecondaryButton onClick={() => onTabChange("servers")}>
-                Choose Server
+                {t("access.chooseServer")}
               </SecondaryButton>
               {handleSupportContact && (
                 <SecondaryButton onClick={handleSupportContact}>
-                  Contact Support
+                  {t("common.contactSupport")}
                 </SecondaryButton>
               )}
             </EmptyStateCard>
@@ -286,20 +288,20 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
       ) : (
         <EmptyStateCard
           icon={<Package size={20} />}
-          title={recentRejection ? "Payment not confirmed" : "No active package"}
+          title={recentRejection ? t("access.paymentNotConfirmed") : t("access.noActivePackage")}
           description={
             recentRejection
-              ? `Your${recentRejection.plan_name ? ` ${recentRejection.plan_name}` : ""} payment was rejected. Please contact support or submit a new payment.`
-              : "Your account is linked. Choose a package to start secure VPN access."
+              ? t("access.paymentRejected")
+              : t("access.packageLinked")
           }
           danger={Boolean(recentRejection)}
         >
           <SecondaryButton onClick={() => onTabChange("packages")}>
-            View Packages
+            {t("settings.viewPackages")}
           </SecondaryButton>
           {handleSupportContact && (
             <SecondaryButton onClick={handleSupportContact}>
-              Contact Support
+              {t("common.contactSupport")}
             </SecondaryButton>
           )}
         </EmptyStateCard>

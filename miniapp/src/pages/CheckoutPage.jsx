@@ -12,6 +12,7 @@ import { formatCurrencyMmk } from "../lib/format";
 import { uploadPaymentScreenshot } from "../features/access/api";
 import { useSubmitPurchase } from "../features/access/hooks";
 import { TAB_KEYS } from "../constants/routes";
+import { useLanguage } from "../i18n/language";
 
 const BRAND_KBZ = "#0A50A1";
 const BRAND_WAVE = "#FDD100";
@@ -95,6 +96,7 @@ function MethodPills({ methods, selectedIdx, onSelect }) {
 
 // ── AccountCard ────────────────────────────────────────────────────────────────
 function AccountCard({ method, brand, onCopy }) {
+  const { language, t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const accentColor = brand?.color || null;
 
@@ -102,10 +104,10 @@ function AccountCard({ method, brand, onCopy }) {
     try {
       await navigator.clipboard.writeText(method.account_number);
       setCopied(true);
-      onCopy?.("Account number copied", "success");
+      onCopy?.(t("payment.copySuccess"), "success");
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      onCopy?.("Could not copy — copy manually", "warning");
+      onCopy?.(t("payment.copyFailed"), "warning");
     }
   };
 
@@ -122,14 +124,14 @@ function AccountCard({ method, brand, onCopy }) {
         className={cn("mb-2 text-[11px] font-bold uppercase tracking-widest", !accentColor && "text-primary/70")}
         style={accentColor ? { color: `${accentColor}cc` } : undefined}
       >
-        Pay with {method.method}
+        {t("payment.payWith", { method: method.method })}
       </p>
 
       <div className="min-w-0">
-        <p className="text-[10.5px] text-muted-foreground">Account name</p>
+        <p className="text-[10.5px] text-muted-foreground">{t("payment.accountName")}</p>
         <p className="truncate text-[14px] font-bold text-foreground">{method.account_name}</p>
 
-        <p className="mt-2 text-[10.5px] text-muted-foreground">Account number</p>
+        <p className="mt-2 text-[10.5px] text-muted-foreground">{t("payment.accountNumber")}</p>
         <div className="flex items-center gap-3">
           <p className="flex-1 text-[16px] font-black tracking-wide text-foreground" style={{ letterSpacing: "0.04em" }}>
             {method.account_number}
@@ -137,7 +139,7 @@ function AccountCard({ method, brand, onCopy }) {
           <button
             type="button"
             onClick={handleCopy}
-            aria-label="Copy account number"
+            aria-label={t("payment.accountNumber")}
             className={cn(
               "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all",
               copied
@@ -153,9 +155,10 @@ function AccountCard({ method, brand, onCopy }) {
 
       <div className="mt-2 rounded-lg border border-success/20 bg-success/8 px-3 py-2">
         <p className="text-[12px] text-warning/80">
-          <span className="font-bold">!</span>{" "}Transfer exactly{" "}
-          <span className="font-bold text-warning">{formatCurrencyMmk(method.total_mmk ?? undefined)}</span>
-          {" "}to this account, then upload your screenshot below.
+          <span className="font-bold">!</span>{" "}
+          {t("payment.exactAmount", {
+            amount: formatCurrencyMmk(method.total_mmk ?? undefined, language),
+          })}
         </p>
       </div>
     </GlassCard>
@@ -164,6 +167,7 @@ function AccountCard({ method, brand, onCopy }) {
 
 // ── ScreenshotUpload ───────────────────────────────────────────────────────────
 function ScreenshotUpload({ previewSrc, isUploading, error, onSelect }) {
+  const { t } = useLanguage();
   const inputRef = useRef(null);
 
   const handleClick = () => inputRef.current?.click();
@@ -186,22 +190,22 @@ function ScreenshotUpload({ previewSrc, isUploading, error, onSelect }) {
       {isUploading ? (
         <div className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-primary/30 bg-primary/5 px-4 py-3">
           <Spinner size="sm" />
-          <p className="text-[13px] text-muted-foreground">Uploading screenshot…</p>
+          <p className="text-[13px] text-muted-foreground">{t("payment.uploading")}</p>
         </div>
       ) : previewSrc ? (
         <div className="flex w-full items-center gap-3 rounded-2xl border border-border bg-secondary/40 px-3 py-2.5">
           <img
             src={previewSrc}
-            alt="Payment screenshot preview"
+            alt={t("payment.previewAlt")}
             className="h-10 w-10 shrink-0 rounded-lg border border-border bg-black/30 object-cover"
           />
-          <p className="flex-1 truncate text-[13px] font-medium text-foreground">Screenshot ready</p>
+          <p className="flex-1 truncate text-[13px] font-medium text-foreground">{t("payment.screenshotReady")}</p>
           <button
             type="button"
             onClick={handleClick}
             className="shrink-0 rounded-lg border border-border bg-secondary/60 px-3 py-1.5 text-[12px] font-semibold text-foreground transition-colors hover:bg-secondary"
           >
-            Change
+            {t("payment.change")}
           </button>
         </div>
       ) : (
@@ -214,8 +218,8 @@ function ScreenshotUpload({ previewSrc, isUploading, error, onSelect }) {
             <Camera size={18} />
           </div>
           <div className="text-left">
-            <p className="text-[13px] font-semibold text-foreground">Upload payment screenshot</p>
-            <p className="text-[11px] text-muted-foreground">JPEG · PNG · WebP · max 5 MB</p>
+            <p className="text-[13px] font-semibold text-foreground">{t("payment.upload")}</p>
+            <p className="text-[11px] text-muted-foreground">{t("payment.jpegHint")}</p>
           </div>
         </button>
       )}
@@ -227,18 +231,19 @@ function ScreenshotUpload({ previewSrc, isUploading, error, onSelect }) {
 
 // ── PlanSummaryCard ────────────────────────────────────────────────────────────
 function PlanSummaryCard({ plan }) {
-  const dataLabel = plan?.data_limit_gb ? `${plan.data_limit_gb} GB` : "Unlimited";
-  const daysLabel = plan?.duration_days ? `${plan.duration_days} days` : "";
+  const { language, t } = useLanguage();
+  const dataLabel = plan?.data_limit_gb ? `${plan.data_limit_gb} GB` : t("common.unlimited");
+  const daysLabel = plan?.duration_days ? t("common.days", { count: plan.duration_days }) : "";
 
   return (
     <GlassCard glow className="aurora-glow p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            Selected plan
+            {t("payment.selectedPlan")}
           </p>
           <p className="truncate text-[17px] font-bold leading-tight text-foreground">
-            {plan?.name || "Premium Plan"}
+            {plan?.name || t("common.premiumPlan")}
           </p>
           <p className="mt-1 text-[12px] text-muted-foreground">
             {dataLabel}{daysLabel ? ` · ${daysLabel}` : ""}
@@ -246,9 +251,8 @@ function PlanSummaryCard({ plan }) {
         </div>
         <div className="shrink-0 text-right">
           <p className="text-[17px] font-black text-warning leading-tight">
-            {Number(plan?.price_mmk || 0).toLocaleString("en-US")}
+            {formatCurrencyMmk(plan?.price_mmk || 0, language)}
           </p>
-          <p className="text-[11px] text-muted-foreground">MMK</p>
         </div>
       </div>
     </GlassCard>
@@ -274,6 +278,7 @@ export default function CheckoutPage({
   onTabChange,
   onRefreshAuth,
 }) {
+  const { t } = useLanguage();
   const paymentMethods = data?.config?.payment || [];
   const telegramUserId = data?.user?.telegram_user_id;
   const initData = initDataProp || data?.init_data || "";
@@ -286,17 +291,6 @@ export default function CheckoutPage({
   const [paymentNote, setPaymentNote] = useState("");
 
   // Guard: no plan selected → bounce back to packages
-  if (!checkoutPlan) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 px-6 py-20">
-        <p className="text-[15px] text-muted-foreground">No plan selected.</p>
-        <SecondaryButton onClick={() => onTabChange(TAB_KEYS.PACKAGES)} className="w-auto px-6">
-          Back to Packages
-        </SecondaryButton>
-      </div>
-    );
-  }
-
   const selectedMethod = paymentMethods[selectedMethodIdx] ?? null;
   const canSubmit = Boolean(uploadedPath) && !isUploading;
 
@@ -311,7 +305,7 @@ export default function CheckoutPage({
       const result = await uploadPaymentScreenshot({ file, telegramUserId, initData });
       setUploadedPath(result.path);
     } catch (err) {
-      setUploadError(err.message || "Upload failed. Please try again.");
+      setUploadError(err.message || t("error.message"));
       setPreviewSrc(null);
     } finally {
       setIsUploading(false);
@@ -325,7 +319,7 @@ export default function CheckoutPage({
       onTabChange(TAB_KEYS.PAYMENT_STATUS);
     },
     onError: (err) => {
-      onToast(err?.message || "Failed to submit purchase", "error");
+      onToast(err?.message || t("payment.failedSubmit"), "error");
     },
   });
 
@@ -340,9 +334,20 @@ export default function CheckoutPage({
     });
   };
 
+  if (!checkoutPlan) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 px-6 py-20">
+        <p className="text-[15px] text-muted-foreground">{t("packages.noPlanSelected")}</p>
+        <SecondaryButton onClick={() => onTabChange(TAB_KEYS.PACKAGES)} className="w-auto px-6">
+          {t("packages.backToPackages")}
+        </SecondaryButton>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-3 px-4 pt-4 pb-8">
-      <PageHeader title="Checkout" onBack={() => onTabChange(TAB_KEYS.PACKAGES)} centerTitle />
+      <PageHeader title={t("payment.checkout")} onBack={() => onTabChange(TAB_KEYS.PACKAGES)} centerTitle />
 
       {/* 1 — Plan summary */}
       <PlanSummaryCard plan={checkoutPlan} />
@@ -350,7 +355,7 @@ export default function CheckoutPage({
       {/* 2 — Payment method selector */}
       {paymentMethods.length > 0 ? (
         <div className="flex flex-col gap-3">
-          <SectionLabel>Payment Method</SectionLabel>
+          <SectionLabel>{t("payment.method")}</SectionLabel>
           <MethodPills
             methods={paymentMethods}
             selectedIdx={selectedMethodIdx}
@@ -367,14 +372,14 @@ export default function CheckoutPage({
       ) : (
         <GlassCard className="p-4">
           <p className="text-[13px] text-muted-foreground">
-            No payment methods configured. Please contact support.
+            {t("payment.noMethod")}
           </p>
         </GlassCard>
       )}
 
       {/* 3 — Screenshot upload */}
       <div className="flex flex-col gap-2">
-        <SectionLabel required>Payment Screenshot</SectionLabel>
+        <SectionLabel required>{t("payment.screenshot")}</SectionLabel>
         <ScreenshotUpload
           previewSrc={previewSrc}
           isUploading={isUploading}
@@ -386,12 +391,12 @@ export default function CheckoutPage({
       {/* 4 — Payment note */}
       <div className="flex flex-col gap-2">
         <SectionLabel>
-          Payment Note{" "}
-          <span className="font-normal text-muted-foreground">(optional)</span>
+          {t("payment.note")}{" "}
+          <span className="font-normal text-muted-foreground">{t("payment.noteOptional")}</span>
         </SectionLabel>
         <textarea
           rows={2}
-          placeholder="e.g. Paid with KBZPay at 3:10 PM"
+          placeholder={t("payment.notePlaceholder")}
           value={paymentNote}
           onChange={(e) => setPaymentNote(e.target.value)}
           className={cn(
@@ -411,12 +416,12 @@ export default function CheckoutPage({
         {submitMutation.isPending ? (
           <>
             <Spinner size="sm" />
-            Submitting…
+            {t("payment.submitting")}
           </>
         ) : (
           <>
             <CheckCircle2 size={18} />
-            Submit Payment
+            {t("payment.submit")}
           </>
         )}
       </PrimaryButton>

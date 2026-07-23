@@ -20,7 +20,9 @@ export function rememberTelegramInitData(initData) {
 
   try {
     window.sessionStorage?.setItem(TELEGRAM_INIT_DATA_SESSION_KEY, value);
-  } catch {}
+  } catch {
+    // Telegram WebViews may disable session storage.
+  }
 
   return value;
 }
