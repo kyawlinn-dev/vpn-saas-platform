@@ -14,42 +14,17 @@ import {
   buildKeyUsageView,
   getOutlineMetricsForServer,
 } from "../../services/outlineMetricsService.js";
+import {
+  buildDynamicAccessUrl,
+  buildSsconfHttpUrl,
+} from "../../services/publicAccessUrlService.js";
+import { buildOrderQuotaSnapshot } from "../../services/subscriptionProvisionService.js";
 
 const router = express.Router();
 
 function bytesToGb(bytes) {
   const value = Number(bytes || 0);
   return value > 0 ? Number((value / 1024 / 1024 / 1024).toFixed(2)) : 0;
-}
-
-function getRequestBaseUrl(req) {
-  const proto =
-    String(req.headers["x-forwarded-proto"] || "")
-      .split(",")[0]
-      .trim() ||
-    req.protocol ||
-    "http";
-
-  const host =
-    String(req.headers["x-forwarded-host"] || "")
-      .split(",")[0]
-      .trim() || req.get("host");
-
-  return `${proto}://${host}`.replace(/\/$/, "");
-}
-
-function buildSsconfHttpUrl(req, token) {
-  if (!token) return null;
-  return `${getRequestBaseUrl(req)}/k/${encodeURIComponent(token)}.json`;
-}
-
-function buildDynamicAccessUrl(req, token, label) {
-  const httpUrl = buildSsconfHttpUrl(req, token);
-  if (!httpUrl) return null;
-
-  const url = new URL(httpUrl);
-  const fragment = label ? `#${label}` : "";
-  return `ssconf://${url.host}${url.pathname}${fragment}`;
 }
 
 function usageBytesForOrderTotal(key) {
@@ -150,33 +125,37 @@ router.get("/", async (req, res) => {
       );
     });
 
-    const totalUsedBytesByOrderId = {};
+    const keysByOrderId = {};
     for (const key of enrichedBase) {
       if (!key.order_id) continue;
-      totalUsedBytesByOrderId[key.order_id] =
-        Number(totalUsedBytesByOrderId[key.order_id] || 0) + usageBytesForOrderTotal(key);
+      if (!keysByOrderId[key.order_id]) keysByOrderId[key.order_id] = [];
+      keysByOrderId[key.order_id].push({
+        ...key,
+        used_bytes: usageBytesForOrderTotal(key),
+      });
     }
 
+    const quotaByOrderId = Object.fromEntries(
+      Object.entries(keysByOrderId).map(([orderId, orderKeys]) => [
+        orderId,
+        buildOrderQuotaSnapshot(orderKeys),
+      ])
+    );
+
     const enriched = enrichedBase.map((key) => {
-      const orderTotalUsedBytes = Number(totalUsedBytesByOrderId[key.order_id] || 0);
-      const dataLimitBytes =
-        typeof key?.data_limit_bytes === "number" ? key.data_limit_bytes : null;
-      const orderRemainingBytes =
-        typeof dataLimitBytes === "number"
-          ? Math.max(dataLimitBytes - orderTotalUsedBytes, 0)
-          : null;
+      const quota = quotaByOrderId[key.order_id] || buildOrderQuotaSnapshot([]);
       const customerSsconfToken = key?.customer?.ssconf_token || null;
       const miniappSlug = miniapp?.miniapp_slug || null;
       const label = miniapp?.brand_name || key?.server?.name || "VPN";
-      const ssconfUrl = buildSsconfHttpUrl(req, customerSsconfToken);
-      const dynamicAccessUrl = buildDynamicAccessUrl(req, customerSsconfToken, label);
+      const ssconfUrl = buildSsconfHttpUrl(customerSsconfToken, { req });
+      const dynamicAccessUrl = buildDynamicAccessUrl(customerSsconfToken, label, { req });
 
       return {
         ...key,
-        order_total_used_bytes: orderTotalUsedBytes,
-        order_total_used_gb: bytesToGb(orderTotalUsedBytes),
+        order_total_used_bytes: quota.totalUsedBytes,
+        order_total_used_gb: bytesToGb(quota.totalUsedBytes),
         order_total_remaining_gb:
-          typeof orderRemainingBytes === "number" ? bytesToGb(orderRemainingBytes) : null,
+          typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
         ssconf_token: customerSsconfToken,
         ssconf_url: ssconfUrl,
         dynamic_access_url: dynamicAccessUrl,

@@ -113,9 +113,55 @@ async function syncUsage() {
   }
 }
 
+async function reconcileServerActiveKeyCounts() {
+  const { data: servers, error } = await supabase
+    .from("vpn_servers")
+    .select("id, current_active_keys")
+    .eq("status", "active");
+
+  if (error) {
+    console.error("[syncUsage] Failed to load server counters:", error.message);
+    return;
+  }
+
+  for (const server of servers || []) {
+    const { count, error: countError } = await supabase
+      .from("vpn_keys")
+      .select("id", { count: "exact", head: true })
+      .eq("server_id", server.id)
+      .eq("status", "active")
+      .is("deleted_at", null);
+
+    if (countError) {
+      console.warn(`[syncUsage] Failed to count active keys for ${server.id}:`, countError.message);
+      continue;
+    }
+
+    const expected = Number(count || 0);
+    const current = Number(server.current_active_keys || 0);
+    if (expected === current) continue;
+
+    const { data: updatedServers, error: updateError } = await supabase
+      .from("vpn_servers")
+      .update({ current_active_keys: expected, updated_at: new Date().toISOString() })
+      .eq("id", server.id)
+      .eq("current_active_keys", current)
+      .select("id");
+
+    if (updateError) {
+      console.warn(`[syncUsage] Failed to reconcile server ${server.id}:`, updateError.message);
+    } else if (updatedServers?.length) {
+      console.log(`[syncUsage] Reconciled server ${server.id}: ${current} -> ${expected}.`);
+    } else {
+      console.log(`[syncUsage] Skipped stale counter update for server ${server.id}.`);
+    }
+  }
+}
+
 async function runSyncUsage() {
   console.log("[syncUsage] Running...");
   await syncUsage();
+  await reconcileServerActiveKeyCounts();
   await stopOrdersOverDataLimit();
 }
 

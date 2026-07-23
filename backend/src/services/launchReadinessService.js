@@ -146,7 +146,7 @@ async function loadServers() {
   const { data, error } = await supabase
     .from("vpn_servers")
     .select(
-      "id, name, status, outline_api_url, outline_cert_sha256, current_active_keys, max_active_keys, is_default, last_error"
+      "id, name, status, server_tier, outline_api_url, outline_cert_sha256, current_active_keys, max_active_keys, is_default, last_error"
     )
     .order("is_default", { ascending: false })
     .order("current_active_keys", { ascending: true });
@@ -202,8 +202,9 @@ async function checkStorageBucket(checks) {
 function addEnvironmentChecks(checks) {
   const miniappUrl = normalizeUrl(process.env.TELEGRAM_MINIAPP_URL || process.env.MINIAPP_URL);
   const webhookBaseUrl = normalizeUrl(process.env.WEBHOOK_BASE_URL);
-  const subscriptionBaseUrl = normalizeUrl(process.env.PUBLIC_SUBSCRIPTION_BASE_URL);
-  const workerBaseUrl = normalizeUrl(process.env.PUBLIC_WORKER_BASE_URL);
+  const subscriptionBaseUrl = normalizeUrl(
+    process.env.PUBLIC_SUBSCRIPTION_BASE_URL || process.env.WEBHOOK_BASE_URL
+  );
   const encryptionKey = String(process.env.BOT_TOKEN_ENCRYPTION_KEY || "").trim();
 
   if (miniappUrl && isHttpsUrl(miniappUrl)) {
@@ -222,16 +223,12 @@ function addEnvironmentChecks(checks) {
     addCheck(checks, "webhook_base_url", "fail", "Telegram webhook base URL", "Set WEBHOOK_BASE_URL so Telegram can deliver bot updates.");
   }
 
-  if (subscriptionBaseUrl) {
-    addCheck(checks, "subscription_base_url", "pass", "Subscription public URL", "PUBLIC_SUBSCRIPTION_BASE_URL is configured for token portal links.");
+  if (subscriptionBaseUrl && isHttpsUrl(subscriptionBaseUrl)) {
+    addCheck(checks, "subscription_base_url", "pass", "Dynamic key public URL", "Public HTTPS API base URL is configured for /k customer keys.");
+  } else if (subscriptionBaseUrl) {
+    addCheck(checks, "subscription_base_url", "fail", "Dynamic key public URL", "PUBLIC_SUBSCRIPTION_BASE_URL must be a public HTTPS URL in production.");
   } else {
-    addCheck(checks, "subscription_base_url", "warn", "Subscription public URL", "PUBLIC_SUBSCRIPTION_BASE_URL is missing; legacy token portal links may not open correctly.");
-  }
-
-  if (workerBaseUrl) {
-    addCheck(checks, "worker_base_url", "pass", "Worker portal URL", "PUBLIC_WORKER_BASE_URL is configured for Outline import bridge links.");
-  } else {
-    addCheck(checks, "worker_base_url", "warn", "Worker portal URL", "PUBLIC_WORKER_BASE_URL is missing; Outline import bridge links may fall back to direct ssconf links.");
+    addCheck(checks, "subscription_base_url", "fail", "Dynamic key public URL", "Set PUBLIC_SUBSCRIPTION_BASE_URL or WEBHOOK_BASE_URL so dashboards can generate customer /k keys.");
   }
 
   if (/^[a-fA-F0-9]{64}$/.test(encryptionKey)) {
@@ -431,17 +428,19 @@ function addPlanChecks(checks, plans, workspace) {
 
 function addServerChecks(checks, servers, workspace) {
   const readyServers = servers.filter(isReadyServer);
+  const readyPremiumServers = readyServers.filter((server) => String(server.server_tier || "premium").toLowerCase() === "premium");
+  const readyTrialServers = readyServers.filter((server) => String(server.server_tier || "premium").toLowerCase() === "trial");
   const activeServers = servers.filter((server) => String(server.status || "").toLowerCase() === "active");
-  const defaultReady = readyServers.some((server) => Boolean(server.is_default));
+  const defaultReady = readyPremiumServers.some((server) => Boolean(server.is_default));
 
   addCheck(
     checks,
     "outline_servers",
-    readyServers.length > 0 ? "pass" : "fail",
-    "Outline servers",
-    readyServers.length > 0
-      ? `${readyServers.length} active Outline server(s) have API config and capacity.`
-      : "Add at least one active Outline server with API URL, cert SHA-256, and available capacity."
+    readyPremiumServers.length > 0 ? "pass" : "fail",
+    "Premium Outline servers",
+    readyPremiumServers.length > 0
+      ? `${readyPremiumServers.length} premium Outline server(s) have API config and capacity.`
+      : "Add at least one premium active Outline server with API URL, cert SHA-256, and available capacity."
   );
 
   if (activeServers.length > readyServers.length) {
@@ -465,24 +464,24 @@ function addServerChecks(checks, servers, workspace) {
   addCheck(
     checks,
     "default_server",
-    defaultReady ? "pass" : readyServers.length > 0 ? "warn" : "fail",
-    "Default server selection",
+    defaultReady ? "pass" : readyPremiumServers.length > 0 ? "warn" : "fail",
+    "Default premium server selection",
     defaultReady
-      ? "A ready default server is available."
-      : readyServers.length > 0
-        ? "No ready default server is marked; the system will use the least-loaded ready server."
-        : "No ready server can be selected for trial or paid provisioning."
+      ? "A ready default premium server is available."
+      : readyPremiumServers.length > 0
+        ? "No ready default premium server is marked; paid orders will use the least-loaded ready premium server."
+        : "No ready premium server can be selected for paid provisioning."
   );
 
   if (workspace?.trial_enabled) {
     addCheck(
       checks,
       "trial_server",
-      readyServers.length > 0 ? "pass" : "fail",
+      readyTrialServers.length > 0 ? "pass" : "fail",
       "Trial server provisioning",
-      readyServers.length > 0
-        ? "Trial key provisioning can select an active server."
-        : "Trial is enabled but no ready active server exists."
+      readyTrialServers.length > 0
+        ? "Trial key provisioning can select a trial server."
+        : "Trial is enabled but no ready trial server exists."
     );
   }
 }

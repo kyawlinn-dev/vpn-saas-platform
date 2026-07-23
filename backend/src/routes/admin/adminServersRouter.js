@@ -25,6 +25,7 @@ function toServerResponse(server) {
     droplet_id: server.droplet_id || null,
     host_ip: server.host_ip || null,
     status: server.status,
+    server_tier: server.server_tier || "premium",
     outline_api_url: server.outline_api_url || null,
     outline_cert_sha256: server.outline_cert_sha256 || null,
     current_active_keys: currentActiveKeys,
@@ -35,6 +36,22 @@ function toServerResponse(server) {
     created_at: server.created_at || null,
     updated_at: server.updated_at || null,
   };
+}
+
+function normalizeServerTier(value) {
+  return String(value || "").trim().toLowerCase() === "trial" ? "trial" : "premium";
+}
+
+async function countActiveServerKeys(serverId) {
+  const { count, error } = await supabase
+    .from("vpn_keys")
+    .select("id", { count: "exact", head: true })
+    .eq("server_id", serverId)
+    .eq("status", "active")
+    .is("deleted_at", null);
+
+  if (error) throw new Error(error.message);
+  return count || 0;
 }
 
 // ─── List all servers ────────────────────────────────────────────────────────
@@ -89,17 +106,18 @@ router.get("/:serverId", async (req, res) => {
 });
 
 // ─── Provision new server ─────────────────────────────────────────────────────
-// Accepts optional body: { region, name, size }
+// Accepts optional body: { region, name, size, server_tier }
 // Falls back to env vars DIGITALOCEAN_REGION / DIGITALOCEAN_SIZE if not provided.
 
 router.post("/provision", async (req, res) => {
   try {
-    const { region, name, size } = req.body ?? {};
+    const { region, name, size, server_tier } = req.body ?? {};
 
     const server = await startProvisionOutlineServer({
       region: region?.trim() || undefined,
       name: name?.trim() || undefined,
       size: size?.trim() || undefined,
+      serverTier: server_tier?.trim() || undefined,
     });
 
     return res.status(202).json({
@@ -120,6 +138,57 @@ router.post("/provision", async (req, res) => {
 //
 // body: { force?: boolean }  — force=true skips droplet deletion
 //                              (use when the server/IP is already banned/gone)
+
+router.patch("/:serverId/tier", async (req, res) => {
+  try {
+    const { serverId } = req.params;
+    const serverTier = String(req.body?.server_tier || "").trim().toLowerCase();
+
+    if (!["trial", "premium"].includes(serverTier)) {
+      return res.status(400).json({ error: "server_tier must be trial or premium" });
+    }
+
+    const { data: existingServer, error: readError } = await supabase
+      .from("vpn_servers")
+      .select("*")
+      .eq("id", serverId)
+      .maybeSingle();
+
+    if (readError) return res.status(500).json({ error: readError.message });
+    if (!existingServer) return res.status(404).json({ error: "Server not found" });
+
+    const currentTier = normalizeServerTier(existingServer.server_tier);
+    const activeKeyCount = await countActiveServerKeys(serverId);
+
+    if (currentTier !== serverTier && activeKeyCount > 0) {
+      return res.status(409).json({
+        error: `Server tier is locked while ${activeKeyCount} active key${activeKeyCount === 1 ? "" : "s"} remain on this server. Decommission/migrate customers first, then change tier.`,
+        code: "SERVER_TIER_LOCKED_ACTIVE_KEYS",
+        active_keys: activeKeyCount,
+        current_tier: currentTier,
+        requested_tier: serverTier,
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("vpn_servers")
+      .update({
+        server_tier: serverTier,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", serverId)
+      .select()
+      .maybeSingle();
+
+    if (error) return res.status(500).json({ error: error.message });
+    if (!data) return res.status(404).json({ error: "Server not found" });
+
+    return res.json({ success: true, message: "Server tier updated", server: toServerResponse(data) });
+  } catch (error) {
+    console.error("Admin update server tier crash:", error);
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 router.post("/:serverId/decommission", async (req, res) => {
   const { serverId } = req.params;
@@ -196,9 +265,9 @@ router.post("/:serverId/decommission", async (req, res) => {
       const { data: orders } = await supabase
         .from("vpn_orders")
         .select(`
-          id, customer_id, reseller_id, status,
+          id, customer_id, reseller_id, status, order_type,
           customer:vpn_customers(id, full_name),
-          plan:vpn_plans(id, name, data_limit_gb, allowed_regions)
+          plan:vpn_plans(id, name, data_limit_gb, allowed_regions, is_trial)
         `)
         .in("id", orderIds)
         .eq("status", "active");
@@ -210,7 +279,8 @@ router.post("/:serverId/decommission", async (req, res) => {
             ? order.plan.allowed_regions.filter(Boolean)
             : [];
 
-          const [newServer] = await getActiveServers({ regions: allowedRegions, limit: 1 });
+          const serverTier = order.order_type === "trial" || order.plan?.is_trial ? "trial" : "premium";
+          const [newServer] = await getActiveServers({ regions: allowedRegions, limit: 1, serverTier });
 
           if (!newServer) {
             console.warn(`[decommission] No available server for order ${order.id} — no migration possible`);

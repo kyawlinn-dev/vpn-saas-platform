@@ -1,5 +1,5 @@
 import express from "express";
-import dotenv from "dotenv";
+import "./lib/loadEnv.js";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -20,6 +20,7 @@ import adminMeRouter from "./routes/admin/adminMeRouter.js";
 import adminServersRouter from "./routes/admin/adminServersRouter.js";
 import adminResellersRouter from "./routes/admin/adminResellersRouter.js";
 import adminPlansRouter from "./routes/admin/adminPlansRouter.js";
+import adminSettlementsRouter from "./routes/admin/adminSettlementsRouter.js";
 import adminOrderActionsRouter from "./routes/admin/adminOrderActionsRouter.js";
 import adminDataRouter from "./routes/admin/adminDataRouter.js";
 import adminLaunchReadinessRouter from "./routes/admin/launchReadinessRouter.js";
@@ -29,17 +30,15 @@ import resellerLaunchReadinessRouter from "./routes/reseller/launchReadinessRout
 
 import resellerOrdersRouter from "./routes/reseller/resellerOrdersRouter.js";
 import resellerKeysRouter from "./routes/reseller/resellerKeysRouter.js";
+import resellerPlansRouter from "./routes/reseller/resellerPlansRouter.js";
+import resellerAccountingRouter from "./routes/reseller/resellerAccountingRouter.js";
 import orderActionRoutes from "./routes/reseller/orderActionRoutes.js";
-import planRoutes from "./routes/public/planRoutes.js";
-import subscriptionRoutes from "./routes/public/subscriptionRoutes.js";
-
-import telegramMiniAppRoutes from "./routes/public/telegramMiniAppRoutes.js";
 import resellerMiniappRoutes from "./routes/public/resellerMiniappRoutes.js";
 import ssconfRouter from "./routes/public/ssconfRouter.js";
+import portalRouter from "./routes/public/portalRouter.js";
 import botWebhookRouter from "./bot/webhookRouter.js";
 import * as botManager from "./bot/manager.js";
 
-dotenv.config();
 validateEncryptionKey(); // fails loudly at boot if key is absent or wrong length
 
 const app = express();
@@ -71,7 +70,6 @@ function getAllowedOrigins() {
     process.env.ADMIN_DASHBOARD_URL,
     process.env.MINIAPP_URL,
     process.env.TELEGRAM_MINIAPP_URL,
-    process.env.PUBLIC_WORKER_BASE_URL,
     ...parseOriginList(process.env.CORS_ALLOWED_ORIGINS),
   ].filter(Boolean);
 }
@@ -93,6 +91,85 @@ function isAllowedPreviewOrigin(origin) {
 
 function isAllowedOrigin(origin) {
   return getAllowedOrigins().includes(origin) || isAllowedPreviewOrigin(origin);
+}
+
+function isBackendRoute(pathname) {
+  return (
+    pathname.startsWith("/api") ||
+    pathname.startsWith("/k") ||
+    pathname === "/open-key"
+  );
+}
+
+function createDevMiniappProxy() {
+  const target = String(process.env.DEV_MINIAPP_PROXY_TARGET || "").replace(/\/$/, "");
+
+  if (process.env.NODE_ENV !== "development" || !target) {
+    return (_req, _res, next) => next();
+  }
+
+  console.info(`[dev] Mini App proxy enabled -> ${target}`);
+
+  return async (req, res, next) => {
+    if (isBackendRoute(req.path)) return next();
+
+    try {
+      const upstreamUrl = new URL(req.originalUrl || req.url, target);
+      const headers = new Headers();
+
+      for (const [key, value] of Object.entries(req.headers)) {
+        const normalized = key.toLowerCase();
+        if (["host", "connection", "content-length"].includes(normalized)) continue;
+        if (Array.isArray(value)) {
+          for (const item of value) headers.append(key, item);
+        } else if (value != null) {
+          headers.set(key, String(value));
+        }
+      }
+
+      const fetchOptions = {
+        method: req.method,
+        headers,
+        redirect: "manual",
+      };
+
+      if (!["GET", "HEAD"].includes(req.method)) {
+        fetchOptions.body = req;
+        fetchOptions.duplex = "half";
+      }
+
+      const upstream = await fetch(upstreamUrl, fetchOptions);
+
+      res.status(upstream.status);
+      res.removeHeader("Content-Security-Policy");
+      res.removeHeader("X-Frame-Options");
+      res.setHeader(
+        "Content-Security-Policy",
+        "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org"
+      );
+
+      upstream.headers.forEach((value, key) => {
+        if (
+          [
+            "content-encoding",
+            "content-length",
+            "transfer-encoding",
+            "content-security-policy",
+            "x-frame-options",
+          ].includes(key.toLowerCase())
+        ) {
+          return;
+        }
+        res.setHeader(key, value);
+      });
+
+      const body = Buffer.from(await upstream.arrayBuffer());
+      return res.send(body);
+    } catch (err) {
+      console.error("[dev] Mini App proxy failed:", err.message);
+      return res.status(502).send("Mini App dev server is not reachable. Start miniapp with npm run dev.");
+    }
+  };
 }
 
 /**
@@ -156,12 +233,10 @@ app.get("/api/health", (req, res) => {
 /**
  * public
  */
-app.use("/api/public/plans", planRoutes);
-app.use("/api/public", subscriptionRoutes);
-app.use("/api/public/telegram-miniapp", telegramMiniAppRoutes);
 app.use("/api/miniapp", resellerMiniappRoutes);
 app.use("/k", ssconfRouter);
-// Bot webhooks — public, authenticated only by X-Telegram-Bot-Api-Secret-Token header
+app.use("/", portalRouter);
+// Bot webhooks - public, authenticated only by X-Telegram-Bot-Api-Secret-Token header
 app.use("/api/bot-webhook", botWebhookRouter);
 
 /**
@@ -220,11 +295,27 @@ app.use(
 );
 
 app.use(
+  "/api/reseller/plans",
+  requireTrustedOrigin,
+  requireAuth,
+  requireActiveReseller,
+  resellerPlansRouter
+);
+
+app.use(
   "/api/reseller/keys",
   requireTrustedOrigin,
   requireAuth,
   requireActiveReseller,
   resellerKeysRouter
+);
+
+app.use(
+  "/api/reseller/accounting",
+  requireTrustedOrigin,
+  requireAuth,
+  requireActiveReseller,
+  resellerAccountingRouter
 );
 
 app.use(
@@ -284,6 +375,14 @@ app.use(
 );
 
 app.use(
+  "/api/admin/settlements",
+  requireTrustedOrigin,
+  requireAdminAuth,
+  requireAdmin,
+  adminSettlementsRouter
+);
+
+app.use(
   "/api/admin/launch-readiness",
   requireTrustedOrigin,
   requireAdminAuth,
@@ -299,6 +398,8 @@ app.use(
   requireAdmin,
   adminDataRouter
 );
+
+app.use(createDevMiniappProxy());
 
 app.use((err, req, res, next) => {
   console.error("Unhandled server error:", err);

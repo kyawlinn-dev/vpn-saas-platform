@@ -29,6 +29,11 @@ function getRequiredEnv(name) {
   return String(value).trim();
 }
 
+function normalizeServerTier(serverTier) {
+  const value = String(serverTier || "").trim().toLowerCase();
+  return value === "trial" ? "trial" : "premium";
+}
+
 function buildDropletName() {
   return `outline-${Date.now()}`;
 }
@@ -47,7 +52,7 @@ async function updateServer(serverId, patch) {
   }
 }
 
-async function insertProvisioningRow({ dropletName, dropletId, region }) {
+async function insertProvisioningRow({ dropletName, dropletId, region, serverTier }) {
   const now = new Date().toISOString();
 
   const { data, error } = await supabase
@@ -57,6 +62,7 @@ async function insertProvisioningRow({ dropletName, dropletId, region }) {
         name: dropletName,
         provider: "digitalocean",
         region,
+        server_tier: normalizeServerTier(serverTier),
         droplet_id: dropletId,
         status: "provisioning",
         max_active_keys: getDefaultMaxActiveKeys(),
@@ -104,6 +110,7 @@ export async function startProvisionOutlineServer({
   region: regionOverride,
   name: nameOverride,
   size: sizeOverride,
+  serverTier,
 } = {}) {
   const { region, size, image, sshKeyFingerprint } = getProvisioningContext({
     regionOverride,
@@ -124,6 +131,7 @@ export async function startProvisionOutlineServer({
     dropletName,
     dropletId: droplet.id,
     region,
+    serverTier,
   });
 
   void continueProvisionInBackground({

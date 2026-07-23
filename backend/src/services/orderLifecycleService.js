@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { getActiveServers, ServerAvailabilityError } from "./serverService.js";
 import {
@@ -12,6 +13,19 @@ import {
   updateProvisionedKeyLimitsForOrder,
   deactivateTokenAssignments,
 } from "./subscriptionProvisionService.js";
+import {
+  confirmOrderPayments,
+  createOrderPayment,
+  findOrderPaymentByIdempotencyKey,
+  loadOrderPayments,
+  markOrderPaymentApplyStatus,
+  rejectOrderPayments,
+  syncOrderPaymentSummary,
+} from "./paymentLedgerService.js";
+import {
+  buildDynamicAccessUrl,
+  buildSsconfHttpUrl,
+} from "./publicAccessUrlService.js";
 
 export class OrderLifecycleError extends Error {
   constructor(message, status = 400, code = "ORDER_LIFECYCLE_ERROR") {
@@ -32,10 +46,76 @@ function toDateOnly(date) {
   return new Date(date).toISOString().slice(0, 10);
 }
 
-function buildSubscriptionUrl(token) {
-  const base = process.env.PUBLIC_SUBSCRIPTION_BASE_URL?.trim();
-  if (!base) return null;
-  return `${base.replace(/\/$/, "")}/api/public/subscription?token=${encodeURIComponent(token)}`;
+async function ensureCustomerSsconfToken(customerId, existingToken) {
+  if (existingToken) return existingToken;
+
+  const { data: existing, error: readErr } = await supabase
+    .from("vpn_customers")
+    .select("ssconf_token")
+    .eq("id", customerId)
+    .single();
+
+  if (readErr) throw new Error(readErr.message);
+  if (existing?.ssconf_token) return existing.ssconf_token;
+
+  const newToken = crypto.randomUUID().replaceAll("-", "");
+
+  const { error: updateErr } = await supabase
+    .from("vpn_customers")
+    .update({ ssconf_token: newToken })
+    .eq("id", customerId)
+    .is("ssconf_token", null);
+
+  if (updateErr) throw new Error(updateErr.message);
+
+  const { data: updated, error: refetchErr } = await supabase
+    .from("vpn_customers")
+    .select("ssconf_token")
+    .eq("id", customerId)
+    .single();
+
+  if (refetchErr || !updated?.ssconf_token) {
+    throw new Error("Failed to ensure customer ssconf token");
+  }
+
+  return updated.ssconf_token;
+}
+
+async function getAccessLabel({ order, reseller }) {
+  const customerName = order?.customer?.full_name || "Customer";
+
+  const { data: miniapp, error } = await supabase
+    .from("reseller_miniapps")
+    .select("brand_name")
+    .eq("reseller_id", order.reseller_id || reseller?.id)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("[orderLifecycle] Failed to load reseller brand for dynamic key:", error.message);
+  }
+
+  const brandName = miniapp?.brand_name || reseller?.name || "NovaNet MM";
+  return [brandName, customerName].filter(Boolean).join("-");
+}
+
+async function buildOrderAccessLinks({ order, reseller }) {
+  const ssconfToken = await ensureCustomerSsconfToken(
+    order.customer_id,
+    order.customer?.ssconf_token
+  );
+  const label = await getAccessLabel({ order, reseller });
+  const ssconfUrl = buildSsconfHttpUrl(ssconfToken);
+  const dynamicAccessUrl = buildDynamicAccessUrl(ssconfToken, label);
+
+  return {
+    ssconf_token: ssconfToken,
+    ssconf_url: ssconfUrl,
+    dynamic_access_url: dynamicAccessUrl,
+    preferred_access_url: dynamicAccessUrl || ssconfUrl,
+    // Backward-compatible field name for dashboard clients while the old
+    // /t and /sub token portal routes are retired.
+    subscription_url: dynamicAccessUrl || ssconfUrl,
+  };
 }
 
 function getPlanRegions(plan) {
@@ -55,7 +135,7 @@ export async function getResellerScopedOrder(orderId, resellerId) {
     .from("vpn_orders")
     .select(`
       *,
-      customer:vpn_customers(id, full_name, reseller_id, telegram_username, phone),
+      customer:vpn_customers(id, full_name, reseller_id, telegram_username, phone, ssconf_token),
       plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb, max_devices, allowed_regions, is_active, is_trial)
     `)
     .eq("id", orderId)
@@ -106,7 +186,18 @@ async function ensureCommissionEntry(order) {
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  if (existing) return;
+  if (existing) {
+    const { error: updateErr } = await supabase
+      .from("commission_ledger")
+      .update({
+        amount_mmk: order.commission_amount_mmk,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+
+    if (updateErr) throw new Error(updateErr.message);
+    return;
+  }
 
   const { error: insertErr } = await supabase.from("commission_ledger").insert({
     order_id: order.id,
@@ -198,6 +289,7 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
   const now = new Date();
   const expiryAt = calcExpiryDate(now, plan.duration_days);
   const regions = getPlanRegions(plan);
+  const serverTier = order.order_type === "trial" || plan?.is_trial ? "trial" : "premium";
 
   if (["activate", "renew"].includes(mode)) {
     // Retry safety: if a previous activation attempt created partial access
@@ -211,10 +303,14 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
   const selectedServers = await getActiveServers({
     regions,
     limit: serverLimit,
+    serverTier,
   });
 
   if (!selectedServers.length) {
-    throw new ServerAvailabilityError("No active server available", "NO_ACTIVE_SERVER");
+    throw new ServerAvailabilityError(
+      `No active ${serverTier} server available`,
+      serverTier === "trial" ? "NO_TRIAL_SERVER" : "NO_PREMIUM_SERVER"
+    );
   }
 
   if (regions.length && selectedServers.length < regions.length) {
@@ -228,7 +324,7 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
 
     throw new ServerAvailabilityError(
       `Missing active server capacity for region(s): ${missingRegions.join(", ")}`,
-      "MISSING_REGION_CAPACITY"
+      serverTier === "trial" ? "MISSING_TRIAL_REGION_CAPACITY" : "MISSING_PREMIUM_REGION_CAPACITY"
     );
   }
 
@@ -251,15 +347,193 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
     plan,
     servers: selectedServers,
   });
+  const accessLinks = await buildOrderAccessLinks({ order, reseller });
 
   return {
-    token: token.token,
     expires_at: expiryAt.toISOString(),
     expiry_date: toDateOnly(expiryAt),
     server_count: configs.length,
     servers: configs,
-    subscription_url: buildSubscriptionUrl(token.token),
+    ...accessLinks,
   };
+}
+
+async function beginPackagePayment({
+  order,
+  plan,
+  resellerId,
+  paymentType,
+  source = "dashboard",
+  idempotencyKey = null,
+}) {
+  if (idempotencyKey) {
+    const existing = await findOrderPaymentByIdempotencyKey({ resellerId, idempotencyKey });
+    if (existing) {
+      if (existing.order_id !== order.id || existing.payment_type !== paymentType) {
+        throw new OrderLifecycleError(
+          "Duplicate package payment request key",
+          409,
+          "DUPLICATE_IDEMPOTENCY_KEY"
+        );
+      }
+
+      if (existing.apply_status === "applied") {
+        return { payment: existing, alreadyApplied: true };
+      }
+
+      if (existing.apply_status === "pending") {
+        throw new OrderLifecycleError(
+          "This package payment is already being processed",
+          409,
+          "PAYMENT_APPLY_PENDING"
+        );
+      }
+
+      throw new OrderLifecycleError(
+        "This package payment request was already used",
+        409,
+        "PAYMENT_REQUEST_ALREADY_USED"
+      );
+    }
+  }
+
+  const payment = await createOrderPayment({
+    order: {
+      ...order,
+      reseller_id: resellerId,
+      plan_id: plan.id,
+    },
+    amountMmk: plan.price_mmk,
+    reviewStatus: "confirmed",
+    applyStatus: "pending",
+    paymentType,
+    source,
+    plan,
+    idempotencyKey,
+  });
+
+  return { payment, alreadyApplied: false };
+}
+
+async function finishAppliedPackagePayment({ payment, orderId }) {
+  if (payment?.id) {
+    await markOrderPaymentApplyStatus({
+      paymentId: payment.id,
+      applyStatus: "applied",
+    });
+  }
+
+  const synced = await syncOrderPaymentSummary(orderId);
+  await ensureCommissionEntry(synced.order);
+  return synced;
+}
+
+async function failPackagePayment(payment, err) {
+  if (!payment?.id) return;
+
+  try {
+    await markOrderPaymentApplyStatus({
+      paymentId: payment.id,
+      applyStatus: "failed",
+      applyError: err?.message || "Package application failed",
+    });
+  } catch (markErr) {
+    console.error("[orderLifecycle] Failed to mark package payment failed:", markErr.message);
+  }
+}
+
+function buildPlanSnapshotFromPayment({ order, payment }) {
+  return {
+    id: payment.plan_id || order.plan_id,
+    name: order.plan?.name || "Package",
+    price_mmk: Number(payment.amount_mmk || order.price_mmk || 0),
+    duration_days: Number(payment.package_duration_days || order.plan?.duration_days || 0),
+    data_limit_gb: Number(payment.package_data_limit_gb || order.plan?.data_limit_gb || 0),
+    max_devices: order.plan?.max_devices || 1,
+    allowed_regions: order.plan?.allowed_regions || [],
+    is_active: true,
+    is_trial: false,
+  };
+}
+
+async function applyPendingPackagePayments({ order }) {
+  const payments = await loadOrderPayments(order.id);
+  const pendingPackagePayments = payments.filter(
+    (payment) =>
+      payment.review_status === "pending_review" &&
+      payment.apply_status === "pending" &&
+      ["extend"].includes(payment.payment_type)
+  );
+
+  let workingOrder = order;
+
+  for (const payment of pendingPackagePayments) {
+    try {
+      const planSnapshot = buildPlanSnapshotFromPayment({
+        order: workingOrder,
+        payment,
+      });
+
+      if (planSnapshot.duration_days <= 0) {
+        throw new OrderLifecycleError(
+          "Package duration snapshot is missing",
+          409,
+          "PACKAGE_SNAPSHOT_MISSING"
+        );
+      }
+
+      if (workingOrder.status !== "active") {
+        throw new OrderLifecycleError(
+          `Only active orders can receive a top-up. Current status: ${workingOrder.status}`,
+          409,
+          "INVALID_STATUS"
+        );
+      }
+
+      const activeKeyCount = await countActiveKeys(workingOrder.id);
+      if (activeKeyCount === 0) {
+        throw new OrderLifecycleError(
+          "Active order has no VPN key. Stop and renew it instead.",
+          409,
+          "NO_ACTIVE_ACCESS"
+        );
+      }
+
+      const baseDate =
+        workingOrder.expiry_date && new Date(workingOrder.expiry_date) > new Date()
+          ? new Date(workingOrder.expiry_date)
+          : new Date();
+      const expiryAt = calcExpiryDate(baseDate, planSnapshot.duration_days);
+      const token = await getTokenByOrderId(workingOrder.id);
+
+      if (token?.id) {
+        await activateToken(token.id, expiryAt.toISOString());
+      }
+
+      await updateProvisionedKeyLimitsForOrder({
+        orderId: workingOrder.id,
+        plan: planSnapshot,
+      });
+
+      const { error: updateErr } = await supabase
+        .from("vpn_orders")
+        .update({
+          status: "active",
+          expiry_date: toDateOnly(expiryAt),
+          plan_id: planSnapshot.id,
+          price_mmk: planSnapshot.price_mmk,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", workingOrder.id);
+
+      if (updateErr) throw new Error(updateErr.message);
+
+      workingOrder = await getResellerScopedOrder(workingOrder.id, workingOrder.reseller_id);
+    } catch (err) {
+      await failPackagePayment(payment, err);
+      throw err;
+    }
+  }
 }
 
 export async function activatePendingReviewPurchase({ order, reseller, plan }) {
@@ -278,16 +552,15 @@ export async function activatePendingReviewPurchase({ order, reseller, plan }) {
   if (order.status === "active") {
     const activeKeyCount = await countActiveKeys(order.id);
     if (activeKeyCount > 0) {
-      const token = await getTokenByOrderId(order.id);
+      const accessLinks = await buildOrderAccessLinks({ order, reseller });
       return {
         success: true,
         already_active: true,
         message: "Order already has active access",
         order_id: order.id,
-        token: token?.token || null,
         expiry_date: order.expiry_date,
-        expires_at: token?.expires_at || null,
-        subscription_url: token?.token ? buildSubscriptionUrl(token.token) : null,
+        expires_at: null,
+        ...accessLinks,
       };
     }
   } else if (order.status !== "pending") {
@@ -366,7 +639,7 @@ export async function activateOrder({ orderId, reseller }) {
   const order = await getResellerScopedOrder(orderId, reseller.id);
 
   if (order.status === "active") {
-    const token = await getTokenByOrderId(order.id);
+    const accessLinks = await buildOrderAccessLinks({ order, reseller });
     return {
       success: true,
       already_active: true,
@@ -374,8 +647,7 @@ export async function activateOrder({ orderId, reseller }) {
       order_id: order.id,
       expiry_date: order.expiry_date,
       review_status: order.review_status || null,
-      token: token?.token || null,
-      subscription_url: token?.token ? buildSubscriptionUrl(token.token) : null,
+      ...accessLinks,
     };
   }
 
@@ -459,7 +731,7 @@ export async function activateOrder({ orderId, reseller }) {
   };
 }
 
-export async function extendOrder({ orderId, resellerId, planId }) {
+export async function extendOrder({ orderId, resellerId, planId, idempotencyKey = null, source = "dashboard" }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
 
   if (order.status !== "active") {
@@ -484,6 +756,26 @@ export async function extendOrder({ orderId, resellerId, planId }) {
   }
 
   const plan = await resolvePlan(planId, order.plan);
+  const { payment, alreadyApplied } = await beginPackagePayment({
+    order,
+    plan,
+    resellerId,
+    paymentType: "extend",
+    source,
+    idempotencyKey,
+  });
+
+  if (alreadyApplied) {
+    return {
+      success: true,
+      already_processed: true,
+      message: "Order extension already applied",
+      order_id: order.id,
+      expiry_date: order.expiry_date,
+      ...(await buildOrderAccessLinks({ order, reseller: { id: resellerId } })),
+    };
+  }
+
   const baseDate =
     order.expiry_date && new Date(order.expiry_date) > new Date()
       ? new Date(order.expiry_date)
@@ -491,40 +783,42 @@ export async function extendOrder({ orderId, resellerId, planId }) {
 
   const expiryAt = calcExpiryDate(baseDate, plan.duration_days);
   const token = await getTokenByOrderId(order.id);
-  let activeToken = token;
 
-  if (token?.id) {
-    activeToken = await activateToken(token.id, expiryAt.toISOString());
+  try {
+    if (token?.id) {
+      await activateToken(token.id, expiryAt.toISOString());
+    }
+
+    await updateProvisionedKeyLimitsForOrder({ orderId: order.id, plan });
+
+    const { error: updateErr } = await supabase
+      .from("vpn_orders")
+      .update({
+        status: "active",
+        expiry_date: toDateOnly(expiryAt),
+        plan_id: plan.id,
+        price_mmk: Number(plan.price_mmk ?? 0),
+      })
+      .eq("id", order.id);
+
+    if (updateErr) throw new Error(updateErr.message);
+    await finishAppliedPackagePayment({ payment, orderId: order.id });
+  } catch (err) {
+    await failPackagePayment(payment, err);
+    throw err;
   }
-
-  await updateProvisionedKeyLimitsForOrder({ orderId: order.id, plan });
-
-  const { error: updateErr } = await supabase
-    .from("vpn_orders")
-    .update({
-      status: "active",
-      expiry_date: toDateOnly(expiryAt),
-      plan_id: plan.id,
-      price_mmk: Number(plan.price_mmk ?? 0),
-      total_paid_mmk:
-        Number(order.total_paid_mmk || 0) + Number(plan.price_mmk || 0),
-    })
-    .eq("id", order.id);
-
-  if (updateErr) throw new Error(updateErr.message);
 
   return {
     success: true,
     message: "Order extended",
     order_id: order.id,
-    token: activeToken?.token || null,
     expiry_date: toDateOnly(expiryAt),
     expires_at: expiryAt.toISOString(),
-    subscription_url: activeToken?.token ? buildSubscriptionUrl(activeToken.token) : null,
+    ...(await buildOrderAccessLinks({ order, reseller: { id: resellerId } })),
   };
 }
 
-export async function renewOrder({ orderId, reseller, planId }) {
+export async function renewOrder({ orderId, reseller, planId, idempotencyKey = null, source = "dashboard" }) {
   const order = await getResellerScopedOrder(orderId, reseller.id);
 
   if (!["stopped", "expired"].includes(order.status)) {
@@ -557,58 +851,74 @@ export async function renewOrder({ orderId, reseller, planId }) {
   }
 
   const plan = await resolvePlan(planId, order.plan);
-  const result = await provisionOrderAccess({
+  const { payment, alreadyApplied } = await beginPackagePayment({
     order,
-    reseller,
     plan,
-    mode: "renew",
+    resellerId: reseller.id,
+    paymentType: "renew",
+    source,
+    idempotencyKey,
   });
 
-  if (order.order_type === "purchase") {
-    try {
+  if (alreadyApplied) {
+    return {
+      success: true,
+      already_processed: true,
+      message: "Order renewal already applied",
+      order_id: order.id,
+      expiry_date: order.expiry_date,
+      ...(await buildOrderAccessLinks({ order, reseller })),
+    };
+  }
+
+  try {
+    const result = await provisionOrderAccess({
+      order,
+      reseller,
+      plan,
+      mode: "renew",
+    });
+
+    if (order.order_type === "purchase") {
       await assertNoOtherActivePurchase({
         customerId: order.customer_id,
         resellerId: order.reseller_id,
         excludeOrderId: order.id,
       });
-    } catch (err) {
-      await stopOrderAccess(order.id);
-      throw err;
     }
+
+    const now = new Date();
+    const { error: updateErr } = await supabase
+      .from("vpn_orders")
+      .update({
+        status: "active",
+        payment_status: "paid",
+        review_status: order.order_type === "purchase" ? "confirmed" : order.review_status,
+        activated_at: now.toISOString(),
+        start_date: toDateOnly(now),
+        expiry_date: result.expiry_date,
+        stopped_at: null,
+        plan_id: plan.id,
+        price_mmk: Number(plan.price_mmk ?? 0),
+      })
+      .eq("id", order.id);
+
+    if (updateErr) throw new Error(updateErr.message);
+    await finishAppliedPackagePayment({ payment, orderId: order.id });
+
+    return {
+      success: true,
+      message: "Order renewed",
+      order_id: order.id,
+      ...result,
+    };
+  } catch (err) {
+    await failPackagePayment(payment, err);
+    try {
+      await stopOrderAccess(order.id);
+    } catch {}
+    throw err;
   }
-
-  const now = new Date();
-  const { error: updateErr } = await supabase
-    .from("vpn_orders")
-    .update({
-      status: "active",
-      payment_status: "paid",
-      review_status: order.order_type === "purchase" ? "confirmed" : order.review_status,
-      activated_at: now.toISOString(),
-      start_date: toDateOnly(now),
-      expiry_date: result.expiry_date,
-      stopped_at: null,
-      plan_id: plan.id,
-      price_mmk: Number(plan.price_mmk ?? 0),
-      total_paid_mmk:
-        Number(order.total_paid_mmk || 0) + Number(plan.price_mmk || 0),
-    })
-    .eq("id", order.id);
-
-  if (updateErr) throw new Error(updateErr.message);
-
-  await ensureCommissionEntry({
-    ...order,
-    plan_id: plan.id,
-    price_mmk: Number(plan.price_mmk ?? 0),
-  });
-
-  return {
-    success: true,
-    message: "Order renewed",
-    order_id: order.id,
-    ...result,
-  };
 }
 
 export async function stopOrder({ orderId, resellerId }) {
@@ -636,14 +946,16 @@ export async function stopOrder({ orderId, resellerId }) {
   };
 }
 
-export async function confirmPayment({ orderId, resellerId }) {
+export async function confirmPayment({ orderId, resellerId, reviewerAdminId = null }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
+  const payments = await loadOrderPayments(order.id);
+  const pendingPayments = payments.filter((row) => row.review_status === "pending_review");
 
   if (order.order_type !== "purchase") {
     throw new OrderLifecycleError("Only purchase orders can be confirmed", 400, "INVALID_ORDER_TYPE");
   }
 
-  if (order.review_status === "confirmed") {
+  if (order.review_status === "confirmed" && pendingPayments.length === 0) {
     return {
       success: true,
       already_confirmed: true,
@@ -666,22 +978,13 @@ export async function confirmPayment({ orderId, resellerId }) {
     );
   }
 
-  const updatePayload = {
-    review_status: "confirmed",
-    payment_status: "paid",
-    total_paid_mmk: Number(order.price_mmk || 0),
-  };
+  await applyPendingPackagePayments({ order });
 
-  const { data: updated, error: updateErr } = await supabase
-    .from("vpn_orders")
-    .update(updatePayload)
-    .eq("id", order.id)
-    .select("*")
-    .single();
-
-  if (updateErr || !updated) {
-    throw new Error(updateErr?.message || "Failed to confirm payment");
-  }
+  const { order: updated } = await confirmOrderPayments({
+    order,
+    reviewerResellerId: reviewerAdminId ? null : resellerId,
+    reviewerAdminId,
+  });
 
   await ensureCommissionEntry(updated);
 
@@ -694,8 +997,19 @@ export async function confirmPayment({ orderId, resellerId }) {
   };
 }
 
-export async function rejectPayment({ orderId, resellerId }) {
+export async function rejectPayment({ orderId, resellerId, reviewerAdminId = null }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
+  const payments = await loadOrderPayments(order.id);
+  const pendingPayments = payments.filter((row) => row.review_status === "pending_review");
+  const hasConfirmedAppliedPayment = payments.some(
+    (row) =>
+      row.review_status === "confirmed" &&
+      (!row.apply_status || row.apply_status === "applied")
+  );
+  const isTopUpOnlyRejection =
+    hasConfirmedAppliedPayment &&
+    pendingPayments.length > 0 &&
+    pendingPayments.every((row) => ["extend"].includes(row.payment_type));
 
   if (order.order_type !== "purchase") {
     throw new OrderLifecycleError("Only purchase orders can be rejected", 400, "INVALID_ORDER_TYPE");
@@ -712,8 +1026,24 @@ export async function rejectPayment({ orderId, resellerId }) {
     };
   }
 
-  if (order.review_status === "confirmed") {
+  if (order.review_status === "confirmed" && pendingPayments.length === 0) {
     throw new OrderLifecycleError("Confirmed payments cannot be rejected", 409, "PAYMENT_CONFIRMED");
+  }
+
+  const { order: syncedOrder } = await rejectOrderPayments({
+    order,
+    reviewerResellerId: reviewerAdminId ? null : resellerId,
+    reviewerAdminId,
+  });
+
+  if (isTopUpOnlyRejection) {
+    return {
+      success: true,
+      message: "Top-up payment rejected",
+      order_id: order.id,
+      review_status: syncedOrder.review_status,
+      status: syncedOrder.status,
+    };
   }
 
   await stopOrderAccess(order.id);

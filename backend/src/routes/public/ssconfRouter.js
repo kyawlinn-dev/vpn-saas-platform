@@ -1,6 +1,8 @@
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { parseSsUrl } from "../../utils/parseSsUrl.js";
+import { getOrderQuotaSnapshot } from "../../services/subscriptionProvisionService.js";
+import { businessDateOnly } from "../../utils/businessTime.js";
 
 const router = express.Router();
 
@@ -42,7 +44,7 @@ router.get("/:token", async (req, res) => {
     if (!miniapp?.is_enabled) return res.status(403).json({ error: "Service disabled" });
 
     // 3. Find best active order (purchase wins over trial)
-    const today = new Date().toISOString().slice(0, 10);
+    const today = businessDateOnly();
 
     const { data: orders, error: ordersError } = await supabase
       .from("vpn_orders")
@@ -81,19 +83,11 @@ router.get("/:token", async (req, res) => {
       return res.status(410).json({ error: "Subscription expired" });
     }
 
-    // 4. Data-limit guard
-    const dataLimitGb = activeOrder.vpn_plans?.data_limit_gb;
-    if (dataLimitGb && Number(dataLimitGb) > 0) {
-      const limitBytes = Math.floor(Number(dataLimitGb) * 1024 * 1024 * 1024);
-
-      const { data: keys } = await supabase
-        .from("vpn_keys")
-        .select("used_bytes")
-        .eq("order_id", activeOrder.id)
-        .in("status", ["active", "deleted"]);
-
-      const totalUsed = (keys || []).reduce((s, k) => s + Number(k.used_bytes || 0), 0);
-      if (totalUsed >= limitBytes) return res.status(410).json({ error: "Data limit reached" });
+    // 4. Data-limit guard. Use the live order/key quota, not the original plan
+    // GB, because extensions add package quota to the active subscription.
+    const quota = await getOrderQuotaSnapshot(activeOrder.id);
+    if (!quota.isUnlimited && quota.remainingBytes === 0) {
+      return res.status(410).json({ error: "Data limit reached" });
     }
 
     // 5. Find active key
@@ -117,7 +111,7 @@ router.get("/:token", async (req, res) => {
 
     const parsed = parseSsUrl(key.access_url);
 
-    return res.json({
+    return res.set("Cache-Control", "no-store").json({
       server: parsed.server,
       server_port: parsed.port,
       password: parsed.password,

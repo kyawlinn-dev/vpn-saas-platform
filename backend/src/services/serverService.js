@@ -17,6 +17,11 @@ function normalizeRegion(region) {
   return String(region || "").trim().toLowerCase();
 }
 
+function normalizeServerTier(serverTier) {
+  const value = String(serverTier || "").trim().toLowerCase();
+  return value === "trial" ? "trial" : "premium";
+}
+
 function isServerReady(server) {
   return (
     server &&
@@ -62,7 +67,12 @@ export async function listServers() {
 
 export async function getAvailableServer() {
   const servers = await listServers();
-  const server = servers.find((item) => isServerReady(item) && hasCapacity(item));
+  const server = servers.find(
+    (item) =>
+      normalizeServerTier(item.server_tier) === "premium" &&
+      isServerReady(item) &&
+      hasCapacity(item)
+  );
 
   if (!server) {
     throw new ServerAvailabilityError(
@@ -74,11 +84,13 @@ export async function getAvailableServer() {
   return server;
 }
 
-export async function getActiveServers({ regions = [], limit = 1 } = {}) {
+export async function getActiveServers({ regions = [], limit = 1, serverTier = "premium" } = {}) {
+  const normalizedTier = normalizeServerTier(serverTier);
   let query = supabase
     .from("vpn_servers")
     .select("*")
     .eq("status", "active")
+    .eq("server_tier", normalizedTier)
     .order("is_default", { ascending: false })
     .order("current_active_keys", { ascending: true });
 

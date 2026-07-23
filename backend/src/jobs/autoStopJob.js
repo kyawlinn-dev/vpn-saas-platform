@@ -9,11 +9,12 @@
 
 import { supabase } from "../lib/supabase.js";
 import { stopOrder } from "../services/orderLifecycleService.js";
+import { businessDateOnly } from "../utils/businessTime.js";
 
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return businessDateOnly();
 }
 
 async function stopExpiredOrders() {

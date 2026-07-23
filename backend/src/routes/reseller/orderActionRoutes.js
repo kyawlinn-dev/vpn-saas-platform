@@ -15,13 +15,14 @@ import {
 
 const router = express.Router();
 
-// Throws OrderLifecycleError(403) if the order belongs to a telegram customer.
-// Telegram customers are managed via the miniapp flow — resellers cannot
-// manually activate/extend/stop/renew their subscriptions.
+const TELEGRAM_ACTION_MESSAGE = "This action is not available for Telegram customers";
+
+// Throws OrderLifecycleError(403) if the order belongs to a Telegram customer.
+// telegram_links is the source of truth; customer_type/source are fast labels.
 async function assertNormalCustomer(orderId, resellerId) {
   const { data, error } = await supabase
     .from("vpn_orders")
-    .select("id, customer:vpn_customers(customer_type)")
+    .select("id, customer_id, source, customer:vpn_customers(customer_type)")
     .eq("id", orderId)
     .eq("reseller_id", resellerId)
     .maybeSingle();
@@ -29,9 +30,36 @@ async function assertNormalCustomer(orderId, resellerId) {
   if (error) throw new Error(error.message);
   if (!data) throw new OrderLifecycleError("Order not found", 404, "ORDER_NOT_FOUND");
 
-  if (data.customer?.customer_type === "telegram") {
+  const orderSource = String(data.source || "").toLowerCase();
+  const customerType = data.customer?.customer_type;
+
+  if (customerType === "telegram" || orderSource === "miniapp" || orderSource === "bot") {
     throw new OrderLifecycleError(
-      "This action is not available for Telegram customers",
+      TELEGRAM_ACTION_MESSAGE,
+      403,
+      "TELEGRAM_CUSTOMER_ACTION"
+    );
+  }
+
+  const { data: telegramLink, error: linkError } = await supabase
+    .from("telegram_links")
+    .select("id")
+    .eq("reseller_id", resellerId)
+    .eq("customer_id", data.customer_id)
+    .limit(1)
+    .maybeSingle();
+
+  if (linkError) throw new Error(linkError.message);
+
+  if (telegramLink) {
+    await supabase
+      .from("vpn_customers")
+      .update({ customer_type: "telegram" })
+      .eq("id", data.customer_id)
+      .eq("reseller_id", resellerId);
+
+    throw new OrderLifecycleError(
+      TELEGRAM_ACTION_MESSAGE,
       403,
       "TELEGRAM_CUSTOMER_ACTION"
     );
@@ -83,6 +111,8 @@ router.post("/:orderId/extend", async (req, res) => {
       orderId: req.params.orderId,
       resellerId: req.reseller.id,
       planId: req.body?.plan_id,
+      idempotencyKey: req.body?.idempotency_key || req.get("Idempotency-Key") || null,
+      source: "dashboard",
     });
 
     return res.json(result);
@@ -98,6 +128,8 @@ router.post("/:orderId/renew", async (req, res) => {
       orderId: req.params.orderId,
       reseller: req.reseller,
       planId: req.body?.plan_id,
+      idempotencyKey: req.body?.idempotency_key || req.get("Idempotency-Key") || null,
+      source: "dashboard",
     });
 
     return res.json(result);

@@ -1,10 +1,3 @@
-/**
- * planRoutes.js
- *
- * Mounted at: /api/public/plans  (no auth required)
- * Returns all active plans, ordered by price ascending.
- */
-
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 
@@ -19,14 +12,14 @@ router.get("/", async (_req, res) => {
       .order("price_mmk", { ascending: true });
 
     if (error) {
-      console.error("GET /api/public/plans query error:", error);
-      return res.status(500).json({ error: error.message });
+      console.error("GET /api/reseller/plans query error:", error);
+      return res.status(500).json({ error: "Failed to load plans" });
     }
 
     return res.json(data ?? []);
   } catch (err) {
-    console.error("GET /api/public/plans crash:", err);
-    return res.status(500).json({ error: err.message });
+    console.error("GET /api/reseller/plans crash:", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

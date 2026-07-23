@@ -2,13 +2,31 @@ import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import {
   normalizeNullableString,
-  normalizePaymentStatus,
   normalizeRequiredString,
 } from "../../utils/validators.js";
+import {
+  calculatePaymentAmounts,
+  createOrderPayment,
+  syncOrderPaymentSummary,
+} from "../../services/paymentLedgerService.js";
+import { deriveManualOrderPolicy } from "../../services/manualOrderPolicy.js";
 
 const router = express.Router();
 
-async function findCustomerForReseller({ resellerId, full_name, phone, telegram_username }) {
+async function findCustomerForReseller({ resellerId, customerId, phone, telegram_username }) {
+  if (customerId) {
+    const { data, error } = await supabase
+      .from("vpn_customers")
+      .select("*")
+      .eq("id", customerId)
+      .eq("reseller_id", resellerId)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data) return data;
+    return null;
+  }
+
   if (phone) {
     const { data, error } = await supabase
       .from("vpn_customers")
@@ -28,19 +46,6 @@ async function findCustomerForReseller({ resellerId, full_name, phone, telegram_
       .select("*")
       .eq("reseller_id", resellerId)
       .eq("telegram_username", telegram_username)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    if (error) throw error;
-    if (data?.[0]) return data[0];
-  }
-
-  if (full_name) {
-    const { data, error } = await supabase
-      .from("vpn_customers")
-      .select("*")
-      .eq("reseller_id", resellerId)
-      .eq("full_name", full_name)
       .order("created_at", { ascending: false })
       .limit(1);
 
@@ -72,7 +77,8 @@ router.get("/", async (req, res) => {
           full_name,
           telegram_username,
           phone,
-          customer_type
+          customer_type,
+          ssconf_token
         ),
         plan:vpn_plans (
           id,
@@ -83,13 +89,15 @@ router.get("/", async (req, res) => {
           max_devices,
           allowed_regions
         ),
-        access_tokens (
+        payments:order_payments (
           id,
-          token,
-          status,
-          expires_at,
-          created_at,
-          last_used_at
+          amount_mmk,
+          commission_amount_mmk,
+          platform_due_mmk,
+          review_status,
+          payment_type,
+          apply_status,
+          created_at
         )
       `)
       .eq("reseller_id", reseller.id)
@@ -138,12 +146,10 @@ router.post("/", async (req, res) => {
     const phone = normalizeNullableString(req.body.phone);
     const notes = normalizeNullableString(req.body.notes);
     const plan_id = normalizeRequiredString(req.body.plan_id);
-    const payment_status = normalizePaymentStatus(req.body.payment_status) ?? "pending";
+    const customer_id = normalizeNullableString(req.body.customer_id);
+    const requestedPaymentStatus = normalizeNullableString(req.body.payment_status);
     const payment_note = normalizeNullableString(req.body.payment_note);
     const payment_screenshot_url = normalizeNullableString(req.body.payment_screenshot_url);
-    const source = normalizeNullableString(req.body.source) || "dashboard";
-    const order_type = normalizeNullableString(req.body.order_type) || "purchase";
-    const review_status = normalizeNullableString(req.body.review_status) || "confirmed";
 
     if (!full_name || !plan_id) {
       return res.status(400).json({ error: "full_name and plan_id are required" });
@@ -160,18 +166,28 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Invalid or inactive plan" });
     }
 
+    const policy = deriveManualOrderPolicy({ plan, requestedPaymentStatus });
+    const source = policy.source;
+    const order_type = policy.orderType;
+    const payment_status = policy.paymentStatus;
+    const review_status = policy.reviewStatus;
+
     let customer = null;
 
     try {
       customer = await findCustomerForReseller({
         resellerId: reseller.id,
-        full_name,
+        customerId: customer_id,
         phone,
         telegram_username,
       });
     } catch (lookupError) {
       console.error("Customer lookup error:", lookupError);
       return res.status(500).json({ error: "Failed to check customer" });
+    }
+
+    if (customer_id && !customer) {
+      return res.status(404).json({ error: "Customer not found for this reseller" });
     }
 
     if (!customer) {
@@ -208,6 +224,7 @@ router.post("/", async (req, res) => {
           .from("vpn_customers")
           .update(patch)
           .eq("id", customer.id)
+          .eq("reseller_id", reseller.id)
           .select()
           .single();
 
@@ -222,8 +239,15 @@ router.post("/", async (req, res) => {
 
     const priceMmk = Number(plan.price_mmk || 0);
     const commissionPercent = Number(reseller.commission_percent || 20);
-    const commissionAmountMmk = Math.round((priceMmk * commissionPercent) / 100);
-    const totalPaidMmk = payment_status === "paid" ? priceMmk : 0;
+    const initialPaymentReviewStatus =
+      payment_status === "paid" ? review_status : "pending_review";
+    const initialPaymentAmounts = calculatePaymentAmounts({
+      amountMmk:
+        order_type === "purchase" && payment_status === "paid" && review_status === "confirmed"
+          ? priceMmk
+          : 0,
+      commissionPercent,
+    });
 
     const { data: order, error: orderError } = await supabase
       .from("vpn_orders")
@@ -239,9 +263,9 @@ router.post("/", async (req, res) => {
         order_type,
         review_status,
         price_mmk: priceMmk,
-        total_paid_mmk: totalPaidMmk,
+        total_paid_mmk: initialPaymentAmounts.amount_mmk,
         commission_percent: commissionPercent,
-        commission_amount_mmk: commissionAmountMmk,
+        commission_amount_mmk: initialPaymentAmounts.commission_amount_mmk,
       })
       .select(`
         *,
@@ -250,7 +274,8 @@ router.post("/", async (req, res) => {
           full_name,
           telegram_username,
           phone,
-          customer_type
+          customer_type,
+          ssconf_token
         ),
         plan:vpn_plans (
           id,
@@ -260,14 +285,6 @@ router.post("/", async (req, res) => {
           data_limit_gb,
           max_devices,
           allowed_regions
-        ),
-        access_tokens (
-          id,
-          token,
-          status,
-          expires_at,
-          created_at,
-          last_used_at
         )
       `)
       .single();
@@ -277,7 +294,30 @@ router.post("/", async (req, res) => {
       return res.status(500).json({ error: "Failed to create order" });
     }
 
-    return res.status(201).json(order);
+    let responseOrder = order;
+
+    if (order_type === "purchase" && payment_status === "paid") {
+      await createOrderPayment({
+        order,
+        amountMmk: priceMmk,
+        reviewStatus: initialPaymentReviewStatus,
+        source,
+        paymentNote: payment_note,
+        paymentScreenshotUrl: payment_screenshot_url,
+      });
+
+      if (initialPaymentReviewStatus === "confirmed") {
+        const synced = await syncOrderPaymentSummary(order.id);
+        responseOrder = {
+          ...order,
+          ...synced.order,
+          customer: order.customer,
+          plan: order.plan,
+        };
+      }
+    }
+
+    return res.status(201).json(responseOrder);
   } catch (err) {
     console.error("POST /api/reseller/orders crash:", err);
     return res.status(500).json({ error: "Internal server error" });

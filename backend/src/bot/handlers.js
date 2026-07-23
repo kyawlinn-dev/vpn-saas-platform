@@ -27,11 +27,14 @@ import {
   resolveCustomerByTelegram,
   getBestActiveOrder,
   resolveActiveKey,
-  buildDynamicAccessUrl,
   ensureCustomerAndLink,
   ensureCustomerSsconfToken,
 } from "./botCustomerService.js";
 import { createTrialOrder, provisionTrialKey } from "../services/trialService.js";
+import {
+  buildDynamicAccessUrl,
+  getPublicSubscriptionBaseUrl,
+} from "../services/publicAccessUrlService.js";
 
 /**
  * Builds the WebApp URL for a reseller's miniapp.
@@ -252,14 +255,15 @@ export function setupHandlers(bot, {
       }
 
       // 4. Build ssconf:// dynamic access URL (follows customer across server switches)
-      const backendBase = String(process.env.WEBHOOK_BASE_URL || "").replace(/\/$/, "");
-      const telegramUsername = ctx.from?.username || null;
-      const label = [brandName, telegramUsername].filter(Boolean).join("-");
-      const dynamicUrl = buildDynamicAccessUrl(backendBase, customer.ssconfToken, label);
+      const backendBase = getPublicSubscriptionBaseUrl();
+      const label = [brandName, customer.fullName].filter(Boolean).join("-");
+      const dynamicUrl = buildDynamicAccessUrl(customer.ssconfToken, label);
+      if (!backendBase || !dynamicUrl) {
+        throw new Error("Public subscription base URL is not configured");
+      }
 
-      // 5. Bridge URL — worker /open-key renders the "Add to Outline" interstitial
-      const workerBase = String(process.env.PUBLIC_WORKER_BASE_URL || "").replace(/\/$/, "");
-      const bridgeUrl = `${workerBase}/open-key?url=${encodeURIComponent(dynamicUrl)}`;
+      // 5. Bridge URL — backend /open-key renders the "Add to Outline" interstitial
+      const bridgeUrl = `${backendBase}/open-key?url=${encodeURIComponent(dynamicUrl)}`;
 
       // 6. Server display info
       const flag       = keyRow.vpn_servers?.flag_emoji || "🌐";

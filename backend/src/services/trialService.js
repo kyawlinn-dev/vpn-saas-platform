@@ -15,6 +15,7 @@
 import { supabase } from "../lib/supabase.js";
 import { createOutlineKey, deleteOutlineKey } from "./outlineService.js";
 import { getActiveServers, incrementServerUsage } from "./serverService.js";
+import { addDaysToDateOnly, businessDateOnly } from "../utils/businessTime.js";
 
 function gbToBytes(gb) {
   if (!gb || Number(gb) <= 0) return null;
@@ -35,7 +36,7 @@ async function rollbackTrialClaim(telegramLinkId) {
 }
 
 async function findActiveTrialOrder(customerId, resellerId) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = businessDateOnly();
   const { data } = await supabase
     .from("vpn_orders")
     .select(`
@@ -129,9 +130,8 @@ export async function createTrialOrder({
     }
 
     // Step 4: Insert order
-    const startDate = new Date();
-    const expiryDate = new Date();
-    expiryDate.setDate(startDate.getDate() + trialPlan.duration_days);
+    const startDate = businessDateOnly();
+    const expiryDate = addDaysToDateOnly(startDate, trialPlan.duration_days);
 
     const { data: insertedOrder, error: orderError } = await supabase
       .from("vpn_orders")
@@ -143,8 +143,8 @@ export async function createTrialOrder({
         price_mmk: 0,
         commission_percent: 0,
         commission_amount_mmk: 0,
-        start_date: startDate.toISOString().slice(0, 10),
-        expiry_date: expiryDate.toISOString().slice(0, 10),
+        start_date: startDate,
+        expiry_date: expiryDate,
         payment_status: "paid",
         activated_at: now,
         total_paid_mmk: 0,
@@ -199,7 +199,7 @@ export async function createTrialOrder({
 }
 
 /**
- * Provisions a VPN key on the default server for a trial order.
+ * Provisions a VPN key on trial-only server capacity for a trial order.
  *
  * Idempotent: if the order already has an active key, returns without creating another.
  * This makes it safe to call from concurrent bot /start + miniapp auth flows.
@@ -208,8 +208,8 @@ export async function createTrialOrder({
  * The trial order is valid with or without a key — key absence lets the user
  * link a server manually in the miniapp as a fallback.
  *
- * Server selection: getActiveServers orders by is_default DESC then least-loaded,
- * so the designated default server is always tried first.
+ * Server selection: getActiveServers filters server_tier='trial', then orders
+ * by is_default DESC and least-loaded.
  *
  * @param {{ customerId, resellerId, orderId, plan, customerFullName, keyName }} params
  */
@@ -232,12 +232,15 @@ export async function provisionTrialKey({
 
   if (existingKey) return;
 
-  // Pick the default (or best available) server
-  const servers = await getActiveServers({ limit: 1 });
+  // Pick trial capacity only. Trial users must never land on premium servers.
+  const servers = await getActiveServers({ limit: 1, serverTier: "trial" });
   if (!servers.length) {
-    throw new Error("No active server available for trial key provisioning");
+    throw new Error("No active trial server available for trial key provisioning");
   }
   const server = servers[0];
+  if (String(server.server_tier || "").toLowerCase() !== "trial") {
+    throw new Error("Trial provisioning selected a non-trial server; check server_tier configuration");
+  }
 
   const dataLimitBytes = gbToBytes(plan?.data_limit_gb);
   const name = keyName || [

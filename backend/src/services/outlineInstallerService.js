@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -29,6 +31,13 @@ function getSshPrivateKeyPath() {
   return getRequiredEnv("SERVER_BOOTSTRAP_PRIVATE_KEY_PATH");
 }
 
+function getKnownHostsPath() {
+  return (
+    process.env.SERVER_BOOTSTRAP_KNOWN_HOSTS_FILE ||
+    path.join(os.homedir(), ".ssh", "known_hosts")
+  );
+}
+
 function getInstallScriptUrl() {
   return (
     process.env.OUTLINE_INSTALL_SCRIPT_URL ||
@@ -49,9 +58,9 @@ function buildSshBaseArgs({ host, command }) {
     "-p",
     String(DEFAULT_SSH_PORT),
     "-o",
-    "StrictHostKeyChecking=no",
+    "StrictHostKeyChecking=accept-new",
     "-o",
-    "UserKnownHostsFile=/dev/null",
+    `UserKnownHostsFile=${getKnownHostsPath()}`,
     "-o",
     "LogLevel=ERROR",
     "-o",

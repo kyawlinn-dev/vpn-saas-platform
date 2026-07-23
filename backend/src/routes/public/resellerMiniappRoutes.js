@@ -1,5 +1,4 @@
 import express from "express";
-import crypto from "node:crypto";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import {supabase} from "../../lib/supabase.js";
@@ -22,62 +21,25 @@ import {
   activatePendingReviewPurchase,
   OrderLifecycleError,
 } from "../../services/orderLifecycleService.js";
+import {
+  createOrderPayment,
+  loadOrderPayments,
+  syncOrderPaymentSummary,
+} from "../../services/paymentLedgerService.js";
 import { createTrialOrder, provisionTrialKey } from "../../services/trialService.js";
+import {
+  buildDynamicAccessUrl,
+  buildSsconfHttpUrl,
+} from "../../services/publicAccessUrlService.js";
+import { getOrderQuotaSnapshot } from "../../services/subscriptionProvisionService.js";
+import { verifyTelegramInitData } from "../../utils/telegramInitData.js";
+import { businessDateOnly } from "../../utils/businessTime.js";
 
 const router = express.Router();
 
 // Only true when NODE_ENV is explicitly "development". Unset/missing → false →
 // production behaviour (full HMAC verification, no bypass allowed).
 const IS_DEV = process.env.NODE_ENV === "development";
-
-// Verifies Telegram initData per the WebApp HMAC-SHA256 spec.
-// Returns { valid: true, user } on success or { valid: false, user: null } on any failure.
-function verifyTelegramInitData(initData, botToken) {
-  let params;
-  try {
-    params = new URLSearchParams(initData);
-  } catch {
-    return { valid: false, user: null };
-  }
-
-  const hash = params.get("hash");
-  // Telegram HMAC-SHA256 digest is always 64 hex chars; reject anything else
-  // so timingSafeEqual receives buffers of equal length and can't throw.
-  if (typeof hash !== "string" || hash.length !== 64) return { valid: false, user: null };
-
-  params.delete("hash");
-
-  const dataCheckString = Array.from(params.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
-
-  const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
-  const expectedHash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
-
-  let hashMatch = false;
-  try {
-    hashMatch = crypto.timingSafeEqual(Buffer.from(expectedHash, "hex"), Buffer.from(hash, "hex"));
-  } catch {
-    return { valid: false, user: null };
-  }
-
-  if (!hashMatch) return { valid: false, user: null };
-
-  const authDate = Number(params.get("auth_date") || 0);
-  if (Math.floor(Date.now() / 1000) - authDate > 86400) return { valid: false, user: null };
-
-  let user = null;
-  try {
-    user = JSON.parse(params.get("user") || "null");
-  } catch {
-    return { valid: false, user: null };
-  }
-
-  if (!user?.id) return { valid: false, user: null };
-
-  return { valid: true, user };
-}
 
 function miniAppAuthError(message, status = 401, code = "MINIAPP_AUTH_FAILED") {
   return Object.assign(new Error(message), { status, code });
@@ -197,42 +159,39 @@ const uploadLimiter = rateLimit({
   message: { error: "Too many upload attempts. Please try again later." },
 });
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many authentication attempts. Please try again later." },
+});
+
+const orderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many order attempts. Please try again later." },
+});
+
+const serverLinkLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many server switch attempts. Please try again later." },
+});
+
 const EXT_MAP = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
-
-function getRequestBaseUrl(req) {
-  const proto =
-    String(req.headers["x-forwarded-proto"] || "")
-      .split(",")[0]
-      .trim() ||
-    req.protocol ||
-    "http";
-
-  const host =
-    String(req.headers["x-forwarded-host"] || "")
-      .split(",")[0]
-      .trim() || req.get("host");
-
-  return `${proto}://${host}`.replace(/\/$/, "");
-}
-
-function buildSsconfHttpUrl(req, token) {
-  return `${getRequestBaseUrl(req)}/k/${encodeURIComponent(token)}.json`;
-}
-
-function buildDynamicAccessUrl(req, token, label) {
-  const httpUrl = buildSsconfHttpUrl(req, token);
-  const url = new URL(httpUrl);
-  const fragment = label ? `#${label}` : "";
-  return `ssconf://${url.host}${url.pathname}${fragment}`;
-}
 
 function toPublicOutlineKey(req, customerSsconfToken, key, label, orderTotalUsedBytes = 0) {
   if (!customerSsconfToken) return null;
 
   return {
     ssconf_token: customerSsconfToken,
-    ssconf_url: buildSsconfHttpUrl(req, customerSsconfToken),
-    dynamic_access_url: buildDynamicAccessUrl(req, customerSsconfToken, label),
+    ssconf_url: buildSsconfHttpUrl(customerSsconfToken, { req }),
+    dynamic_access_url: buildDynamicAccessUrl(customerSsconfToken, label, { req }),
     data_limit_bytes: key?.data_limit_bytes ?? null,
     used_bytes: orderTotalUsedBytes,
   };
@@ -270,6 +229,7 @@ function buildMiniAppKeyName({ customer, server, order, plan }) {
 function mapServerForMiniApp(server, isCurrent = false) {
   if (!server) return null;
   const loc = getRegionLocation(server.region);
+  const serverTier = normalizeMiniAppServerTier(server.server_tier);
   return {
     id: server.id,
     name: server.name,
@@ -277,6 +237,7 @@ function mapServerForMiniApp(server, isCurrent = false) {
     country: loc?.country ?? server.region,
     city: loc?.city ?? server.name,
     flag: loc?.flag ?? "🌐",
+    server_tier: serverTier,
     is_default: server.is_default,
     is_current: isCurrent,
   };
@@ -339,8 +300,25 @@ async function ensureCustomerSsconfToken(customerId) {
   return updated.ssconf_token;
 }
 
+async function ensureTelegramCustomerType(customer) {
+  if (!customer?.id || customer.customer_type === "telegram") return customer;
+
+  const { data: updated, error } = await supabase
+    .from("vpn_customers")
+    .update({ customer_type: "telegram" })
+    .eq("id", customer.id)
+    .select("id, full_name, telegram_username, status, customer_type")
+    .single();
+
+  if (error || !updated) {
+    throw new Error(error?.message || "Failed to mark Telegram customer");
+  }
+
+  return updated;
+}
+
 async function getBestActiveOrder({ customerId, resellerId }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = businessDateOnly();
 
   const { data: orders, error } = await supabase
     .from("vpn_orders")
@@ -392,6 +370,59 @@ async function getBestActiveOrder({ customerId, resellerId }) {
   const trialOrder = rows.find((order) => order.order_type === "trial");
 
   return trialOrder || null;
+}
+
+function getOrderServerTier(order) {
+  return order?.order_type === "trial" || order?.vpn_plans?.is_trial ? "trial" : "premium";
+}
+
+function normalizeMiniAppServerTier(serverTier) {
+  return String(serverTier || "").trim().toLowerCase() === "trial" ? "trial" : "premium";
+}
+
+function getMiniAppServerAccessState({ activeOrder, server, allowedRegions = [] }) {
+  if (!activeOrder) {
+    return {
+      canAccess: false,
+      reason: "NO_ACTIVE_PACKAGE",
+      requiredTier: null,
+    };
+  }
+
+  const requiredTier = getOrderServerTier(activeOrder);
+  const serverTier = normalizeMiniAppServerTier(server?.server_tier);
+
+  if (serverTier !== requiredTier) {
+    return {
+      canAccess: false,
+      reason:
+        requiredTier === "trial"
+          ? "TRIAL_CANNOT_USE_PREMIUM"
+          : "PREMIUM_CANNOT_USE_TRIAL",
+      requiredTier,
+    };
+  }
+
+  const normalizedAllowedRegions = (allowedRegions || [])
+    .map((r) => String(r || "").toLowerCase().trim())
+    .filter(Boolean);
+
+  if (
+    normalizedAllowedRegions.length > 0 &&
+    !normalizedAllowedRegions.includes(String(server?.region || "").toLowerCase().trim())
+  ) {
+    return {
+      canAccess: false,
+      reason: "REGION_NOT_ALLOWED",
+      requiredTier,
+    };
+  }
+
+  return {
+    canAccess: true,
+    reason: null,
+    requiredTier,
+  };
 }
 
 router.get("/:slug/config", async (req, res) => {
@@ -459,7 +490,7 @@ router.get("/:slug/config", async (req, res) => {
   }
 });
 
-router.post("/:slug/auth", async (req, res) => {
+router.post("/:slug/auth", authLimiter, async (req, res) => {
   try {
     const { slug } = req.params;
     const { init_data } = req.body;
@@ -590,7 +621,8 @@ router.post("/:slug/auth", async (req, res) => {
           id,
           full_name,
           telegram_username,
-          status
+          status,
+          customer_type
         )
       `)
       .eq("reseller_id", miniapp.reseller_id)
@@ -617,8 +649,9 @@ router.post("/:slug/auth", async (req, res) => {
           full_name: fullName,
           telegram_username: telegramUsername,
           status: "active",
+          customer_type: "telegram",
         })
-        .select("id, full_name, telegram_username, status")
+        .select("id, full_name, telegram_username, status, customer_type")
         .single();
 
       if (customerError) {
@@ -660,7 +693,7 @@ router.post("/:slug/auth", async (req, res) => {
 
       telegramLink = createdLink;
     } else {
-      customer = existingLink.vpn_customers;
+      customer = await ensureTelegramCustomerType(existingLink.vpn_customers);
     }
 
     // Ensure the customer has a permanent ssconf_token from this point forward
@@ -684,7 +717,7 @@ router.post("/:slug/auth", async (req, res) => {
 
     if (!activeOrder && miniapp.trial_enabled && !telegramLink.trial_used_at) {
       // Delegate to shared trialService — handles atomic claim, TOCTOU guard,
-      // rollback on failure, and immediate key provisioning on the default server.
+      // rollback on failure, and immediate key provisioning on trial capacity.
       try {
       const { order, plan, created } = await createTrialOrder({
         customerId: customer.id,
@@ -695,8 +728,8 @@ router.post("/:slug/auth", async (req, res) => {
 
       if (order) {
         if (created) {
-          // FIX B: provision a key on the default server immediately so the
-          // customer has a working key on first open (non-fatal if server unavailable).
+          // Provision a trial key immediately so the customer has a working key
+          // on first open (non-fatal if trial capacity is unavailable).
           try {
             await provisionTrialKey({
               customerId: customer.id,
@@ -757,6 +790,7 @@ router.post("/:slug/auth", async (req, res) => {
             id,
             name,
             region,
+            server_tier,
             is_default
           )
         `)
@@ -945,6 +979,7 @@ async function handleMiniAppServers(
 
     let allowedRegions = [];
     let currentServerId = null;
+    let activeOrder = null;
 
     if (telegramUserId) {
       try {
@@ -973,8 +1008,6 @@ async function handleMiniAppServers(
       }
 
       if (link) {
-        let activeOrder = null;
-
         try {
           activeOrder = await getBestActiveOrder({
             customerId: link.customer_id,
@@ -1017,7 +1050,7 @@ async function handleMiniAppServers(
 
     const { data: servers, error: serversError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, status, is_default")
+      .select("id, name, region, status, is_default, server_tier")
       .eq("status", "active")
       .order("created_at", { ascending: true });
 
@@ -1029,20 +1062,18 @@ async function handleMiniAppServers(
       });
     }
 
-    const normalizedAllowedRegions = allowedRegions.map((r) =>
-      String(r || "").toLowerCase().trim()
-    );
-
     const mappedServers = (servers || []).map((server) => {
-      const serverRegion = String(server.region || "").toLowerCase().trim();
-      const canAccess =
-        normalizedAllowedRegions.length === 0
-          ? true
-          : normalizedAllowedRegions.includes(serverRegion);
+      const access = getMiniAppServerAccessState({
+        activeOrder,
+        server,
+        allowedRegions,
+      });
 
       return {
         ...mapServerForMiniApp(server, currentServerId === server.id),
-        can_access: canAccess,
+        can_access: access.canAccess,
+        access_reason: access.reason,
+        required_server_tier: access.requiredTier,
       };
     });
 
@@ -1100,7 +1131,7 @@ router.post("/:slug/servers", async (req, res) => {
   });
 });
 
-router.post("/:slug/servers/:serverId/link", async (req, res) => {
+router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res) => {
   let createdOutlineKeyId = null;
   let createdServer = null;
   let insertedVpnKeyId = null;
@@ -1190,7 +1221,8 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
           id,
           full_name,
           telegram_username,
-          status
+          status,
+          customer_type
         )
       `)
       .eq("reseller_id", miniapp.reseller_id)
@@ -1212,7 +1244,7 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       });
     }
 
-    const customer = link.vpn_customers;
+    const customer = await ensureTelegramCustomerType(link.vpn_customers);
 
     if (!customer || customer.status !== "active") {
       return res.status(403).json({
@@ -1248,10 +1280,11 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
 
     const plan = activeOrder.vpn_plans;
     const allowedRegions = plan?.allowed_regions || [];
+    const requiredServerTier = getOrderServerTier(activeOrder);
 
     const { data: server, error: serverError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, outline_api_url, outline_cert_sha256, status, is_default")
+      .select("id, name, region, outline_api_url, outline_cert_sha256, status, is_default, server_tier")
       .eq("id", serverId)
       .maybeSingle();
 
@@ -1270,10 +1303,26 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
       });
     }
 
+    if (normalizeMiniAppServerTier(server.server_tier) !== requiredServerTier) {
+      const code =
+        requiredServerTier === "trial"
+          ? "TRIAL_CANNOT_USE_PREMIUM"
+          : "PREMIUM_CANNOT_USE_TRIAL";
+      return res.status(403).json({
+        success: false,
+        code,
+        message:
+          requiredServerTier === "trial"
+            ? "Trial packages can only connect to trial servers."
+            : "Premium packages can only connect to premium servers.",
+      });
+    }
+
     const normalizedPlanRegions = allowedRegions.map((r) => String(r || "").toLowerCase().trim());
     if (normalizedPlanRegions.length > 0 && !normalizedPlanRegions.includes(String(server.region || "").toLowerCase().trim())) {
       return res.status(403).json({
         success: false,
+        code: "REGION_NOT_ALLOWED",
         message: "Your package cannot access this server",
       });
     }
@@ -1340,17 +1389,14 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
     }
 
     // Order-wide data-limit guard: block switching to a NEW server once the whole
-    // order has hit its cap. (Re-linking the current server above is exempt.)
-    const planLimitBytes = gbToBytes(plan?.data_limit_gb);
-    if (planLimitBytes) {
-      const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
-      if (totalUsedBytes >= planLimitBytes) {
-        return res.status(403).json({
-          success: false,
-          code: "DATA_LIMIT_REACHED",
-          message: "You have used all your data. Renew or upgrade to switch servers.",
-        });
-      }
+    // order has hit its cap. Re-linking the current server above is exempt.
+    const quota = await getOrderQuotaSnapshot(activeOrder.id);
+    if (!quota.isUnlimited && quota.remainingBytes === 0) {
+      return res.status(403).json({
+        success: false,
+        code: "DATA_LIMIT_REACHED",
+        message: "You have used all your data. Renew or upgrade to switch servers.",
+      });
     }
 
     let insertedKey = activeTargetKey || null;
@@ -1360,10 +1406,7 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
     if (!insertedKey) {
       // New key's Outline limit = remaining order balance, so Outline throttles at the
       // real cap even between hourly usage syncs. null plan limit = unlimited.
-      const remainingBytes =
-        planLimitBytes != null
-          ? Math.max(planLimitBytes - (await getOrderTotalUsedBytes(activeOrder.id)), 0)
-          : null;
+      const remainingBytes = quota.isUnlimited ? null : quota.remainingBytes;
 
       let outlineKey;
       try {
@@ -1594,7 +1637,7 @@ router.post("/:slug/servers/:serverId/link", async (req, res) => {
   }
 });
 
-router.post("/:slug/orders", async (req, res) => {
+router.post("/:slug/orders", orderLimiter, async (req, res) => {
   try {
     const { slug } = req.params;
     const { telegram_user_id, plan_id, payment_screenshot_url, payment_note, init_data } =
@@ -1693,7 +1736,8 @@ router.post("/:slug/orders", async (req, res) => {
           id,
           full_name,
           telegram_username,
-          status
+          status,
+          customer_type
         )
       `)
       .eq("reseller_id", miniapp.reseller_id)
@@ -1715,7 +1759,7 @@ router.post("/:slug/orders", async (req, res) => {
       });
     }
 
-    const customer = link.vpn_customers;
+    const customer = await ensureTelegramCustomerType(link.vpn_customers);
 
     if (!customer || customer.status !== "active") {
       return res.status(403).json({
@@ -1766,14 +1810,19 @@ router.post("/:slug/orders", async (req, res) => {
       });
     }
 
-    // Rule 2: Block if the customer already has an active non-trial purchase.
-    // Expired/stopped/rejected orders have status='stopped' so they are not caught here.
-    // NOTE: No DB-level lock prevents two simultaneous requests from both passing this
-    // check. A partial unique index on (customer_id, reseller_id) WHERE
-    // (status='active' AND order_type='purchase') could close this race in v2.
     const { data: activePurchaseOrder, error: activePurchaseError } = await supabase
       .from("vpn_orders")
-      .select("id")
+      .select(`
+        *,
+        vpn_plans (
+          id,
+          name,
+          price_mmk,
+          data_limit_gb,
+          duration_days,
+          max_devices
+        )
+      `)
       .eq("customer_id", customer.id)
       .eq("reseller_id", miniapp.reseller_id)
       .eq("status", "active")
@@ -1786,13 +1835,6 @@ router.post("/:slug/orders", async (req, res) => {
       return res.status(500).json({
         success: false,
         message: "Failed to check active package",
-      });
-    }
-
-    if (activePurchaseOrder) {
-      return res.status(409).json({
-        success: false,
-        message: "You already have an active package. Wait for it to expire before purchasing again.",
       });
     }
 
@@ -1815,6 +1857,93 @@ router.post("/:slug/orders", async (req, res) => {
     const commissionAmountMmk = Math.floor(
       (priceMmk * commissionPercent) / 100
     );
+
+    if (activePurchaseOrder) {
+      const payments = await loadOrderPayments(activePurchaseOrder.id);
+      const hasPendingPayment = payments.some(
+        (payment) => payment.review_status === "pending_review"
+      );
+
+      if (hasPendingPayment) {
+        return res.status(409).json({
+          success: false,
+          message: "You already have a payment waiting for reseller review.",
+        });
+      }
+
+      await createOrderPayment({
+        order: {
+          ...activePurchaseOrder,
+          commission_percent: activePurchaseOrder.commission_percent ?? commissionPercent,
+          reseller_id: miniapp.reseller_id,
+          customer_id: customer.id,
+        },
+        amountMmk: priceMmk,
+        reviewStatus: "pending_review",
+        applyStatus: "pending",
+        paymentType: "extend",
+        source: "miniapp",
+        plan,
+        paymentNote: payment_note,
+        paymentScreenshotUrl: payment_screenshot_url || null,
+      });
+
+      const { order: updatedOrder } = await syncOrderPaymentSummary(activePurchaseOrder.id);
+
+      const { data: activeKey, error: activeKeyError } = await supabase
+        .from("vpn_keys")
+        .select(`
+          id,
+          data_limit_bytes,
+          used_bytes,
+          vpn_servers (
+            id,
+            name,
+            region,
+            server_tier,
+            is_default
+          )
+        `)
+        .eq("order_id", activePurchaseOrder.id)
+        .eq("status", "active")
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (activeKeyError) {
+        throw new Error(activeKeyError.message || "Failed to load active VPN key");
+      }
+
+      const currentServer = activeKey?.vpn_servers || null;
+
+      return res.status(202).json({
+        success: true,
+        message: "Top-up submitted. Your reseller will review the payment before adding the package.",
+        data: {
+          order: {
+            id: updatedOrder.id,
+            status: updatedOrder.status,
+            payment_status: updatedOrder.payment_status,
+            review_status: updatedOrder.review_status,
+            order_type: updatedOrder.order_type,
+            source: updatedOrder.source,
+            price_mmk: priceMmk,
+            start_date: updatedOrder.start_date,
+            expiry_date: updatedOrder.expiry_date,
+            payment_screenshot_url: payment_screenshot_url || null,
+            payment_note: payment_note || null,
+            created_at: updatedOrder.created_at,
+            plan,
+            payment_type: "extend",
+          },
+          current_server: mapServerForMiniApp(currentServer, Boolean(activeKey)),
+          outline_key: activeKey
+            ? toPublicOutlineKey(req, customerSsconfToken, activeKey, label, activeKey.used_bytes || 0)
+            : null,
+        },
+      });
+    }
 
     const { data: createdOrder, error: orderError } = await supabase
       .from("vpn_orders")
@@ -1873,6 +2002,20 @@ router.post("/:slug/orders", async (req, res) => {
       });
     }
 
+    await createOrderPayment({
+      order: {
+        ...createdOrder,
+        commission_percent: commissionPercent,
+        reseller_id: miniapp.reseller_id,
+        customer_id: customer.id,
+      },
+      amountMmk: priceMmk,
+      reviewStatus: "pending_review",
+      source: "miniapp",
+      paymentNote: payment_note,
+      paymentScreenshotUrl: payment_screenshot_url || null,
+    });
+
     const activation = await activatePendingReviewPurchase({
       order: { ...createdOrder, customer },
       reseller,
@@ -1895,6 +2038,7 @@ router.post("/:slug/orders", async (req, res) => {
           id,
           name,
           region,
+          server_tier,
           is_default
         )
       `)

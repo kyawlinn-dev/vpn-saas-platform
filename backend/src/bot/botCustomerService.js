@@ -131,7 +131,7 @@ export async function ensureCustomerAndLink(telegramUserId, telegramUsername, fu
       id,
       customer_id,
       trial_used_at,
-      vpn_customers ( id, status )
+      vpn_customers ( id, status, customer_type )
     `)
     .eq("reseller_id", resellerId)
     .eq("telegram_user_id", telegramUserId)
@@ -140,6 +140,17 @@ export async function ensureCustomerAndLink(telegramUserId, telegramUsername, fu
   if (linkErr) throw new Error(`telegram_links lookup failed: ${linkErr.message}`);
 
   if (existingLink) {
+    if (existingLink.vpn_customers?.customer_type !== "telegram") {
+      const { error: markErr } = await supabase
+        .from("vpn_customers")
+        .update({ customer_type: "telegram" })
+        .eq("id", existingLink.customer_id);
+
+      if (markErr) {
+        throw new Error(`Failed to mark Telegram customer: ${markErr.message}`);
+      }
+    }
+
     return {
       customerId: existingLink.customer_id,
       telegramLinkId: existingLink.id,
@@ -156,6 +167,7 @@ export async function ensureCustomerAndLink(telegramUserId, telegramUsername, fu
       full_name: fullName,
       telegram_username: telegramUsername,
       status: "active",
+      customer_type: "telegram",
     })
     .select("id")
     .single();
@@ -236,9 +248,3 @@ export async function ensureCustomerSsconfToken(customerId) {
 /**
  * @param {string} backendBaseUrl  e.g. process.env.WEBHOOK_BASE_URL (no trailing slash)
  */
-export function buildDynamicAccessUrl(backendBaseUrl, ssconfToken, label) {
-  const httpUrl = `${backendBaseUrl}/k/${encodeURIComponent(ssconfToken)}.json`;
-  const url = new URL(httpUrl);
-  const fragment = label ? `#${label}` : "";
-  return `ssconf://${url.host}${url.pathname}${fragment}`;
-}

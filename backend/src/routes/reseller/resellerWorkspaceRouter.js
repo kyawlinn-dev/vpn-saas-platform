@@ -85,8 +85,8 @@ router.patch("/", async (req, res) => {
 
   for (const f of ["trial_data_limit_gb", "trial_duration_days"]) {
     if (f in body) {
-      if (body[f] !== null && typeof body[f] !== "number") {
-        return res.status(400).json({ error: `${f} must be a number or null` });
+      if (!Number.isInteger(body[f]) || body[f] <= 0) {
+        return res.status(400).json({ error: `${f} must be a positive integer` });
       }
       updates[f] = body[f];
     }
@@ -146,6 +146,16 @@ router.patch("/", async (req, res) => {
     }
 
     return data || { bot_token_encrypted: updates.bot_token_encrypted || null };
+  }
+
+  // support_username is captured at bot-start time, not re-read per message — restart to pick it up.
+  if ("support_username" in updates && !("bot_token" in body)) {
+    try {
+      await botManager.restartBot(resellerId);
+    } catch {
+      // Non-fatal — workspace saved; best-effort restart
+    }
+    return res.json({ success: true });
   }
 
   // If a bot token was saved, restart the bot and wait for webhook registration.

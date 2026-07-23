@@ -11,7 +11,6 @@ function getAllowedOrigins() {
     process.env.ADMIN_DASHBOARD_URL,
     process.env.MINIAPP_URL,
     process.env.TELEGRAM_MINIAPP_URL,
-    process.env.PUBLIC_WORKER_BASE_URL,
     "http://localhost:3001",
     "http://localhost:3002",
     "http://localhost:5173",

@@ -5,6 +5,8 @@ import {
   extendOrder,
   renewOrder,
   stopOrder,
+  confirmPayment,
+  rejectPayment,
   OrderLifecycleError,
 } from "../../services/orderLifecycleService.js";
 
@@ -146,11 +148,19 @@ router.post("/:orderId/extend", async (req, res) => {
 
     const result =
       order.status === "active"
-        ? await extendOrder({ orderId, resellerId: order.reseller_id, planId: newPlanId })
+        ? await extendOrder({
+            orderId,
+            resellerId: order.reseller_id,
+            planId: newPlanId,
+            idempotencyKey: req.body?.idempotency_key || req.get("Idempotency-Key") || null,
+            source: "admin",
+          })
         : await renewOrder({
             orderId,
             reseller: { id: order.reseller_id },
             planId: newPlanId,
+            idempotencyKey: req.body?.idempotency_key || req.get("Idempotency-Key") || null,
+            source: "admin",
           });
 
     return res.json(result);
@@ -188,6 +198,58 @@ router.post("/:orderId/stop", async (req, res) => {
   } catch (err) {
     console.error(`[${adminTag(req)}] stop order ${orderId} crash:`, err);
     return sendLifecycleError(res, err, "Failed to stop order");
+  }
+});
+
+// POST /api/admin/order-actions/:orderId/confirm-payment
+router.post("/:orderId/confirm-payment", async (req, res) => {
+  const { orderId } = req.params;
+
+  try {
+    const order = await getOrderWithPlan(orderId);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    console.log(
+      `[${adminTag(req)}] CONFIRM PAYMENT order ${orderId} - ` +
+        `customer: ${order.customer?.full_name}, reseller: ${order.reseller_id}`
+    );
+
+    const result = await confirmPayment({
+      orderId,
+      resellerId: order.reseller_id,
+      reviewerAdminId: req.admin?.id || null,
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error(`[${adminTag(req)}] confirm payment ${orderId} crash:`, err);
+    return sendLifecycleError(res, err, "Failed to confirm payment");
+  }
+});
+
+// POST /api/admin/order-actions/:orderId/reject-payment
+router.post("/:orderId/reject-payment", async (req, res) => {
+  const { orderId } = req.params;
+
+  try {
+    const order = await getOrderWithPlan(orderId);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    console.log(
+      `[${adminTag(req)}] REJECT PAYMENT order ${orderId} - ` +
+        `customer: ${order.customer?.full_name}, reseller: ${order.reseller_id}`
+    );
+
+    const result = await rejectPayment({
+      orderId,
+      resellerId: order.reseller_id,
+      reviewerAdminId: req.admin?.id || null,
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error(`[${adminTag(req)}] reject payment ${orderId} crash:`, err);
+    return sendLifecycleError(res, err, "Failed to reject payment");
   }
 });
 
