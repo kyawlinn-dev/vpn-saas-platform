@@ -10,17 +10,17 @@ interface TopbarProps {
 
 export function Topbar({ onOpenDrawer, loading, onRefresh }: TopbarProps) {
   return (
-    <div className="sticky top-0 z-30 h-16 flex items-center gap-2 border-b border-border bg-card/80 backdrop-blur px-4 md:px-6">
+    <div className="sticky top-0 z-30 h-10 flex items-center gap-1.5 border-b border-border bg-card/85 backdrop-blur px-2.5 md:h-11 md:px-4">
       {/* Mobile: hamburger + compact brand */}
       <div className="flex items-center gap-2 md:hidden">
-        <Button variant="ghost" size="icon" onClick={onOpenDrawer} aria-label="Open menu">
-          <Menu className="h-5 w-5" />
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onOpenDrawer} aria-label="Open menu">
+          <Menu className="h-4 w-4" />
         </Button>
         <div className="flex items-center gap-2 min-w-0">
-          <div className="h-7 w-7 shrink-0 rounded-lg bg-gradient-to-br from-[#7c3aed] to-[#2563eb] grid place-items-center">
-            <span className="text-white font-display font-black text-xs">R</span>
+          <div className="h-6 w-6 shrink-0 rounded-md bg-primary grid place-items-center">
+            <span className="text-primary-foreground font-display font-black text-[11px]">R</span>
           </div>
-          <span className="text-sm font-semibold truncate">Reseller Dashboard</span>
+          <span className="text-xs font-semibold truncate">Reseller Dashboard</span>
         </div>
       </div>
 
@@ -28,12 +28,12 @@ export function Topbar({ onOpenDrawer, loading, onRefresh }: TopbarProps) {
       <div className="flex-1" />
 
       {/* Right cluster */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {/* Live / sync pill */}
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs">
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-[11px]">
           <span
             className={cn(
-              "h-2 w-2 rounded-full shrink-0",
+              "h-1.5 w-1.5 rounded-full shrink-0",
               loading ? "bg-warning animate-pulse" : "bg-[color:var(--success)]"
             )}
           />
@@ -46,12 +46,13 @@ export function Topbar({ onOpenDrawer, loading, onRefresh }: TopbarProps) {
         <Button
           variant="ghost"
           size="icon"
+          className="h-8 w-8"
           disabled={loading}
           onClick={onRefresh}
           title="Refresh data"
           aria-label="Refresh data"
         >
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
       </div>
     </div>

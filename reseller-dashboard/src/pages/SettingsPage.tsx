@@ -21,11 +21,11 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="p-6 md:p-7">
-      <div className="mb-5">
-        <h2 className="text-lg font-semibold font-display text-foreground">{title}</h2>
+    <Card className="p-4">
+      <div className="mb-3">
+        <h2 className="text-sm font-black font-display text-foreground">{title}</h2>
         {description ? (
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
         ) : null}
       </div>
       {children}
@@ -82,7 +82,7 @@ function BrandSection({
       title="Brand & Contact"
       description="Displayed in your customer miniapp — brand name, logo, and support handle."
     >
-      <div className="space-y-4">
+      <div className="space-y-3">
         <FormField label="Miniapp Slug" hint="Changing the slug breaks deployed links — contact admin.">
           <Input value={settings.miniapp_slug} disabled />
         </FormField>
@@ -515,20 +515,22 @@ export function SettingsPage() {
   if (!settings) return null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <div>
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight font-display text-foreground">
+        <h1 className="font-display text-[18px] font-black tracking-tight text-foreground">
           Workspace Settings
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
           Configure your branded miniapp, trial offer, payment details, and Telegram bot.
         </p>
       </div>
 
-      <BrandSection settings={settings} patch={patch} />
-      <TrialSection settings={settings} patch={patch} />
-      <PaymentSection settings={settings} patch={patch} />
-      <BotTokenSection settings={settings} patch={patch} />
+      <div className="grid gap-3 xl:grid-cols-2">
+        <BrandSection settings={settings} patch={patch} />
+        <BotTokenSection settings={settings} patch={patch} />
+        <TrialSection settings={settings} patch={patch} />
+        <PaymentSection settings={settings} patch={patch} />
+      </div>
     </div>
   );
 }

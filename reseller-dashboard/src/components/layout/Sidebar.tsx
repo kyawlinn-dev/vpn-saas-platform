@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { type LucideIcon, ChevronsLeft, ChevronsRight, LogOut } from "lucide-react";
+import { type LucideIcon, LogOut, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { ResellerProfile } from "@/hooks/useResellerProfile";
@@ -40,37 +40,48 @@ export function Sidebar({
   return (
     <div className="bg-sidebar text-sidebar-foreground border-r border-sidebar-border h-screen flex flex-col overflow-hidden">
       {/* Brand header */}
-      <div className="h-16 px-3 flex items-center gap-2 border-b border-sidebar-border shrink-0">
-        <div className="h-9 w-9 shrink-0 rounded-lg bg-gradient-to-br from-[#7c3aed] to-[#2563eb] grid place-items-center">
-          <span className="text-white font-display font-black text-sm">R</span>
-        </div>
+      <div className={cn(
+        "h-14 px-2.5 flex items-center gap-2 border-b border-sidebar-border shrink-0",
+        !expanded && "justify-center"
+      )}>
+        {!expanded && onToggleCollapse && !forceExpanded ? (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-primary-foreground shadow-[0_8px_22px_-12px_rgba(255,121,84,0.9)] transition-transform active:scale-95"
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+          >
+            <PanelLeftOpen className="h-5 w-5" />
+          </button>
+        ) : (
+          <div className="h-8 w-8 shrink-0 rounded-lg bg-primary grid place-items-center shadow-[0_8px_22px_-12px_rgba(255,121,84,0.9)]">
+            <span className="text-primary-foreground font-display font-black text-sm">R</span>
+          </div>
+        )}
         {expanded && (
-          <span className="text-sm font-semibold truncate flex-1 min-w-0">
+          <span className="text-[13px] font-semibold truncate flex-1 min-w-0 text-white">
             Reseller Dashboard
           </span>
         )}
         {/* Collapse toggle — hidden inside mobile drawer (forceExpanded) */}
-        {onToggleCollapse && !forceExpanded && (
+        {onToggleCollapse && !forceExpanded && expanded && (
           <Button
             variant="ghost"
             size="icon"
             onClick={onToggleCollapse}
-            className="ml-auto shrink-0"
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            className="ml-auto shrink-0 text-primary hover:bg-primary/10 hover:text-primary"
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
           >
-            {collapsed ? (
-              <ChevronsRight className="h-4 w-4" />
-            ) : (
-              <ChevronsLeft className="h-4 w-4" />
-            )}
+            <PanelLeftClose className="h-4 w-4" />
           </Button>
         )}
       </div>
 
       {/* Group label — expanded only */}
       {expanded && (
-        <p className="px-3 pt-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">
+        <p className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-sidebar-foreground/55 shrink-0">
           Menu
         </p>
       )}
@@ -87,13 +98,13 @@ export function Sidebar({
               title={!expanded ? label : undefined}
               aria-label={!expanded ? label : undefined}
               className={cn(
-                "h-10 rounded-md flex items-center gap-3 px-3 text-sm transition-colors",
+                "h-9 rounded-md flex items-center gap-2.5 px-2.5 text-[13px] transition-colors",
                 active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-semibold"
-                  : "text-sidebar-foreground hover:bg-secondary"
+                  ? "bg-primary text-primary-foreground font-semibold shadow-[0_10px_24px_-16px_rgba(255,121,84,0.95)]"
+                  : "text-sidebar-foreground hover:bg-white/8 hover:text-white"
               )}
             >
-              <Icon className="h-[18px] w-[18px] shrink-0" />
+              <Icon className="h-4 w-4 shrink-0" />
               {expanded && <span className="truncate">{label}</span>}
             </NavLink>
           );
@@ -104,15 +115,15 @@ export function Sidebar({
       <div className="border-t border-sidebar-border p-2 shrink-0">
         <div className="flex items-center gap-2 px-1 py-1 min-w-0">
           {/* Avatar */}
-          <div className="h-8 w-8 shrink-0 rounded-full bg-gradient-to-br from-[#7c3aed] to-[#2563eb] grid place-items-center">
-            <span className="text-white text-xs font-bold">{initials}</span>
+          <div className="h-8 w-8 shrink-0 rounded-full bg-primary grid place-items-center">
+            <span className="text-primary-foreground text-xs font-bold">{initials}</span>
           </div>
           {expanded && (
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate leading-tight">
+              <p className="text-[13px] font-medium truncate leading-tight text-white">
                 {profileLoading ? "Loading…" : profile?.name || "Reseller"}
               </p>
-              <p className="text-xs text-muted-foreground truncate leading-tight">
+              <p className="text-[11px] text-sidebar-foreground/60 truncate leading-tight">
                 {profile?.email || "Signed in"}
               </p>
             </div>
@@ -122,7 +133,7 @@ export function Sidebar({
         {expanded ? (
           <Button
             variant="ghost"
-            className="w-full mt-1 justify-start gap-2 text-sm hover:text-destructive"
+            className="w-full mt-1 justify-start gap-2 text-[13px] text-sidebar-foreground hover:bg-white/6 hover:text-white"
             onClick={onSignOut}
           >
             <LogOut className="h-4 w-4 shrink-0" />

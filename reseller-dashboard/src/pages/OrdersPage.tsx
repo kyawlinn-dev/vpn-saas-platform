@@ -12,13 +12,13 @@ export function OrdersPage() {
   return (
     <>
       {!loading && plans.length === 0 ? (
-        <div className="mb-4 rounded-md border border-warning/25 bg-warning/10 px-4 py-3 text-sm text-[color:var(--warning)]">
+        <div className="mb-3 rounded-md border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-[color:var(--warning)]">
           No active plans are available yet. Add plans from the admin side first.
         </div>
       ) : null}
 
       {error ? (
-        <div className="mb-4 rounded-md border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <div className="mb-3 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {error}
         </div>
       ) : null}
@@ -35,6 +35,7 @@ export function OrdersPage() {
         rowsPerPageOptions={[5, 10, 20, 50]}
         showSearch
         showFilters
+        showCustomerTypeFilter
         compactMobile
         resetTrigger={orderResetTrigger}
         headerAction={{

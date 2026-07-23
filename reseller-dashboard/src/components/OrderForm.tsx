@@ -76,15 +76,25 @@ function PlanPreview({ plan }: { plan: Plan | undefined }) {
 
 export function OrderForm({ plans, onSuccess, onCancel }: Props) {
   const [form, setForm] = useState(initialForm);
+  const durations = useMemo(
+    () => Array.from(new Set(plans.map((plan) => plan.duration_days))).sort((a, b) => a - b),
+    [plans]
+  );
+  const [duration, setDuration] = useState<number | "all">("all");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const filteredPlans = useMemo(
+    () => plans.filter((plan) => duration === "all" || plan.duration_days === duration),
+    [plans, duration]
+  );
 
   // Auto-select first plan once plans are available
   useEffect(() => {
-    if (!form.plan_id && plans[0]) {
-      setForm((prev) => ({ ...prev, plan_id: plans[0].id }));
+    const currentVisible = filteredPlans.some((plan) => plan.id === form.plan_id);
+    if ((!form.plan_id || !currentVisible) && filteredPlans[0]) {
+      setForm((prev) => ({ ...prev, plan_id: filteredPlans[0].id }));
     }
-  }, [plans, form.plan_id]);
+  }, [filteredPlans, form.plan_id]);
 
   const selectedPlan = useMemo(
     () => plans.find((item) => item.id === form.plan_id),
@@ -160,13 +170,40 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
           />
         </FormField>
 
+        {durations.length > 1 ? (
+          <div>
+            <div className="mb-1.5 text-[11px] font-semibold text-muted-foreground">
+              Duration
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <Button
+                variant={duration === "all" ? "primary" : "outline"}
+                size="sm"
+                onClick={() => setDuration("all")}
+              >
+                All
+              </Button>
+              {durations.map((days) => (
+                <Button
+                  key={days}
+                  variant={duration === days ? "primary" : "outline"}
+                  size="sm"
+                  onClick={() => setDuration(days)}
+                >
+                  {days} days
+                </Button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormField label="Plan">
             <Select
               value={form.plan_id}
               onChange={(e) => setForm((p) => ({ ...p, plan_id: e.target.value }))}
             >
-              {plans.map((item) => (
+              {filteredPlans.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name} — {formatMMK(item.price_mmk)} / {item.duration_days}d
                 </option>

@@ -32,15 +32,6 @@ export interface Plan {
   is_active?: boolean;
 }
 
-export interface AccessToken {
-  id: string;
-  token: string;
-  status: string;
-  expires_at: Nullable<string>;
-  created_at?: string;
-  last_used_at?: Nullable<string>;
-}
-
 export interface Order {
   id: string;
   customer_id: string;
@@ -75,7 +66,18 @@ export interface Order {
   customer?: Customer;
   reseller?: Reseller;
   plan?: Plan;
-  access_tokens?: AccessToken[];
+  payments?: OrderPayment[];
+}
+
+export interface OrderPayment {
+  id: string;
+  amount_mmk: number;
+  commission_amount_mmk?: number;
+  platform_due_mmk?: number;
+  review_status: "pending_review" | "confirmed" | "rejected" | string;
+  payment_type?: "initial" | "extend" | "renew" | string;
+  apply_status?: "pending" | "applied" | "failed" | "reversed" | string;
+  created_at?: string;
 }
 
 export interface VpnKey {
@@ -187,4 +189,93 @@ export interface ServerInventoryCounts {
   active_not_ready: number;
   full: number;
   failed: number;
+}
+
+export interface AccountingPeriod {
+  month: string;
+  startIso: string;
+  endIso: string;
+}
+
+export interface AccountingSummary {
+  gross_paid_mmk: number;
+  reseller_commission_mmk: number;
+  platform_due_mmk: number;
+  pending_review_mmk: number;
+  unpaid_mmk: number;
+  rejected_mmk: number;
+  confirmed_order_count: number;
+  pending_review_count: number;
+  unpaid_order_count: number;
+  rejected_order_count: number;
+  total_order_count: number;
+}
+
+export interface AccountingSettlementOrder {
+  id: string;
+  created_at: Nullable<string>;
+  customer_name: string;
+  telegram_username: Nullable<string>;
+  plan_name: string;
+  source: Nullable<string>;
+  status: string;
+  payment_status: string;
+  review_status: string;
+  price_mmk: number;
+  total_paid_mmk: number;
+  commission_percent: number;
+  commission_amount_mmk: number;
+  platform_due_mmk: number;
+}
+
+export interface MonthlySettlement {
+  id: string;
+  reseller_id: string;
+  settlement_month: string;
+  status: "draft" | "submitted" | "confirmed" | "reopened" | string;
+  gross_paid_mmk: number;
+  reseller_commission_mmk: number;
+  platform_due_mmk: number;
+  pending_review_mmk: number;
+  unpaid_mmk: number;
+  rejected_mmk: number;
+  confirmed_order_count: number;
+  pending_review_count: number;
+  unpaid_order_count: number;
+  rejected_order_count: number;
+  total_order_count: number;
+  transfer_note: Nullable<string>;
+  transfer_reference: Nullable<string>;
+  transfer_proof_url: Nullable<string>;
+  submitted_at: Nullable<string>;
+  confirmed_at: Nullable<string>;
+  confirmed_by_admin_id: Nullable<string>;
+  reopened_at: Nullable<string>;
+  admin_note: Nullable<string>;
+  snapshot_basis?: Record<string, unknown>;
+  created_at: Nullable<string>;
+  updated_at: Nullable<string>;
+  reseller?: Reseller | null;
+  confirmed_by?: {
+    id: string;
+    full_name?: Nullable<string>;
+    email?: Nullable<string>;
+  } | null;
+}
+
+export interface MonthlyAccountingSnapshot {
+  period: AccountingPeriod;
+  reseller: {
+    id: string;
+    name: string;
+    commission_percent: number;
+  };
+  summary: AccountingSummary;
+  settlement_orders: AccountingSettlementOrder[];
+  basis: {
+    period_field: string;
+    included_orders: string;
+    platform_due_formula: string;
+  };
+  settlement: MonthlySettlement | null;
 }

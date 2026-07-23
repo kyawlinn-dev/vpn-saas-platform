@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
+  Calculator,
   ReceiptText,
+  Users,
   Send,
   Tags,
   Settings,
@@ -14,12 +16,14 @@ import { useResellerProfile } from "@/hooks/useResellerProfile";
 import { Sidebar, type NavItem } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
-const EXPANDED_WIDTH = 248;
-const COLLAPSED_WIDTH = 72;
+const EXPANDED_WIDTH = 188;
+const COLLAPSED_WIDTH = 60;
 
 const NAV_ITEMS: NavItem[] = [
   { label: "Overview",        to: "/app/overview",         Icon: LayoutDashboard },
   { label: "Orders",          to: "/app/orders",           Icon: ReceiptText },
+  { label: "Customers",       to: "/app/customers",        Icon: Users },
+  { label: "Accounting",      to: "/app/accounting",       Icon: Calculator },
   { label: "Telegram Orders", to: "/app/telegram-orders",  Icon: Send },
   { label: "Plans",           to: "/app/plans",            Icon: Tags },
   { label: "Settings",        to: "/app/settings",         Icon: Settings },
@@ -137,11 +141,11 @@ export function AppShell() {
           onRefresh={() => void refresh()}
         />
 
-        <main className="mx-auto w-full max-w-[1536px] px-4 md:px-6 py-4 md:py-6">
+        <main className="mx-auto w-full max-w-[1640px] px-2.5 py-3 md:px-4 md:py-3.5">
           {error && (
             <div
               role="alert"
-              className="mb-4 rounded-md border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+              className="mb-3 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-xs text-destructive"
             >
               {error}
             </div>
@@ -149,7 +153,7 @@ export function AppShell() {
           {profileError && (
             <div
               role="alert"
-              className="mb-4 rounded-md border border-warning/25 bg-warning/10 px-4 py-3 text-sm text-[color:var(--warning)]"
+              className="mb-3 rounded-md border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-[color:var(--warning)]"
             >
               {profileError}
             </div>

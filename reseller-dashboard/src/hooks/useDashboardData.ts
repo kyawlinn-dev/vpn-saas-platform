@@ -88,7 +88,7 @@ export function useDashboardData(): DashboardDataState {
 
     const results = await Promise.allSettled([
       api.get<Order[]>("/reseller/orders"),
-      api.get<Plan[]>("/public/plans"),
+      api.get<Plan[]>("/reseller/plans"),
       api.get<VpnKey[]>("/reseller/keys"),
     ]);
 

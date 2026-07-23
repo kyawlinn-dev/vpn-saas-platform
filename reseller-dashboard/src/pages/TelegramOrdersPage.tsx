@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
@@ -43,7 +44,11 @@ function getOrderSource(order: Order) {
 function getTelegramOrders(orders: Order[]) {
   return orders.filter((order) => {
     const source = getOrderSource(order);
-    return (source === "miniapp" || source === "bot") && order.order_type === "purchase";
+    const telegramManaged =
+      source === "miniapp" ||
+      source === "bot" ||
+      order.customer?.customer_type === "telegram";
+    return telegramManaged && order.order_type === "purchase";
   });
 }
 
@@ -139,15 +144,52 @@ export function TelegramOrdersPage() {
     }
   };
 
+  const renderOrderActions = (order: Order) => {
+    const busy = busyOrderId === order.id;
+    const canReview =
+      order.review_status === "pending_review" &&
+      ["active", "pending"].includes(String(order.status || ""));
+    const hasScreenshot = Boolean(order.payment_screenshot_url);
+    const actions: ActionMenuItem[] = [
+      {
+        label: fetchingSignedUrl === order.id ? "Loading screenshot..." : "Preview screenshot",
+        icon: <ImageIcon size={14} />,
+        disabled: !hasScreenshot || fetchingSignedUrl === order.id,
+        onSelect: () => void handlePreview(order.id),
+      },
+      {
+        label: "Open original",
+        icon: <ExternalLink size={14} />,
+        disabled: !hasScreenshot || fetchingSignedUrl === order.id,
+        onSelect: () => void handleOpenOriginal(order.id),
+      },
+      {
+        label: busy ? "Confirming..." : "Confirm payment",
+        icon: <CheckCircle2 size={14} />,
+        disabled: !canReview || busy,
+        onSelect: () => void handleConfirm(order.id),
+      },
+      {
+        label: "Reject payment",
+        icon: <XCircle size={14} />,
+        disabled: !canReview || busy,
+        destructive: true,
+        onSelect: () => setRejectConfirmOrder(order),
+      },
+    ];
+
+    return <ActionMenu items={actions} />;
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Header */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight font-display text-foreground">
+          <h1 className="font-display text-[18px] font-black tracking-tight text-foreground">
             Telegram Orders
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
             Review instant-access purchases from Mini App and bot. Confirm valid payments or reject fake ones.
           </p>
         </div>
@@ -181,33 +223,33 @@ export function TelegramOrdersPage() {
       ) : null}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <div className="text-sm text-muted-foreground">Total Telegram Orders</div>
-          <div className="mt-1 text-2xl font-bold font-display text-foreground">{counts.total}</div>
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <Card className="p-2.5">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total Telegram Orders</div>
+          <div className="mt-1 text-lg font-black font-display text-foreground">{counts.total}</div>
         </Card>
-        <Card className="p-4">
-          <div className="text-sm text-muted-foreground">Pending Review</div>
-          <div className="mt-1 text-2xl font-bold font-display text-[color:var(--warning)]">
+        <Card className="p-2.5">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Pending Review</div>
+          <div className="mt-1 text-lg font-black font-display text-[color:var(--warning)]">
             {counts.pending}
           </div>
         </Card>
-        <Card className="p-4">
-          <div className="text-sm text-muted-foreground">Confirmed</div>
-          <div className="mt-1 text-2xl font-bold font-display text-[color:var(--success)]">
+        <Card className="p-2.5">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Confirmed</div>
+          <div className="mt-1 text-lg font-black font-display text-[color:var(--success)]">
             {counts.confirmed}
           </div>
         </Card>
-        <Card className="p-4">
-          <div className="text-sm text-muted-foreground">Rejected</div>
-          <div className="mt-1 text-2xl font-bold font-display text-destructive">
+        <Card className="p-2.5">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Rejected</div>
+          <div className="mt-1 text-lg font-black font-display text-destructive">
             {counts.rejected}
           </div>
         </Card>
       </div>
 
       {/* Filter bar + orders */}
-      <Card className="p-4 space-y-4">
+      <Card className="p-3 space-y-3">
         {/* Filters row */}
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -261,11 +303,6 @@ export function TelegramOrdersPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredOrders.map((order) => {
-                    const busy = busyOrderId === order.id;
-                    const canReview =
-                      order.review_status === "pending_review" &&
-                      ["active", "pending"].includes(String(order.status || ""));
-
                     return (
                       <TableRow key={order.id}>
                         <TableCell>
@@ -342,26 +379,7 @@ export function TelegramOrdersPage() {
                         </TableCell>
 
                         <TableCell>
-                          <div className="flex flex-col lg:flex-row justify-end gap-2">
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              leftIcon={<CheckCircle2 size={15} />}
-                              disabled={!canReview || busy}
-                              onClick={() => void handleConfirm(order.id)}
-                            >
-                              Confirm
-                            </Button>
-                            <Button
-                              variant="destructiveOutline"
-                              size="sm"
-                              leftIcon={<XCircle size={15} />}
-                              disabled={!canReview || busy}
-                              onClick={() => setRejectConfirmOrder(order)}
-                            >
-                              Reject
-                            </Button>
-                          </div>
+                          <div className="flex justify-end">{renderOrderActions(order)}</div>
                         </TableCell>
                       </TableRow>
                     );
@@ -373,11 +391,6 @@ export function TelegramOrdersPage() {
             {/* Mobile cards */}
             <div className="space-y-3 md:hidden">
               {filteredOrders.map((order) => {
-                const busy = busyOrderId === order.id;
-                const canReview =
-                  order.review_status === "pending_review" &&
-                  ["active", "pending"].includes(String(order.status || ""));
-
                 return (
                   <Card key={order.id} className="p-4 space-y-3">
                     {/* Row 1: name + source */}
@@ -453,25 +466,9 @@ export function TelegramOrdersPage() {
                     </div>
 
                     {/* Actions row */}
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        leftIcon={<CheckCircle2 size={15} />}
-                        disabled={!canReview || busy}
-                        onClick={() => void handleConfirm(order.id)}
-                      >
-                        Confirm
-                      </Button>
-                      <Button
-                        variant="destructiveOutline"
-                        size="sm"
-                        leftIcon={<XCircle size={15} />}
-                        disabled={!canReview || busy}
-                        onClick={() => setRejectConfirmOrder(order)}
-                      >
-                        Reject
-                      </Button>
+                    <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/55 px-2.5 py-2">
+                      <span className="text-xs font-semibold text-muted-foreground">Actions</span>
+                      {renderOrderActions(order)}
                     </div>
                   </Card>
                 );

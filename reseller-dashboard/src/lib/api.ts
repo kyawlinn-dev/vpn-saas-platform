@@ -36,8 +36,11 @@ api.interceptors.response.use(
     const url = config?.url || "";
 
     const isRefreshCall = url.includes("/auth/reseller/refresh");
+    const isLoginCall = url.includes("/auth/reseller/login");
     const isLogoutCall = url.includes("/auth/reseller/logout");
-    const canRetry = Boolean(config && !config._retry && status === 401 && !isRefreshCall && !isLogoutCall);
+    const canRetry = Boolean(
+      config && !config._retry && status === 401 && !isRefreshCall && !isLoginCall && !isLogoutCall
+    );
 
     if (!canRetry || !config) {
       return Promise.reject(error);

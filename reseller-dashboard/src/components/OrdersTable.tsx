@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, Plus, Copy, Info, ChevronLeft, ChevronRight,
-  RefreshCw, Ban, KeyRound, Lightbulb,
+  RefreshCw, Ban, KeyRound, Lightbulb, Send, UserRound,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,11 +14,13 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { UsageBar } from "@/components/ui/usage-bar";
 import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/ui/action-button";
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import {
   Dialog, DialogHeader, DialogTitle, DialogDescription,
   DialogBody, DialogFooter, DialogClose,
 } from "@/components/ui/dialog";
 import { FormField } from "@/components/ui/form-field";
+import { cn } from "@/lib/utils";
 import { api } from "../lib/api";
 import {
   formatDate, formatDaysLeft, formatMMK, formatUsageGb, isExpiringSoon,
@@ -38,6 +40,8 @@ interface Props {
   showFilters?: boolean;
   loading?: boolean;
   compactMobile?: boolean;
+  compact?: boolean;
+  showCustomerTypeFilter?: boolean;
   resetTrigger?: number;
   headerAction?: {
     label: string;
@@ -56,11 +60,14 @@ type OrderFilter =
   | "expired"
   | "stopped";
 
+type CustomerTypeFilter = "all" | "normal" | "telegram";
+
 type RenewDialogState = {
   open: boolean;
   order: Order | null;
   planId: string;
   action: "extend" | "renew";
+  idempotencyKey: string;
 };
 type StopDialogState = { open: boolean; order: Order | null };
 type DetailsDialogState = { open: false; order: null } | { open: true; order: Order };
@@ -68,8 +75,7 @@ type AccessKeyDialogState = {
   open: boolean;
   customerName: string;
   accessUrl: string;
-  token?: string;
-  subscriptionUrl?: string;
+  ssconfUrl?: string;
   serverCount?: number;
   actionType: "activate" | "renew";
 };
@@ -96,6 +102,15 @@ function mapActionError(errorData?: { error?: string; code?: string }) {
 
 function getPaymentDisplayStatus(order: Order) {
   return order.order_type === "trial" ? "trial" : order.payment_status;
+}
+
+function isTelegramManagedOrder(order: Order) {
+  const source = String(order.source || "").toLowerCase();
+  return (
+    order.customer?.customer_type === "telegram" ||
+    source === "miniapp" ||
+    source === "bot"
+  );
 }
 
 function getPreferredAccessUrl(key?: VpnKey | null) {
@@ -249,11 +264,11 @@ function LoadingView() {
 
 function DetailItem({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+    <div className="rounded-md border border-border bg-card px-2.5 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </div>
-      <div className="mt-0.5 text-sm font-medium text-foreground">{value}</div>
+      <div className="mt-0.5 text-xs font-semibold text-foreground">{value}</div>
     </div>
   );
 }
@@ -271,6 +286,8 @@ export function OrdersTable({
   showFilters = true,
   loading = false,
   compactMobile = false,
+  compact = false,
+  showCustomerTypeFilter = false,
   resetTrigger,
   headerAction,
 }: Props) {
@@ -281,6 +298,7 @@ export function OrdersTable({
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<OrderFilter>("all");
+  const [customerTypeFilter, setCustomerTypeFilter] = useState<CustomerTypeFilter>("all");
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(initialRowsPerPage);
 
@@ -289,6 +307,7 @@ export function OrdersTable({
     order: null,
     planId: "",
     action: "renew",
+    idempotencyKey: "",
   });
   const [stopDialog, setStopDialog] = useState<StopDialogState>({ open: false, order: null });
   const [renewError, setRenewError] = useState("");
@@ -298,8 +317,7 @@ export function OrdersTable({
     open: false,
     customerName: "",
     accessUrl: "",
-    token: "",
-    subscriptionUrl: "",
+    ssconfUrl: "",
     serverCount: 0,
     actionType: "activate",
   });
@@ -310,6 +328,29 @@ export function OrdersTable({
     setTimeout(() => {
       tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
+  }, []);
+
+  const openRenewDialog = useCallback(
+    (order: Order, action: "extend" | "renew") => {
+      setRenewDialog({
+        open: true,
+        order,
+        planId: order.plan_id,
+        action,
+        idempotencyKey: crypto.randomUUID(),
+      });
+    },
+    []
+  );
+
+  const closeRenewDialog = useCallback(() => {
+    setRenewDialog({
+      open: false,
+      order: null,
+      planId: "",
+      action: "renew",
+      idempotencyKey: "",
+    });
   }, []);
 
   const handlePageChange = useCallback(
@@ -328,7 +369,7 @@ export function OrdersTable({
 
   useEffect(() => {
     setPage(1);
-  }, [search, filter, rowsPerPage]);
+  }, [search, filter, customerTypeFilter, rowsPerPage]);
 
   useEffect(() => {
     if (!message) return;
@@ -364,6 +405,17 @@ export function OrdersTable({
     return map;
   }, [keys]);
 
+  const keyByOrderId = useMemo(() => {
+    const map: Record<string, VpnKey> = {};
+    for (const key of keys) {
+      if (!key.order_id) continue;
+      if (!map[key.order_id] || key.status === "active") {
+        map[key.order_id] = key;
+      }
+    }
+    return map;
+  }, [keys]);
+
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase();
     return orders.filter((order) => {
@@ -376,10 +428,13 @@ export function OrdersTable({
         String(order.plan?.name || "").toLowerCase().includes(query) ||
         String(order.status || "").toLowerCase().includes(query) ||
         String(getPaymentDisplayStatus(order) || "").toLowerCase().includes(query) ||
-        String(getPreferredAccessUrl(key) || "").toLowerCase().includes(query) ||
-        String(order.access_tokens?.[0]?.token || "").toLowerCase().includes(query);
+        String(getPreferredAccessUrl(key) || "").toLowerCase().includes(query);
 
       if (!matchesSearch) return false;
+
+      const isTelegramCustomer = isTelegramManagedOrder(order);
+      if (customerTypeFilter === "telegram" && !isTelegramCustomer) return false;
+      if (customerTypeFilter === "normal" && isTelegramCustomer) return false;
 
       switch (filter) {
         case "pending":
@@ -398,7 +453,7 @@ export function OrdersTable({
           return true;
       }
     });
-  }, [orders, filter, search, activeKeyByOrderId]);
+  }, [orders, filter, search, customerTypeFilter, activeKeyByOrderId]);
 
   const totalPages = Math.max(1, Math.ceil(filteredOrders.length / rowsPerPage));
   const currentPage = Math.min(page, totalPages);
@@ -443,13 +498,12 @@ export function OrdersTable({
       const accessUrl: string = getPreferredAccessUrlFromPayload(data);
       const customerName = order.customer?.full_name || "Customer";
 
-      if (accessUrl || data?.token || data?.subscription_url) {
+      if (accessUrl) {
         setAccessKeyDialog({
           open: true,
           customerName,
           accessUrl,
-          token: data?.token || "",
-          subscriptionUrl: data?.subscription_url || "",
+          ssconfUrl: data?.ssconf_url || "",
           serverCount: Number(data?.server_count || 0),
           actionType: "activate",
         });
@@ -466,7 +520,7 @@ export function OrdersTable({
   const confirmRenew = async () => {
     if (!renewDialog.order) return;
 
-    const { order, action, planId } = renewDialog;
+    const { order, action, planId, idempotencyKey } = renewDialog;
     const endpoint = action === "extend" ? "extend" : "renew";
 
     try {
@@ -476,22 +530,22 @@ export function OrdersTable({
 
       const res = await api.post(`/reseller/order-actions/${order.id}/${endpoint}`, {
         plan_id: planId || order.plan_id,
+        idempotency_key: idempotencyKey || crypto.randomUUID(),
       });
 
-      setRenewDialog({ open: false, order: null, planId: "", action: "renew" });
+      closeRenewDialog();
       await onSuccess();
 
       const data = res?.data;
       const accessUrl: string = getPreferredAccessUrlFromPayload(data);
       const customerName = order.customer?.full_name || "Customer";
 
-      if (action === "renew" && (accessUrl || data?.token || data?.subscription_url)) {
+      if (action === "renew" && accessUrl) {
         setAccessKeyDialog({
           open: true,
           customerName,
           accessUrl,
-          token: data?.token || "",
-          subscriptionUrl: data?.subscription_url || "",
+          ssconfUrl: data?.ssconf_url || "",
           serverCount: Number(data?.server_count || 0),
           actionType: "renew",
         });
@@ -536,28 +590,157 @@ export function OrdersTable({
     );
   };
 
-  const renderAccess = (order: Order) => {
-    const key = activeKeyByOrderId[order.id];
-    const accessUrl = getPreferredAccessUrl(key);
-    if (!accessUrl) return <span className="text-muted-foreground">-</span>;
+  const renderAccessDetails = (order: Order) => {
+    const key = keyByOrderId[order.id];
+    const dynamicUrl =
+      key?.dynamic_access_url ||
+      key?.ssconf_url ||
+      key?.preferred_access_url ||
+      "";
+    const items = [
+      dynamicUrl
+        ? {
+            label: key?.dynamic_access_url ? "Dynamic access key" : "Subscription endpoint",
+            value: dynamicUrl,
+          }
+        : null,
+      key?.ssconf_url && key.ssconf_url !== dynamicUrl
+        ? { label: "JSON endpoint", value: key.ssconf_url }
+        : null,
+      key?.access_url && key.access_url !== dynamicUrl
+        ? { label: "Original Outline key", value: key.access_url }
+        : null,
+    ].filter(Boolean) as Array<{ label: string; value: string }>;
+
+    if (items.length === 0) {
+      return (
+        <div className="rounded-md border border-dashed border-border bg-muted/55 px-2.5 py-3 text-xs text-muted-foreground">
+          No access key is linked to this order yet.
+        </div>
+      );
+    }
+
     return (
-      <div className="flex items-center gap-2">
-        <span className="text-sm">{key?.dynamic_access_url || key?.ssconf_url ? "Dynamic key" : "Active key"}</span>
+      <div className="space-y-1.5">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-md border border-border bg-card p-2">
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  {item.label}
+                </div>
+                <div className="break-all rounded-md bg-muted/65 px-2 py-1.5 font-mono text-[10px] leading-snug text-foreground">
+                  {item.value}
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                title={`Copy ${item.label.toLowerCase()}`}
+                onClick={() => void copyText(item.value, item.label)}
+              >
+                <Copy size={13} />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const renderAccessCell = (order: Order) => {
+    const key = keyByOrderId[order.id];
+    const accessUrl = getPreferredAccessUrl(key);
+
+    if (!accessUrl) {
+      return <span className="text-muted-foreground">-</span>;
+    }
+
+    return (
+      <div className="flex items-center justify-center">
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7"
+          className="h-6 w-6 shrink-0"
           title="Copy access key"
           onClick={() => void copyText(accessUrl, "Access key")}
         >
-          <Copy size={15} />
+          <Copy size={12} />
         </Button>
       </div>
     );
   };
 
   const renderActions = (order: Order) => {
-    const isTelegramCustomer = order.customer?.customer_type === "telegram";
+    const isTelegramCustomer = isTelegramManagedOrder(order);
+    const key = keyByOrderId[order.id];
+    const accessUrl = getPreferredAccessUrl(key);
+    const actions: ActionMenuItem[] = [
+      {
+        label: "View details",
+        icon: <Info size={14} />,
+        onSelect: () => setDetailsDialog({ open: true, order }),
+      },
+    ];
+
+    if (accessUrl) {
+      actions.push({
+        label: "Copy dynamic key",
+        icon: <Copy size={14} />,
+        onSelect: () => void copyText(accessUrl, "Access key"),
+      });
+    }
+
+    if (!isTelegramCustomer) {
+      if (
+        order.status === "pending" &&
+        order.payment_status === "paid" &&
+        order.review_status !== "rejected"
+      ) {
+        actions.push({
+          label: loadingId === `${order.id}:activate` ? "Activating..." : "Activate",
+          icon: <KeyRound size={14} />,
+          disabled: loadingId === `${order.id}:activate`,
+          onSelect: () => void runActivate(order),
+        });
+      }
+
+      if (order.status === "active") {
+        actions.push(
+          {
+            label: loadingId === `${order.id}:extend` ? "Extending..." : "Extend",
+            icon: <RefreshCw size={14} />,
+            disabled: loadingId === `${order.id}:extend`,
+            onSelect: () => openRenewDialog(order, "extend"),
+          },
+          {
+            label: "Stop",
+            icon: <Ban size={14} />,
+            destructive: true,
+            onSelect: () => setStopDialog({ open: true, order }),
+          }
+        );
+      }
+
+      if (
+        (order.status === "stopped" || order.status === "expired") &&
+        order.review_status !== "rejected"
+      ) {
+        actions.push({
+          label: loadingId === `${order.id}:renew` ? "Renewing..." : "Renew",
+          icon: <RefreshCw size={14} />,
+          disabled: loadingId === `${order.id}:renew`,
+          onSelect: () => openRenewDialog(order, "renew"),
+        });
+      }
+    }
+
+    return (
+      <div className="flex items-center justify-end">
+        <ActionMenu items={actions} className={compact ? "h-6 w-6" : "h-7 w-7"} />
+      </div>
+    );
 
     return (
       <div className="flex flex-wrap items-center gap-1.5">
@@ -585,7 +768,7 @@ export function OrdersTable({
                 <ActionButton
                   variant="primary"
                   onClick={() =>
-                    setRenewDialog({ open: true, order, planId: order.plan_id, action: "extend" })
+                    openRenewDialog(order, "extend")
                   }
                   loading={loadingId === `${order.id}:extend`}
                   loadingText="Extending…"
@@ -606,7 +789,7 @@ export function OrdersTable({
               <ActionButton
                 variant="primary"
                 onClick={() =>
-                  setRenewDialog({ open: true, order, planId: order.plan_id, action: "renew" })
+                  openRenewDialog(order, "renew")
                 }
                 loading={loadingId === `${order.id}:renew`}
                 loadingText="Renewing…"
@@ -620,11 +803,11 @@ export function OrdersTable({
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8"
+          className={compact ? "h-6 w-6" : "h-8 w-8"}
           title="Details"
           onClick={() => setDetailsDialog({ open: true, order })}
         >
-          <Info size={18} />
+          <Info size={compact ? 13 : 18} />
         </Button>
       </div>
     );
@@ -634,38 +817,86 @@ export function OrdersTable({
 
   return (
     <>
-      <Card ref={tableRef} className="scroll-mt-20 p-4 md:p-6 space-y-4">
+      <Card
+        ref={tableRef}
+        className={compact ? "scroll-mt-14 p-2.5 space-y-2" : "scroll-mt-16 p-3 md:p-4 space-y-3"}
+      >
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-xl md:text-2xl font-bold font-display tracking-tight text-foreground">
+            <h2 className={compact ? "text-[13px] font-bold font-display tracking-tight text-foreground" : "font-display text-[18px] font-black tracking-tight text-foreground"}>
               {title}
             </h2>
             {!compactMobile && description ? (
-              <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p>
             ) : null}
           </div>
-          {headerAction ? (
-            <Button
-              variant="primary"
-              leftIcon={headerAction.icon ?? <Plus size={16} />}
-              onClick={headerAction.onClick}
-              disabled={headerAction.disabled}
-            >
-              {headerAction.label}
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {showCustomerTypeFilter ? (
+              <div className="inline-flex rounded-md border border-border bg-muted/55 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setCustomerTypeFilter("all")}
+                  className={cn(
+                    "h-7 rounded px-2 text-[11px] font-semibold transition-colors",
+                    customerTypeFilter === "all"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCustomerTypeFilter("normal")}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1 rounded px-2 text-[11px] font-semibold transition-colors",
+                    customerTypeFilter === "normal"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <UserRound size={12} />
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCustomerTypeFilter("telegram")}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1 rounded px-2 text-[11px] font-semibold transition-colors",
+                    customerTypeFilter === "telegram"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Send size={12} />
+                  Telegram
+                </button>
+              </div>
+            ) : null}
+            {headerAction ? (
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={headerAction.icon ?? <Plus size={14} />}
+                onClick={headerAction.onClick}
+                disabled={headerAction.disabled}
+              >
+                {headerAction.label}
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         {/* Search */}
         {showSearch ? (
           <div className="relative">
             <Search
-              size={16}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+              size={14}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
             <Input
-              className="pl-9"
+              className="h-8 pl-8 text-xs"
               placeholder="Search customer, plan, phone, Telegram…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -745,18 +976,18 @@ export function OrdersTable({
             )}
           </div>
         ) : (
-          <Table className="table-fixed">
+          <Table className="table-fixed text-xs">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead style={{ width: "22%" }}>Customer</TableHead>
-                <TableHead style={{ width: "13%" }}>Plan</TableHead>
-                <TableHead style={{ width: "10%" }}>Status</TableHead>
-                <TableHead style={{ width: "9%" }}>Payment</TableHead>
-                <TableHead style={{ width: "13%" }}>Expiry</TableHead>
-                <TableHead style={{ width: "12%" }}>Usage</TableHead>
-                <TableHead style={{ width: "8%" }}>Access</TableHead>
-                <TableHead style={{ width: "8%" }}>Price</TableHead>
-                <TableHead style={{ width: "15%" }}>Actions</TableHead>
+                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "20%" }}>Customer</TableHead>
+                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "12%" }}>Plan</TableHead>
+                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "9%" }}>Status</TableHead>
+                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "8%" }}>Payment</TableHead>
+                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "12%" }}>Expiry</TableHead>
+                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "9%" }}>Usage</TableHead>
+                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "13%" }}>Access</TableHead>
+                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "13%" }}>Price</TableHead>
+                <TableHead className="h-8 px-1 text-[10px]" style={{ width: "2%" }} aria-label="Actions" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -774,53 +1005,41 @@ export function OrdersTable({
                   const expirySoon = isExpiringSoon(order.expiry_date, 7) && order.status === "active";
                   return (
                     <TableRow key={order.id}>
-                      <TableCell>
-                        <div className="text-sm font-medium">
+                      <TableCell className="px-2 py-2 text-xs">
+                        <div className="truncate text-xs font-medium">
                           {order.customer?.full_name || "Unknown"}
                         </div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="truncate text-[11px] text-muted-foreground">
                           {order.customer?.telegram_username || order.customer?.phone || "-"}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <div className="text-sm font-medium">{order.plan?.name || "-"}</div>
+                      <TableCell className="px-2 py-2 text-xs">
+                        <div className="truncate text-xs font-medium">{order.plan?.name || "-"}</div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="px-2 py-2 text-xs">
                         <StatusBadge status={order.status} />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="px-2 py-2 text-xs">
                         <StatusBadge status={getPaymentDisplayStatus(order)} />
                       </TableCell>
-                      <TableCell>
-                        <div className="text-sm">{formatDate(order.expiry_date)}</div>
-                        <div className={`text-xs${expirySoon ? " text-destructive" : " text-muted-foreground"}`}>
+                      <TableCell className="px-2 py-2 text-xs">
+                        <div className="text-xs">{formatDate(order.expiry_date)}</div>
+                        <div className={`text-[11px]${expirySoon ? " text-destructive" : " text-muted-foreground"}`}>
                           {formatDaysLeft(order.expiry_date)}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
+                      <TableCell className="px-2 py-2 text-xs">
+                        <div className="text-xs">
                           {key ? formatUsageGb(getOrderUsageGb(key)) : "-"}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        {getPreferredAccessUrl(key) ? (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            title="Copy access key"
-                            onClick={() => void copyText(getPreferredAccessUrl(key), "Access key")}
-                          >
-                            <Copy size={15} />
-                          </Button>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
+                      <TableCell className="px-2 py-2 text-xs">
+                        {renderAccessCell(order)}
                       </TableCell>
-                      <TableCell>
-                        <div className="text-sm font-semibold">{formatMMK(order.price_mmk)}</div>
+                      <TableCell className="px-2 py-2 text-xs">
+                        <div className="whitespace-nowrap text-xs font-bold">{formatMMK(order.price_mmk)}</div>
                       </TableCell>
-                      <TableCell>{renderActions(order)}</TableCell>
+                      <TableCell className="px-2 py-2 text-xs">{renderActions(order)}</TableCell>
                     </TableRow>
                   );
                 })
@@ -831,14 +1050,14 @@ export function OrdersTable({
 
         {/* Pagination footer */}
         <div className="h-px bg-border" />
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <div className={compact ? "flex flex-col sm:flex-row items-center justify-between gap-2" : "flex flex-col sm:flex-row items-center justify-between gap-3"}>
+          <div className={compact ? "flex items-center gap-1.5 text-xs text-muted-foreground" : "flex items-center gap-2 text-sm text-muted-foreground"}>
             <span>Rows</span>
-            <div className="w-[72px] shrink-0">
+            <div className={compact ? "w-[62px] shrink-0" : "w-[72px] shrink-0"}>
               <Select
                 value={rowsPerPage}
                 onChange={(e) => setRowsPerPage(Number(e.target.value))}
-                className="h-8"
+                className={compact ? "h-7 text-xs" : "h-8"}
               >
                 {rowsPerPageOptions.map((o) => (
                   <option key={o} value={o}>
@@ -864,7 +1083,7 @@ export function OrdersTable({
       {/* ── Renew / Extend dialog ── */}
       <Dialog
         open={renewDialog.open}
-        onClose={() => setRenewDialog({ open: false, order: null, planId: "", action: "renew" })}
+        onClose={closeRenewDialog}
         size="sm"
       >
         <DialogHeader>
@@ -920,7 +1139,7 @@ export function OrdersTable({
           <Button
             variant="outline"
             className="flex-1"
-            onClick={() => setRenewDialog({ open: false, order: null, planId: "", action: "renew" })}
+            onClick={closeRenewDialog}
           >
             Cancel
           </Button>
@@ -996,69 +1215,80 @@ export function OrdersTable({
       <Dialog
         open={detailsDialog.open}
         onClose={() => setDetailsDialog({ open: false, order: null })}
-        size="sm"
+        size="lg"
       >
-        <DialogHeader>
-          <DialogTitle>Order Details</DialogTitle>
-          <DialogClose />
+        <DialogHeader className="px-4 py-3 pb-2">
+          <DialogTitle className="text-base">Order Details</DialogTitle>
+          <DialogClose className="right-3 top-3" />
         </DialogHeader>
-        <DialogBody>
+        <DialogBody className="max-h-none overflow-visible px-4 py-2">
           {detailsDialog.open && detailsDialog.order ? (
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-base font-semibold">
-                    {detailsDialog.order.customer?.full_name || "-"}
+            <div className="rounded-lg border border-border bg-muted/35 p-3 shadow-[0_10px_28px_rgba(16,24,40,0.08)]">
+              <div className="mb-2.5 flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary text-sm font-black text-primary-foreground">
+                    {(detailsDialog.order.customer?.full_name || "C").slice(0, 1).toUpperCase()}
                   </div>
-                  <div className="text-sm text-muted-foreground mt-0.5">
-                    {detailsDialog.order.customer?.phone ||
-                      detailsDialog.order.customer?.telegram_username ||
-                      "No contact info"}
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-bold">
+                      {detailsDialog.order.customer?.full_name || "-"}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {detailsDialog.order.customer?.phone ||
+                        detailsDialog.order.customer?.telegram_username ||
+                        "No contact info"}
+                    </div>
                   </div>
                 </div>
                 <StatusBadge status={detailsDialog.order.status} />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <DetailItem label="Plan" value={detailsDialog.order.plan?.name || "-"} />
-                <DetailItem
-                  label="Payment"
-                  value={<StatusBadge status={getPaymentDisplayStatus(detailsDialog.order)} />}
-                />
-                <DetailItem label="Price" value={formatMMK(detailsDialog.order.price_mmk)} />
-                <DetailItem label="Expiry" value={formatDate(detailsDialog.order.expiry_date)} />
-                <div className="col-span-2">
-                  <DetailItem
-                    label="Remaining"
-                    value={formatDaysLeft(detailsDialog.order.expiry_date)}
-                  />
+              <div className="grid gap-2 lg:grid-cols-[0.82fr_1.18fr]">
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <DetailItem label="Plan" value={detailsDialog.order.plan?.name || "-"} />
+                    <DetailItem
+                      label="Payment"
+                      value={<StatusBadge status={getPaymentDisplayStatus(detailsDialog.order)} />}
+                    />
+                    <DetailItem label="Price" value={formatMMK(detailsDialog.order.price_mmk)} />
+                    <DetailItem label="Expiry" value={formatDate(detailsDialog.order.expiry_date)} />
+                    <div className="col-span-2">
+                      <DetailItem
+                        label="Remaining"
+                        value={formatDaysLeft(detailsDialog.order.expiry_date)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-md border border-border bg-card p-2.5">
+                    <div className="mb-1.5 text-xs font-bold">Usage</div>
+                    {renderUsageCompact(activeKeyByOrderId[detailsDialog.order.id])}
+                  </div>
+                </div>
+
+                <div className="rounded-md border border-border bg-card p-2.5">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-bold">
+                    <KeyRound size={13} />
+                    Dynamic Access
+                  </div>
+                  {renderAccessDetails(detailsDialog.order)}
                 </div>
               </div>
 
-              <div className="h-px bg-border" />
-
-              <div className="rounded-md bg-secondary/40 p-3">
-                <div className="mb-2 text-sm font-semibold">Usage</div>
-                {renderUsageCompact(activeKeyByOrderId[detailsDialog.order.id])}
-              </div>
-
-              <div className="rounded-md bg-secondary/40 p-3">
-                <div className="mb-2 text-sm font-semibold">Access</div>
-                {renderAccess(detailsDialog.order)}
+              <div className="mt-2 flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDetailsDialog({ open: false, order: null })}
+                >
+                  Close
+                </Button>
               </div>
             </div>
           ) : null}
         </DialogBody>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => setDetailsDialog({ open: false, order: null })}
-          >
-            Close
-          </Button>
-        </DialogFooter>
       </Dialog>
-
       {/* ── Access key dialog ── */}
       <Dialog
         open={accessKeyDialog.open}
@@ -1067,8 +1297,7 @@ export function OrdersTable({
             open: false,
             customerName: "",
             accessUrl: "",
-            token: "",
-            subscriptionUrl: "",
+            ssconfUrl: "",
             serverCount: 0,
             actionType: "activate",
           })
@@ -1096,22 +1325,6 @@ export function OrdersTable({
               Subscription Details
             </div>
             <div className="space-y-2">
-              {accessKeyDialog.token ? (
-                <div>
-                  <div className="text-xs text-muted-foreground">Access Token</div>
-                  <div className="break-all font-mono text-[13px] font-medium text-primary leading-relaxed">
-                    {accessKeyDialog.token}
-                  </div>
-                </div>
-              ) : null}
-              {accessKeyDialog.subscriptionUrl ? (
-                <div>
-                  <div className="text-xs text-muted-foreground">Subscription URL</div>
-                  <div className="break-all font-mono text-[13px] font-medium text-primary leading-relaxed">
-                    {accessKeyDialog.subscriptionUrl}
-                  </div>
-                </div>
-              ) : null}
               {accessKeyDialog.serverCount ? (
                 <div className="text-sm text-muted-foreground">
                   Assigned servers: {accessKeyDialog.serverCount}
@@ -1119,9 +1332,17 @@ export function OrdersTable({
               ) : null}
               {accessKeyDialog.accessUrl ? (
                 <div>
-                  <div className="text-xs text-muted-foreground">Access key</div>
+                  <div className="text-xs text-muted-foreground">Dynamic Outline key</div>
                   <div className="break-all font-mono text-[13px] font-medium text-primary leading-relaxed">
                     {accessKeyDialog.accessUrl}
+                  </div>
+                </div>
+              ) : null}
+              {accessKeyDialog.ssconfUrl ? (
+                <div>
+                  <div className="text-xs text-muted-foreground">Dynamic JSON endpoint</div>
+                  <div className="break-all font-mono text-[13px] font-medium text-primary leading-relaxed">
+                    {accessKeyDialog.ssconfUrl}
                   </div>
                 </div>
               ) : null}
@@ -1130,17 +1351,11 @@ export function OrdersTable({
               <Button
                 variant="ghost"
                 size="icon"
-                title="Copy subscription details"
+                title="Copy dynamic key"
                 onClick={() =>
                   void copyText(
-                    accessKeyDialog.subscriptionUrl ||
-                      accessKeyDialog.token ||
-                      accessKeyDialog.accessUrl,
-                    accessKeyDialog.subscriptionUrl
-                      ? "Subscription URL"
-                      : accessKeyDialog.token
-                        ? "Access Token"
-                        : "Access URL"
+                    accessKeyDialog.accessUrl || accessKeyDialog.ssconfUrl || "",
+                    "Dynamic key"
                   )
                 }
               >
@@ -1152,7 +1367,7 @@ export function OrdersTable({
           <div className="flex items-start gap-2 rounded-md border border-success/20 bg-success/10 p-3 text-sm text-[color:var(--success)]">
             <Lightbulb size={16} className="mt-0.5 shrink-0" />
             <span>
-              Share this URL with the customer. They can import it into their Outline or compatible VPN app.
+              Share the dynamic key with the customer. It keeps working when their active server changes.
             </span>
           </div>
         </DialogBody>
@@ -1165,8 +1380,7 @@ export function OrdersTable({
                 open: false,
                 customerName: "",
                 accessUrl: "",
-                token: "",
-                subscriptionUrl: "",
+                ssconfUrl: "",
                 serverCount: 0,
                 actionType: "activate",
               })
@@ -1180,21 +1394,14 @@ export function OrdersTable({
             leftIcon={<Copy size={16} />}
             onClick={async () => {
               await copyText(
-                accessKeyDialog.subscriptionUrl ||
-                  accessKeyDialog.token ||
-                  accessKeyDialog.accessUrl,
-                accessKeyDialog.subscriptionUrl
-                  ? "Subscription URL"
-                  : accessKeyDialog.token
-                    ? "Access Token"
-                    : "Access URL"
+                accessKeyDialog.accessUrl || accessKeyDialog.ssconfUrl || "",
+                "Dynamic key"
               );
               setAccessKeyDialog({
                 open: false,
                 customerName: "",
                 accessUrl: "",
-                token: "",
-                subscriptionUrl: "",
+                ssconfUrl: "",
                 serverCount: 0,
                 actionType: "activate",
               });
