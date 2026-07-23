@@ -2,85 +2,96 @@
 
 ## Project Purpose
 
-Build and maintain **NovaNet MM** — a multi-tenant VPN reseller platform where resellers sell Outline VPN access to customers via a white-label Telegram Mini App, backed by DigitalOcean servers and a Supabase database.
+Build and maintain **NovaNet MM**: a multi-tenant VPN reseller platform where
+resellers sell Outline VPN access through white-label Telegram Mini Apps.
 
 ## Required Context Before Coding
 
-Read these before any implementation decision:
+Read these before implementation decisions:
 
-- `SCHEMA.md` — authoritative table/column reference
-- `SYSTEM_DESIGN.md` — vision, tenancy model, build plan, current state vs missing
-- Relevant skill file(s) for the area you're working in:
-  - `SKILL_DATABASE.md` — schema, migrations, seed, isolation rules
-  - `SKILL_BACKEND.md` — Express patterns, services, auth middleware, jobs
-  - `SKILL_MINIAPP.md` — Telegram Mini App, slug flow, ssconf delivery, buy flow
-  - `SKILL_FRONTEND.md` — admin/reseller dashboard conventions (shadcn/Tailwind)
-  - `SKILL_API_CONTRACTS.md` — API shapes between frontends and backend
+- `SCHEMA.md`: authoritative table/column reference
+- `SYSTEM_DESIGN.md`: product and architecture source of truth
+- `DEPLOYMENT.md`: local, production, Droplet, PM2, Nginx, Ansible workflow
+- Relevant skill file:
+  - `SKILL_DATABASE.md`
+  - `SKILL_BACKEND.md`
+  - `SKILL_MINIAPP.md`
+  - `SKILL_FRONTEND.md`
+  - `SKILL_API_CONTRACTS.md`
 
 ## Workspace Structure
 
 | Directory | Role | Port |
-|-----------|------|------|
+|---|---|---|
 | `backend/` | Express API + multi-tenant bot service | 3000 |
 | `admin-dashboard/` | Super-admin UI | 3001 |
 | `reseller-dashboard/` | Reseller UI | 3002 |
-| `miniapp/` | Telegram Mini App (Cloudflare Pages) | — |
-| `worker/` | Legacy tok_xxx portal (Cloudflare Worker — retire when unused) | — |
+| `miniapp/` | Telegram Mini App, served from Droplet Nginx in production | - |
+| `ansible/` | Droplet provisioning, Nginx, SSL, backend and Mini App deploy | - |
+
+Cloudflare Worker and DO App Platform deployment paths are retired.
 
 ## Tenancy Model
 
-```
-ADMIN (platform owner)
-  controls → servers · plans · resellers · enable/disable · oversight
-       ↓
-RESELLER (tenant)            miniapp_slug · brand · bot token · payment info
-  reseller dashboard → confirm/reject orders · configure workspace
-       ↓
-MINI APP (white-label, resolved dynamically by slug from start_param)
-  customer opens reseller's bot → branded workspace loads
-       ↓
+```text
+ADMIN
+  controls servers, plans, resellers, enable/disable, oversight
+       |
+       v
+RESELLER
+  owns miniapp_slug, brand, bot token, payment info
+       |
+       v
+MINI APP
+  runtime slug comes from Telegram start_param
+       |
+       v
 CUSTOMER
-  trial → buy → pay → key delivered immediately → connect via Outline
+  trial, buy, pay, receive key, connect through Outline
 ```
 
-**Isolation rule:** a customer of reseller A must never see or touch reseller B's data. Every reseller-scoped query must include `reseller_id`.
+Isolation rule: a customer of reseller A must never see or touch reseller B's
+data. Every reseller-scoped query must include `reseller_id`.
 
 ## Agent Workflow
 
-1. Read current skill files and relevant sections of `SYSTEM_DESIGN.md`.
-2. Explain the implementation plan in 3–5 bullet points.
-3. Implement one small phase at a time — app must work after every change.
-4. Run build/lint (no test runner configured) after implementation.
-5. Report changed files and what behavior changed.
-6. Ask for approval before moving to the next major phase.
-
-## Subagent Roles
-
-Use the dedicated subagent definition files when spawning agents:
-
-- `SUBAGENT_BACKEND.md` — Express API and Supabase service work
-- `SUBAGENT_FRONTEND.md` — dashboard and miniapp UI work
-- `SUBAGENT_DATABASE.md` — schema migrations and seed data
+1. Read the required context.
+2. Explain the implementation plan in 3-5 bullets.
+3. Make small reversible changes; the app should work after each phase.
+4. Do not run production deployment commands unless explicitly asked.
+5. Run relevant local tests/builds after implementation.
+6. Report changed files, behavior changes, and any deployment follow-up.
 
 ## Non-Negotiable Constraints
 
 - Never expose Supabase service-role keys to frontend code.
 - Always scope reseller-route queries by `reseller_id`.
 - Never bypass the optimistic-concurrency loop in `subscriptionProvisionService.js`.
-- Keep `SCHEMA.md` up to date after any schema change.
-- Update `SKILL_API_CONTRACTS.md` after any API shape change.
-- Make small, reversible changes — commit a known-good state before large refactors.
+- Keep `SCHEMA.md` up to date after schema changes.
+- Update `SKILL_API_CONTRACTS.md` after API shape changes.
+- Keep production `.env` files out of Git.
 
-## Top Priority (multi-tenancy blocker)
+## Current Deployment Source Of Truth
 
-The miniapp currently reads its slug from `VITE_MINIAPP_SLUG` (baked in at build time). True white-label multi-tenancy requires reading the slug from `Telegram.WebApp.initDataUnsafe.start_param` at runtime. Until this is done, every reseller's bot opens the same hard-coded branded workspace.
+Production customer traffic:
+
+- `api.novanetmm.com`: Droplet Nginx -> backend PM2 process
+- `app.novanetmm.com`: Droplet Nginx -> Mini App static build
+
+Dashboard deploys:
+
+- Admin dashboard: Cloudflare Pages
+- Reseller dashboard: Cloudflare Pages
+
+Backend and Mini App production deploys are manual Ansible playbooks from
+`ansible/`. GitHub Actions deploys only the two dashboards.
 
 ## Boundaries
 
 Do not add without explicit approval:
 
 - Real-time chat
-- Production-grade auth hardening
+- Production-grade auth hardening beyond requested security fixes
 - Online payment processing
 - Rental contract signing
 - Sensitive personal data collection

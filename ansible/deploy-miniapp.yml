@@ -1,0 +1,54 @@
+---
+- name: Deploy Mini App static build
+  hosts: novanet
+  become: true
+
+  vars:
+    miniapp_source_dir: /var/www/novanet/miniapp-source
+    miniapp_public_dir: /var/www/miniapp
+
+  tasks:
+    - name: Check production Mini App env exists on server
+      stat:
+        path: "{{ miniapp_source_dir }}/.env.production"
+      register: miniapp_env
+
+    - name: Stop if production Mini App env is missing
+      fail:
+        msg: "Missing {{ miniapp_source_dir }}/.env.production. Create it from miniapp/.env.production.example before deploying."
+      when: not miniapp_env.stat.exists
+
+    - name: Sync Mini App source code
+      synchronize:
+        src: "{{ playbook_dir }}/../miniapp/"
+        dest: "{{ miniapp_source_dir }}/"
+        delete: yes
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude=dist"
+          - "--exclude=.env"
+          - "--exclude=.env.*"
+          - "--exclude=.vite"
+          - "--exclude=*.log"
+
+    - name: Install Mini App dependencies
+      command: npm ci
+      args:
+        chdir: "{{ miniapp_source_dir }}"
+
+    - name: Build Mini App for production
+      command: npm run build
+      args:
+        chdir: "{{ miniapp_source_dir }}"
+      environment:
+        NODE_ENV: production
+
+    - name: Publish Mini App dist to nginx static directory
+      command: rsync -a --delete "{{ miniapp_source_dir }}/dist/" "{{ miniapp_public_dir }}/"
+
+    - name: Ensure nginx can read Mini App files
+      file:
+        path: "{{ miniapp_public_dir }}"
+        state: directory
+        mode: '0755'
+        recurse: yes

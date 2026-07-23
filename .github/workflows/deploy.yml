@@ -1,36 +1,26 @@
 name: Deploy
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
-# DO App Platform auto-deploys the backend directly from GitHub — no job needed here.
+concurrency:
+  group: production-dashboard-deploy
+  cancel-in-progress: false
+
+# Production backend and Mini App are deployed to the DigitalOcean Droplet with
+# Ansible/PM2/Nginx. This workflow intentionally deploys only the two dashboards
+# that still live on Cloudflare Pages.
 
 jobs:
-  deploy-worker:
-    name: Deploy Cloudflare Worker
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Deploy worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: worker
-
   deploy-admin:
-    name: Deploy Admin Dashboard → Cloudflare Pages
+    name: Deploy Admin Dashboard to Cloudflare Pages
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: admin-dashboard/package-lock.json
       - run: npm ci
@@ -48,13 +38,14 @@ jobs:
           command: pages deploy dist --project-name=novanet-admin
 
   deploy-reseller:
-    name: Deploy Reseller Dashboard → Cloudflare Pages
+    name: Deploy Reseller Dashboard to Cloudflare Pages
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: reseller-dashboard/package-lock.json
       - run: npm ci
@@ -72,29 +63,3 @@ jobs:
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           workingDirectory: reseller-dashboard
           command: pages deploy dist --project-name=novanet-reseller
-
-  deploy-miniapp:
-    name: Deploy Miniapp → Cloudflare Pages
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: miniapp/package-lock.json
-      - run: npm ci
-        working-directory: miniapp
-      - run: npm run build
-        working-directory: miniapp
-        env:
-          VITE_BACKEND_BASE_URL: ${{ vars.VITE_BACKEND_BASE_URL }}
-          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
-          VITE_MINIAPP_SLUG: ${{ vars.VITE_MINIAPP_SLUG }}
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          workingDirectory: miniapp
-          command: pages deploy dist --project-name=miniapp --branch=main

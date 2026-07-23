@@ -1,0 +1,44 @@
+---
+- name: Configure nginx virtual hosts
+  hosts: novanet
+  become: true
+
+  tasks:
+    - name: Deploy api.novanetmm.com nginx config
+      template:
+        src: templates/api.novanetmm.com.conf.j2
+        dest: /etc/nginx/sites-available/api.novanetmm.com
+        mode: '0644'
+
+    - name: Enable api.novanetmm.com site
+      file:
+        src: /etc/nginx/sites-available/api.novanetmm.com
+        dest: /etc/nginx/sites-enabled/api.novanetmm.com
+        state: link
+
+    - name: Deploy app.novanetmm.com nginx config
+      template:
+        src: templates/app.novanetmm.com.conf.j2
+        dest: /etc/nginx/sites-available/app.novanetmm.com
+        mode: '0644'
+
+    - name: Enable app.novanetmm.com site
+      file:
+        src: /etc/nginx/sites-available/app.novanetmm.com
+        dest: /etc/nginx/sites-enabled/app.novanetmm.com
+        state: link
+
+    - name: Remove default nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Test nginx config
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: Reload nginx
+      systemd:
+        name: nginx
+        state: reloaded

@@ -1,22 +1,25 @@
-# VPN SaaS Platform
+# NovaNet MM
 
-A VPN reseller system with:
+NovaNet MM is a multi-tenant VPN reseller platform for selling Outline VPN
+access through reseller-branded Telegram Mini Apps.
 
-- Admin dashboard (Next.js)
-- Backend API (Node.js + Express)
-- Database (Supabase)
-- VPN key management (Outline)
+## Applications
 
-## Features
+| Directory | Purpose |
+|---|---|
+| `backend/` | Express API, Supabase service layer, PM2 bot runtime |
+| `miniapp/` | Telegram Mini App served from the production Droplet |
+| `admin-dashboard/` | Super-admin dashboard deployed to Cloudflare Pages |
+| `reseller-dashboard/` | Reseller dashboard deployed to Cloudflare Pages |
+| `ansible/` | Droplet provisioning, Nginx, SSL, backend and Mini App deploy |
 
-- Manage customers
-- Create orders
-- Assign VPN keys
-- Track plans and usage
+## Production Shape
 
-## Tech Stack
+Production customer traffic goes to a DigitalOcean Droplet:
 
-- Next.js
-- Node.js / Express
-- Supabase
-- Outline VPN
+- `api.novanetmm.com` -> Nginx -> backend PM2 process on port 3000
+- `app.novanetmm.com` -> Nginx -> Mini App static build
+
+Cloudflare Worker and DO App Platform deployment paths are retired.
+
+See `DEPLOYMENT.md` for the source of truth.

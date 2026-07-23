@@ -1,0 +1,26 @@
+---
+- name: Issue SSL certificates with certbot
+  hosts: novanet
+  become: true
+
+  vars:
+    certbot_email: kyawlyn1011@gmail.com
+
+  tasks:
+    - name: Issue cert for api.novanetmm.com and app.novanetmm.com
+      command: >
+        certbot --nginx
+        -d api.novanetmm.com
+        -d app.novanetmm.com
+        --non-interactive
+        --agree-tos
+        --email {{ certbot_email }}
+        --redirect
+      args:
+        creates: /etc/letsencrypt/live/api.novanetmm.com/fullchain.pem
+
+    - name: Verify certbot auto-renew timer is active
+      systemd:
+        name: certbot.timer
+        enabled: yes
+        state: started

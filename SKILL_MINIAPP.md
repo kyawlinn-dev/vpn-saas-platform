@@ -2,93 +2,73 @@
 
 ## Skill Name
 
-NovaNet MM — Telegram Mini App Skill
+NovaNet MM - Telegram Mini App Skill
 
 ## Use This Skill When
 
-Working on the `miniapp/` Vite + React app, Telegram WebApp integration, slug-based auth, ssconf delivery, or the buy/payment flow.
+Working on `miniapp/`, Telegram WebApp integration, slug-based auth, ssconf
+delivery, server switching, or buy/payment flow.
 
 ## Required Context
 
-Read before coding:
-
 - `AGENTS.md`
+- `DEPLOYMENT.md`
 - `SKILL_API_CONTRACTS.md`
-- `SKILL_DATABASE.md` (reseller_miniapps table)
-- `SYSTEM_DESIGN.md` §4 and §5 (key delivery, dynamic slug)
+- `SKILL_DATABASE.md`
+- `SYSTEM_DESIGN.md`
 
 ## Tech Stack
 
-- Vite + React + TypeScript
-- Tailwind CSS (no MUI, no other component library)
-- Zustand (state store)
-- TanStack Query (server state / cache)
-- `miniapp/` — deployed to Cloudflare Pages
+- Vite + React
+- Tailwind CSS
+- Zustand
+- TanStack Query
 
-## Auth Flow (current slug-based paradigm)
+Production Mini App hosting is **Droplet Nginx**, not Cloudflare Pages.
 
-1. Customer opens reseller's Telegram bot → clicks "Open App" (WebApp button)
-2. The bot passes `startParam=<miniapp_slug>` to the WebApp URL
-3. Miniapp reads `Telegram.WebApp.initDataUnsafe.start_param` to get the slug
-4. Miniapp posts `{ initData }` to `POST /api/miniapp/:slug/auth`
-5. Backend verifies HMAC-SHA256 signature (using bot token for that reseller's slug)
-6. Backend upserts `vpn_customers` + `telegram_links`; creates trial order on first visit
-7. Backend returns `{ customer, order, config }` — miniapp stores this in Zustand
+## Auth Flow
 
-## Dynamic Slug Rule (top priority — multi-tenancy blocker)
+1. Customer opens reseller bot and taps the Web App button.
+2. Bot passes `startParam=<miniapp_slug>` to Telegram.
+3. Mini App reads `Telegram.WebApp.initDataUnsafe.start_param`.
+4. Mini App posts Telegram init data to `POST /api/miniapp/:slug/auth`.
+5. Backend decrypts that reseller bot token and verifies Telegram HMAC.
+6. Backend upserts customer/link rows and returns workspace/subscription state.
 
-`VITE_MINIAPP_SLUG` must NOT be used as the source of truth in production. The slug must come from `Telegram.WebApp.initDataUnsafe.start_param` at runtime so each reseller's bot opens that reseller's branded workspace. The env var is only a fallback for local dev.
+`VITE_MINIAPP_SLUG` is local fallback only. Production slug source is runtime
+Telegram `start_param`.
 
-## ssconf Delivery
+## Key Delivery
 
-- Customer's VPN config is served by `GET /k/:ssconf_token.json` (short path, no slug — looks like a static asset)
-- The `ssconf_token` is stored on `vpn_customers.ssconf_token` (per-customer permanent token)
-- The route resolves the customer's current server dynamically at request time
-- Display label format: `#BrandName-FullName` (e.g. `#DemoVPN-Kyaw Linn`) — uses Telegram display name, not @username
+- Customer config is served by `GET /k/:ssconf_token.json`.
+- `ssconf_token` lives on `vpn_customers`.
+- The token is permanent per customer; server switching updates active key state.
+- Display label format is `#BrandName-FullName`.
+- The "Add to Outline" bridge is backend-hosted at `/open-key`.
 
-## Buy / Payment Flow
+## Build And Deploy
 
-1. Customer picks a plan on PackagesPage
-2. Taps "Buy" → opens payment form modal
-3. Form shows the reseller's payment info (from `reseller_miniapps.payment_info`)
-4. Customer uploads KBZPay screenshot + optional note
-5. Miniapp posts `POST /api/miniapp/:slug/orders` (multipart: plan_id, screenshot file, note)
-6. Backend creates `vpn_orders` (status=pending, payment_status=unpaid), provisions key immediately, returns updated order
-7. Reseller reviews the screenshot daily in the reseller dashboard (confirm / reject)
-
-## Key State: Zustand Store
-
-The miniapp Zustand store should hold:
-
-- `slug` — the resolved miniapp slug (from start_param or env fallback)
-- `customer` — the authenticated customer row
-- `activeOrder` — the current active order (for displaying VPN access)
-- `config` — the reseller branding config (brand_name, primary_color, payment_info)
-
-## API Client Rule
-
-Pages must not call the backend directly. All backend calls must go through typed API client functions in `src/services/api/`. This keeps the URL construction and error handling in one place.
-
-## Build & Deploy
+Local:
 
 ```bash
-# miniapp/ directory
-npm run dev      # local Vite dev server
-npm run build    # bakes VITE_ env vars in
-npx wrangler pages deploy dist   # deploy to Cloudflare Pages
+npm run dev
+npm run build
 ```
 
-VITE_ env vars are baked in at build time. After changing miniapp env vars, rebuild and redeploy.
+Production:
 
-## Environment Variables (miniapp/.env and miniapp/.env.production)
-
-```
-VITE_BACKEND_BASE_URL=    # ngrok domain (dev) or backend public URL (prod)
-VITE_API_BASE_URL=        # same as BACKEND_BASE_URL + /api
-VITE_MINIAPP_SLUG=        # fallback only; runtime slug comes from start_param
+```bash
+cd ansible
+ansible-playbook deploy-miniapp.yml
 ```
 
-## Unfinished Work
+The production build reads `/var/www/novanet/miniapp-source/.env.production` on
+the Droplet. Vite env values are baked into the static build.
 
-- `miniapp/src/features/access/` — VPN access display (add to Outline button, server switch)
-- `miniapp/src/features/auth/` — auth hooks and store wiring
+## Environment Variables
+
+```text
+VITE_BACKEND_BASE_URL=
+VITE_API_BASE_URL=
+VITE_MINIAPP_SLUG=   # fallback only
+```

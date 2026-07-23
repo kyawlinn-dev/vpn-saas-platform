@@ -2,104 +2,118 @@
 
 ## Skill Name
 
-NovaNet MM — Express Backend Skill
+NovaNet MM - Express Backend Skill
 
 ## Use This Skill When
 
-Creating or changing Express routes, backend services, auth middleware, background jobs, or Supabase queries inside the backend process.
+Working on Express routes, backend services, auth middleware, background jobs,
+bot runtime, Supabase queries, or production backend deployment behavior.
 
 ## Required Context
-
-Read before coding:
 
 - `AGENTS.md`
 - `SCHEMA.md`
 - `SKILL_DATABASE.md`
 - `SKILL_API_CONTRACTS.md`
 - `SYSTEM_DESIGN.md`
+- `DEPLOYMENT.md`
 
 ## Tech Stack
 
-- Node.js + Express (CommonJS, `.js` files)
-- Supabase JS client (service-role key — bypasses RLS)
-- `nodemon` for local dev (`npm run dev` from `backend/`)
+- Node.js + Express, ES modules
+- Supabase JS service-role client, backend only
+- PM2 in production
+- Nginx reverse proxy on the DigitalOcean Droplet
+- Vitest for backend tests
 
 ## Folder Structure
 
 ```text
 backend/src/
-  server.js          — Express app setup, router mounts, job start
+  server.js
+  lib/
+    loadEnv.js
+    supabase.js
+    tokenEncryption.js
   routes/
-    admin/           — requireAdmin-protected routes
-    reseller/        — requireActiveReseller-protected routes
-    public/          — unauthenticated or Telegram-HMAC-verified routes
+    admin/
+    reseller/
+    public/
   services/
-    outlineService.js
-    serverService.js
-    serverProvisionService.js
-    subscriptionProvisionService.js
-    tokenService.js
-    digitalOceanService.js
-    sshService.js
-    orderLifecycleService.js
   jobs/
-    autoStopJob.js   — hourly setInterval; expires orders
-    syncUsageJob.js  — syncs used_bytes from Outline
-  bot/               — multi-tenant Telegraf bot (Option A)
+  bot/
   middleware/
-    requireAdmin.js
-    requireActiveReseller.js
-  supabase/
-    client.js        — singleton Supabase client
 backend/supabase/
-  migrations/        — version-controlled schema SQL
+  migrations/
   seed.sql
 ```
 
-## Auth Middleware
+## Auth Rules
 
-| Middleware | How it works |
-|------------|-------------|
-| `requireAdmin` | Reads `admin_access_token` cookie → looks up row in `admins` table → rejects if missing or `status != 'active'` |
-| `requireActiveReseller` | Reads `reseller_access_token` cookie → validates with Supabase Auth → looks up row in `resellers` → rejects if `status != 'active'` |
-| Miniapp routes | Stateless — every request re-verifies Telegram `initData` HMAC-SHA256. No cookies. |
+- Admin/reseller dashboards use backend-issued httpOnly cookies.
+- Mini App routes are stateless and verify Telegram init data per request.
+- Bot webhooks require `X-Telegram-Bot-Api-Secret-Token`.
 
 ## Implementation Rules
 
-- Keep route handlers thin — call services, return JSON.
-- Put all business logic in `services/`.
-- Put all Supabase queries in service or repository modules — never inline in route files.
-- Always scope queries by `reseller_id` on reseller routes (never leak cross-reseller data).
-- Admin routes explicitly omit the `reseller_id` filter (cross-reseller oversight is intentional).
-- Return consistent JSON: `{ data: … }` on success, `{ error: "message" }` on failure.
-- Use correct HTTP status codes (400 bad input, 401 unauthenticated, 403 forbidden, 404 not found, 409 conflict, 500 server error).
-- Do not log secrets, access tokens, or Outline API URLs.
+- Keep route handlers thin.
+- Put business logic in services.
+- Never expose service-role keys outside backend code.
+- Always scope reseller operations by `reseller_id`.
+- Admin routes may intentionally omit reseller filters for platform oversight.
+- Do not log secrets, access tokens, bot tokens, or Outline API URLs.
+
+## Deployment
+
+Backend production deploy is Ansible -> Droplet -> PM2:
+
+```bash
+cd ansible
+ansible-playbook deploy.yml
+```
+
+Do not use DO App Platform for this project.
+
+## Environment Loading
+
+The backend loads env files in this order:
+
+1. `.env`
+2. `.env.${APP_ENV || NODE_ENV}` with override
+3. `.env.local` with override when not production
+
+This preserves the current Droplet `.env` while allowing `.env.production`.
+
+Key backend variables:
+
+```text
+NODE_ENV=
+PORT=
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+ADMIN_DASHBOARD_URL=
+RESELLER_DASHBOARD_URL=
+MINIAPP_URL=
+TELEGRAM_MINIAPP_URL=
+CORS_ALLOWED_ORIGINS=
+WEBHOOK_BASE_URL=
+PUBLIC_SUBSCRIPTION_BASE_URL=
+BOT_TOKEN_ENCRYPTION_KEY=
+DIGITALOCEAN_TOKEN=
+SERVER_BOOTSTRAP_PRIVATE_KEY_PATH=
+DEFAULT_SERVER_MAX_ACTIVE_KEYS=
+DEFAULT_TRIAL_RESELLER_ID=
+```
 
 ## Server Capacity Concurrency
 
-`subscriptionProvisionService.js` uses an optimistic-concurrency loop when incrementing `vpn_servers.current_active_keys`. Do not bypass this loop — it prevents over-provisioning.
+`subscriptionProvisionService.js` uses an optimistic-concurrency loop when
+updating `vpn_servers.current_active_keys`. Do not bypass it.
 
-## Background Jobs
+Provisioning must also respect `vpn_servers.server_tier`:
 
-Both jobs start automatically when the backend process starts (called from `server.js`):
+- trial orders -> `serverTier: "trial"`
+- paid purchases/renewals/migrations -> `serverTier: "premium"`
 
-| Job | File | Schedule | Action |
-|-----|------|----------|--------|
-| autoStop | `jobs/autoStopJob.js` | hourly setInterval | Finds `vpn_orders` with `status=active` and `expiry_date < today`, deletes Outline keys, sets status to `stopped` |
-| syncUsage | `jobs/syncUsageJob.js` | periodic setInterval | Fetches `used_bytes` from each active Outline key and updates `vpn_keys.used_bytes` |
-
-## Outline API TLS Pinning
-
-`outlineService.js` verifies TLS against `certSha256` stored in `vpn_servers`. Set `OUTLINE_API_INSECURE=true` in `.env` to skip cert check during local dev only.
-
-## Environment Variables (backend/.env)
-
-```
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
-TELEGRAM_BOT_TOKEN=           # legacy single-bot fallback; multi-tenant bot loads tokens from DB
-DIGITALOCEAN_TOKEN=
-SERVER_BOOTSTRAP_PRIVATE_KEY_PATH=
-OUTLINE_API_INSECURE=         # true in dev only
-BOT_ENCRYPTION_KEY=           # AES-256-GCM key for encrypting bot_token_encrypted column
-```
+Use `getActiveServers({ serverTier, regions, limit })` for server selection.

@@ -34,10 +34,12 @@ Read before making schema decisions:
 | `vpn_servers` | Outline servers; Outline API URL + cert per row |
 | `vpn_plans` | Subscription catalogue shared across resellers |
 | `vpn_orders` | A customer's subscription period |
+| `order_payments` | Payment ledger; source of truth for paid amount, commission, and platform due |
 | `vpn_keys` | Active/historical Outline VPN keys |
 | `vpn_customers` | End customers, scoped to a reseller |
 | `telegram_links` | Maps Telegram user ID → vpn_customer per reseller |
 | `commission_ledger` | Reseller earnings per paid order |
+| `monthly_settlements` | Month-end reseller transfer snapshots and admin confirmation |
 | `access_tokens` | Legacy tok_xxx portal (retire when worker is removed) |
 | `token_server_assignments` | Legacy tok_xxx portal (retire with access_tokens) |
 
@@ -59,6 +61,7 @@ These three tables use different name columns — this has caused bugs:
 | `admins.status` | `active`, `disabled` |
 | `vpn_customers.status` | `active`, `inactive` |
 | `vpn_servers.status` | `active`, `provisioning`, `error`, `inactive` |
+| `vpn_servers.server_tier` | `trial`, `premium` |
 | `vpn_orders.status` | `pending`, `active`, `expired`, `stopped` |
 | `vpn_orders.payment_status` | `unpaid`, `paid`, `overdue` |
 | `vpn_orders.order_type` | `trial`, `purchase` |
@@ -67,6 +70,53 @@ These three tables use different name columns — this has caused bugs:
 | `vpn_keys.status` | `active`, `deleted` |
 | `access_tokens.status` | `active`, `expired`, `revoked` |
 | `commission_ledger.status` | `pending`, `paid` |
+| `monthly_settlements.status` | `draft`, `submitted`, `confirmed`, `reopened` |
+| `order_payments.review_status` | `pending_review`, `confirmed`, `rejected` |
+| `order_payments.payment_type` | `initial`, `extend`, `renew` |
+| `order_payments.apply_status` | `pending`, `applied`, `failed`, `reversed` |
+
+## Money Model
+
+## Server Tier Model
+
+`vpn_servers.server_tier` separates trial and paid capacity.
+
+- Trial orders must select `server_tier = trial`.
+- Paid purchases, renewals, and paid-order migrations must select
+  `server_tier = premium`.
+- Existing servers default to `premium` after migration 0005. Mark one SG server
+  as `trial` before enabling trial onboarding in production.
+
+Do not bypass `getActiveServers({ serverTier })` when choosing a provisioning
+target.
+
+`order_payments` is the accounting source of truth. For each confirmed and
+applied payment:
+
+```text
+gross_paid = amount_mmk
+reseller_commission = floor(amount_mmk * commission_percent / 100)
+platform_due = gross_paid - reseller_commission
+```
+
+`vpn_orders.total_paid_mmk` and `vpn_orders.commission_amount_mmk` are cached
+summaries for dashboard compatibility. Do not calculate settlements from plan
+price alone.
+
+Package events are recorded as separate rows:
+
+- `payment_type = initial`: first paid purchase.
+- `payment_type = extend`: active subscription top-up; adds plan duration and
+  plan data to the current key.
+- `payment_type = renew`: stopped/expired subscription purchase; provisions or
+  reactivates access as a new paid period.
+
+Only `review_status = confirmed` and `apply_status = applied` rows count toward
+gross paid, reseller commission, and platform due. Use `idempotency_key` for
+dashboard/admin retry protection when applying extend or renew actions.
+
+Mini App top-ups are intentionally two-step: customer checkout creates a pending
+`extend` payment, then reseller confirmation applies the duration/data change.
 
 ## Reseller Isolation Rule
 

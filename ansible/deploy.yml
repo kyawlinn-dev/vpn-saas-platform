@@ -1,0 +1,60 @@
+---
+- name: Deploy backend code
+  hosts: novanet
+  become: true
+
+  tasks:
+    - name: Check production backend env exists
+      stat:
+        path: /var/www/novanet/backend/.env.production
+      register: backend_env
+
+    - name: Stop if production backend env is missing
+      fail:
+        msg: "Missing /var/www/novanet/backend/.env.production"
+      when: not backend_env.stat.exists
+
+    - name: Sync backend source code
+      synchronize:
+        src: "{{ playbook_dir }}/../backend/"
+        dest: /var/www/novanet/backend/
+        delete: yes
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude=.env"
+          - "--exclude=.env.*"
+          - "--exclude=*.log"
+          - "--exclude=uploads/"
+
+    - name: Install locked production dependencies
+      command: npm ci --omit=dev
+      args:
+        chdir: /var/www/novanet/backend
+
+    - name: Copy PM2 ecosystem config
+      copy:
+        src: files/ecosystem.config.cjs
+        dest: /var/www/novanet/backend/ecosystem.config.cjs
+        mode: '0644'
+
+    - name: Start or reload backend with PM2
+      shell: |
+        cd /var/www/novanet/backend
+        pm2 describe novanet-backend > /dev/null 2>&1 \
+          && pm2 reload ecosystem.config.cjs \
+          || pm2 start ecosystem.config.cjs
+      args:
+        chdir: /var/www/novanet/backend
+
+    - name: Save PM2 process list
+      shell: pm2 save
+
+    - name: Verify backend health after reload
+      uri:
+        url: http://127.0.0.1:3000/api/health
+        method: GET
+        status_code: 200
+      register: backend_health
+      retries: 12
+      delay: 5
+      until: backend_health.status == 200
