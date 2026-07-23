@@ -1,0 +1,71 @@
+---
+# Template for the real, ansible-vault-encrypted secrets file.
+#
+# This file is NOT encrypted and must never contain real secrets — it only
+# documents the variable names env.yml expects. To start using it:
+#
+#   cd ansible
+#   cp group_vars/novanet/vault.yml.example group_vars/novanet/vault.yml
+#   # edit group_vars/novanet/vault.yml and fill in real production values
+#   ansible-vault encrypt group_vars/novanet/vault.yml
+#
+# From then on:
+#   - ansible-vault edit group_vars/novanet/vault.yml   (to change secrets)
+#   - ansible-playbook env.yml --ask-vault-pass         (to push them)
+#
+# Any other playbook run against the `novanet` group (provision.yml,
+# nginx.yml, ssl.yml, deploy.yml, deploy-miniapp.yml) will also start asking
+# for the vault password once vault.yml exists here, because Ansible loads
+# all group_vars files for a group on every run. Pass --ask-vault-pass or
+# --vault-password-file to those too, or run with ANSIBLE_VAULT_PASSWORD_FILE
+# set.
+#
+# group_vars/novanet/vault.yml itself is safe to commit once encrypted —
+# ansible-vault ciphertext is meaningless without the vault password.
+
+# Full contents of backend/.env.production. Start from
+# backend/.env.production.example and fill in real values.
+vault_backend_env_production: |
+  NODE_ENV=production
+  PORT=3000
+
+  SUPABASE_URL=
+  SUPABASE_ANON_KEY=
+  SUPABASE_SERVICE_ROLE_KEY=
+
+  ADMIN_DASHBOARD_URL=
+  RESELLER_DASHBOARD_URL=
+  MINIAPP_URL=
+  TELEGRAM_MINIAPP_URL=
+  CORS_ALLOWED_ORIGINS=
+
+  WEBHOOK_BASE_URL=
+  PUBLIC_SUBSCRIPTION_BASE_URL=
+
+  TELEGRAM_BOT_TOKEN=
+  BOT_TOKEN_ENCRYPTION_KEY=
+
+  DIGITALOCEAN_TOKEN=
+  DIGITALOCEAN_REGION=sgp1
+  DIGITALOCEAN_SIZE=s-1vcpu-1gb
+  DIGITALOCEAN_IMAGE=ubuntu-22-04-x64
+  DIGITALOCEAN_SSH_KEY_FINGERPRINT=
+  DO_AUTO_PROVISION_ENABLED=false
+
+  SERVER_BOOTSTRAP_SSH_USER=root
+  SERVER_BOOTSTRAP_PRIVATE_KEY_PATH=/root/.ssh/id_ed25519
+  SERVER_BOOTSTRAP_KNOWN_HOSTS_FILE=/root/.ssh/known_hosts
+  SERVER_BOOTSTRAP_TIMEOUT_MS=600000
+  SERVER_BOOTSTRAP_POLL_INTERVAL_MS=10000
+  SERVER_PROVISION_TIMEOUT_MINUTES=25
+
+  OUTLINE_INSTALL_SCRIPT_URL=https://raw.githubusercontent.com/OutlineFoundation/outline-apps/master/server_manager/install_scripts/install_server.sh
+  DEFAULT_SERVER_MAX_ACTIVE_KEYS=100
+  DEFAULT_TRIAL_RESELLER_ID=
+
+# Full contents of miniapp/.env.production. Start from
+# miniapp/.env.production.example and fill in real values.
+vault_miniapp_env_production: |
+  VITE_BACKEND_BASE_URL=
+  VITE_API_BASE_URL=
+  VITE_MINIAPP_SLUG=

@@ -107,6 +107,7 @@ cd ansible
 ansible-playbook provision.yml
 ansible-playbook nginx.yml
 ansible-playbook ssl.yml
+ansible-playbook env.yml --ask-vault-pass
 ansible-playbook deploy.yml
 ansible-playbook deploy-miniapp.yml
 ```
@@ -118,8 +119,38 @@ Purpose:
 | `provision.yml` | One-time server packages, Nginx, PM2, UFW, directories |
 | `nginx.yml` | Nginx virtual hosts for API and Mini App |
 | `ssl.yml` | Let's Encrypt certificates for API and Mini App domains |
+| `env.yml` | Push backend/Mini App `.env.production` from Ansible Vault |
 | `deploy.yml` | Backend code sync, production dependency install, PM2 reload |
 | `deploy-miniapp.yml` | Mini App source sync, production build, publish static files |
+
+## Secret Management
+
+Production secrets live in `ansible/group_vars/novanet/vault.yml`, an
+[Ansible Vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html)-encrypted
+file safe to commit once encrypted (ciphertext is meaningless without the
+vault password).
+
+One-time setup:
+
+```bash
+cd ansible
+cp group_vars/novanet/vault.yml.example group_vars/novanet/vault.yml
+# edit group_vars/novanet/vault.yml and fill in real production values
+ansible-vault encrypt group_vars/novanet/vault.yml
+ansible-playbook env.yml --ask-vault-pass
+```
+
+To change a secret later: `ansible-vault edit group_vars/novanet/vault.yml`,
+then re-run `env.yml`. Once `vault.yml` exists, every playbook run against the
+`novanet` group needs the vault password (Ansible loads all `group_vars` for
+a group on every run) — pass `--ask-vault-pass`, or uncomment
+`vault_password_file` in `ansible.cfg` and point it at a local,
+gitignored password file.
+
+This replaces hand-placing `.env.production` on the Droplet. The
+`deploy.yml`/`deploy-miniapp.yml` checks that `.env.production` exists still
+apply as a safety net — run `env.yml` before the first `deploy.yml`/
+`deploy-miniapp.yml` on a fresh droplet.
 
 ## Release Checklist
 
@@ -128,7 +159,7 @@ Before production deployment:
 - Confirm the working tree is clean or intentionally staged.
 - Confirm CI passes on the exact commit being released.
 - Review and apply pending Supabase migrations before deploying code that depends on them.
-- Confirm `.env.production` exists on the Droplet for backend and Mini App.
+- Confirm `.env.production` exists on the Droplet for backend and Mini App (via `env.yml` or hand-placed).
 - Confirm `VITE_BACKEND_BASE_URL` points to the production API domain before building the Mini App.
 - Run backend tests locally.
 - Build admin, reseller, and Mini App locally.

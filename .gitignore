@@ -63,3 +63,10 @@ coverage/
 
 # Local database repair/cleanup snapshots can contain customer records.
 audit/backups/
+
+# ── Ansible ──────────────────────────────────────────────
+# group_vars/**/vault.yml is meant to be committed once encrypted with
+# ansible-vault — only the password used to decrypt it stays local.
+*.retry
+ansible/.vault_pass
+ansible/**/.vault_pass

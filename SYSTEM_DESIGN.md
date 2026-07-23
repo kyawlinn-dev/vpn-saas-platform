@@ -157,7 +157,10 @@ Remaining important work:
 - Keep Supabase migrations aligned with live schema
 - Add/verify DB constraint for duplicate active purchase prevention
 - Remove legacy token-table dependence from provisioning internals
-- Add Ansible Vault or another formal secret-management path
+- Ansible Vault scaffold is in place (`ansible/env.yml`,
+  `ansible/group_vars/novanet/vault.yml.example`); still needs someone to run
+  `ansible-vault encrypt` on a real `group_vars/novanet/vault.yml` and adopt
+  `env.yml` as the way secrets reach the Droplet
 - Decide whether dashboards should also move off Cloudflare if reseller/admin
   access from customer networks becomes a problem
 
