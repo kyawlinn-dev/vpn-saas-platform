@@ -1,16 +1,16 @@
+import crypto from "node:crypto";
 import { Telegraf } from "telegraf";
 import { supabase } from "../lib/supabase.js";
 import { decrypt } from "../lib/tokenEncryption.js";
 import { buildWebAppUrl, setupHandlers } from "./handlers.js";
 
-// Refinement 3: a fresh random secretToken is generated per bot on every server boot,
-// which means setWebhook is called for all bots on every restart. This is a known
-// future optimization — secrets could be persisted to skip re-registration when
-// the token hasn't changed, if bot count grows large enough to matter.
-const activeBots = new Map(); // resellerId → { bot, secretToken, tokenEncrypted }
+// A fresh webhook secret is generated per bot on every server boot, so startup
+// registers webhooks for all configured bots. Persisting secrets can be added
+// later if bot count grows large enough to matter.
+const activeBots = new Map(); // resellerId -> { bot, secretToken, tokenEncrypted }
 
 function getWebhookUrl(resellerId) {
-  const base = process.env.WEBHOOK_BASE_URL?.replace(/\/$/, "");
+  const base = process.env.WEBHOOK_BASE_URL?.trim().replace(/\/$/, "");
   if (!base) throw new Error("WEBHOOK_BASE_URL is not set in environment");
   return `${base}/api/bot-webhook/${resellerId}`;
 }
@@ -22,16 +22,28 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timer]);
 }
 
-async function registerWebhook(plainToken, resellerId) {
-  const webhookUrl = getWebhookUrl(resellerId);
-  console.log(`[registerWebhook] webhook URL: ${webhookUrl}`);
+function createWebhookSecret() {
+  return crypto.randomBytes(32).toString("hex");
+}
 
+function hasValidWebhookSecret(expectedSecret, incomingSecret) {
+  if (!expectedSecret || !incomingSecret) return false;
+
+  const expected = Buffer.from(String(expectedSecret));
+  const incoming = Buffer.from(String(incomingSecret));
+  if (expected.length !== incoming.length) return false;
+
+  return crypto.timingSafeEqual(expected, incoming);
+}
+
+async function registerWebhook(plainToken, resellerId, secretToken) {
+  const webhookUrl = getWebhookUrl(resellerId);
   const apiUrl = new URL(`https://api.telegram.org/bot${plainToken}/setWebhook`);
   apiUrl.searchParams.set("url", webhookUrl);
+  apiUrl.searchParams.set("secret_token", secretToken);
 
   const res = await withTimeout(fetch(apiUrl.toString()), 10_000, "Webhook registration");
   const data = await res.json();
-  console.log(`[registerWebhook] Telegram response:`, JSON.stringify(data));
   if (!data.ok) throw new Error(`${data.error_code}: ${data.description}`);
 }
 
@@ -78,6 +90,7 @@ async function startBotForReseller(row) {
 
   const plainToken = decrypt(bot_token_encrypted);
   const bot = new Telegraf(plainToken);
+  const secretToken = createWebhookSecret();
   const botInfo = await withTimeout(bot.telegram.getMe(), 10_000, "Bot identity lookup");
 
   setupHandlers(bot, {
@@ -94,7 +107,7 @@ async function startBotForReseller(row) {
   });
 
   // Throws on bad token or timeout — callers handle the error
-  await registerWebhook(plainToken, reseller_id);
+  await registerWebhook(plainToken, reseller_id, secretToken);
 
   // Menu button + commands are non-fatal — a failure here doesn't prevent the bot going live
   try {
@@ -120,6 +133,7 @@ async function startBotForReseller(row) {
 
   activeBots.set(reseller_id, {
     bot,
+    secretToken,
     tokenEncrypted: bot_token_encrypted,
     botInfo,
     webhookRegisteredAt: new Date().toISOString(),
@@ -212,14 +226,18 @@ export function getRuntimeStatus(resellerId) {
 }
 
 // Called from webhookRouter — never throws.
-export async function processUpdate(resellerId, update) {
+export async function processUpdate(resellerId, incomingSecret, update) {
   const entry = activeBots.get(resellerId);
   if (!entry) return { found: false };
+
+  if (!hasValidWebhookSecret(entry.secretToken, incomingSecret)) {
+    return { found: true, authorized: false };
+  }
 
   try {
     await entry.bot.handleUpdate(update);
   } catch (err) {
     console.error(`[bot:${resellerId}] handleUpdate error:`, err.message);
   }
-  return { found: true };
+  return { found: true, authorized: true };
 }
