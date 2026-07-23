@@ -944,7 +944,7 @@ router.get("/:slug/plans", async (req, res) => {
 async function handleMiniAppServers(
   req,
   res,
-  { telegramUserId = null, initData = "", personalization_notice = null } = {}
+  { telegramUserId = null, initData = "" } = {}
 ) {
   try {
     const { slug } = req.params;
@@ -1081,7 +1081,6 @@ async function handleMiniAppServers(
       success: true,
       data: {
         servers: mappedServers,
-        personalization_notice,
       },
     });
   } catch (err) {
@@ -1104,19 +1103,19 @@ router.get("/:slug/servers", async (req, res) => {
     });
   }
 
-  const missingInitData = telegramUserId && !String(initData).trim();
+  if (!telegramUserId || (!IS_DEV && !String(initData).trim())) {
+    return res.status(401).json({
+      success: false,
+      message: "Telegram authentication is required to view servers",
+    });
+  }
 
-  return handleMiniAppServers(req, res, {
-    telegramUserId: missingInitData ? null : telegramUserId,
-    initData,
-    personalization_notice: missingInitData
-      ? "Telegram initData was missing; returned public server list without customer personalization."
-      : null,
-  });
+  return handleMiniAppServers(req, res, { telegramUserId, initData });
 });
 
 router.post("/:slug/servers", async (req, res) => {
   const telegramUserId = parseTelegramUserId(req.body.telegram_user_id);
+  const initData = req.body.init_data || "";
 
   if (Number.isNaN(telegramUserId)) {
     return res.status(400).json({
@@ -1125,10 +1124,14 @@ router.post("/:slug/servers", async (req, res) => {
     });
   }
 
-  return handleMiniAppServers(req, res, {
-    telegramUserId,
-    initData: req.body.init_data,
-  });
+  if (!telegramUserId || (!IS_DEV && !String(initData).trim())) {
+    return res.status(401).json({
+      success: false,
+      message: "Telegram authentication is required to view servers",
+    });
+  }
+
+  return handleMiniAppServers(req, res, { telegramUserId, initData });
 });
 
 router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res) => {
