@@ -57,7 +57,13 @@ Required public URL values:
 PUBLIC_SUBSCRIPTION_BASE_URL=https://api.novanetmm.com
 WEBHOOK_BASE_URL=https://api.novanetmm.com
 TELEGRAM_MINIAPP_URL=https://app.novanetmm.com
+MINIAPP_RELEASE_VERSION=20260725-abcdef0
 ```
+
+`MINIAPP_RELEASE_VERSION` is appended to Telegram Mini App menu and inline
+button URLs as `v=...`. Bump it after each Mini App release so Telegram accounts
+with cached WebViews fetch the newest build while keeping the reseller
+`slug=...` in the same URL.
 
 The backend remains compatible with the existing:
 

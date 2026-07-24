@@ -35,24 +35,7 @@ import {
   buildDynamicAccessUrl,
   getPublicSubscriptionBaseUrl,
 } from "../services/publicAccessUrlService.js";
-
-/**
- * Builds the WebApp URL for a reseller's miniapp.
- *
- * The slug is passed as ?slug=<miniappSlug> so that future miniapp versions can
- * read it via: new URLSearchParams(window.location.search).get('slug')
- * or Telegram.WebApp.initDataUnsafe.start_param when opened via a t.me link.
- *
- * @param {string} miniappBaseUrl  Base URL of the deployed miniapp.
- * @param {string} miniappSlug     Reseller's miniapp slug.
- * @param {string} [path=""]       Optional sub-path (e.g. "/packages", "/servers").
- */
-export function buildWebAppUrl(miniappBaseUrl, miniappSlug, path = "") {
-  if (!miniappBaseUrl) return "";
-  const base = miniappBaseUrl.replace(/\/$/, "");
-  const qs = `?slug=${encodeURIComponent(miniappSlug || "")}`;
-  return path ? `${base}${path}${qs}` : `${base}${qs}`;
-}
+import { buildWebAppUrl } from "./webAppUrl.js";
 
 function miniAppButton(text, url) {
   return Markup.button.webApp(text, url);
@@ -66,6 +49,8 @@ function safeButtonUrlMeta(url) {
       path: parsed.pathname || "/",
       has_slug: parsed.searchParams.has("slug"),
       slug: parsed.searchParams.get("slug") || "",
+      has_version: parsed.searchParams.has("v"),
+      version: parsed.searchParams.get("v") || "",
     };
   } catch {
     return {

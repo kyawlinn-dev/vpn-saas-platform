@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import { Telegraf } from "telegraf";
 import { supabase } from "../lib/supabase.js";
 import { decrypt } from "../lib/tokenEncryption.js";
-import { buildWebAppUrl, setupHandlers } from "./handlers.js";
+import { setupHandlers } from "./handlers.js";
+import { buildWebAppUrl } from "./webAppUrl.js";
 
 // A fresh webhook secret is generated per bot on every server boot, so startup
 // registers webhooks for all configured bots. Persisting secrets can be added
@@ -73,6 +74,8 @@ function safeWebAppUrlMeta(url) {
       path: parsed.pathname || "/",
       has_slug: parsed.searchParams.has("slug"),
       slug: parsed.searchParams.get("slug") || "",
+      has_version: parsed.searchParams.has("v"),
+      version: parsed.searchParams.get("v") || "",
     };
   } catch {
     return {
