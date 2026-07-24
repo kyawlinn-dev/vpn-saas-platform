@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router";
 import { useResellerAuth } from "../providers/ResellerAuthProvider";
 
 export function ProtectedRoute({ children }: PropsWithChildren) {
