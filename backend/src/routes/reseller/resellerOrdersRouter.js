@@ -18,7 +18,7 @@ const router = express.Router();
 
 const ORDER_SELECT = `
   *,
-  customer:vpn_customers (
+  customer:vpn_customers!vpn_orders_customer_id_fkey (
     id,
     full_name,
     telegram_username,
@@ -492,7 +492,7 @@ router.post("/", async (req, res) => {
       })
       .select(`
         *,
-        customer:vpn_customers (
+        customer:vpn_customers!vpn_orders_customer_id_fkey (
           id,
           full_name,
           telegram_username,

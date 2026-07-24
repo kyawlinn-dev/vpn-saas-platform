@@ -22,7 +22,7 @@ const TELEGRAM_ACTION_MESSAGE = "This action is not available for Telegram custo
 async function assertNormalCustomer(orderId, resellerId) {
   const { data, error } = await supabase
     .from("vpn_orders")
-    .select("id, customer_id, source, customer:vpn_customers(customer_type)")
+    .select("id, customer_id, source, customer:vpn_customers!vpn_orders_customer_id_fkey(customer_type)")
     .eq("id", orderId)
     .eq("reseller_id", resellerId)
     .maybeSingle();

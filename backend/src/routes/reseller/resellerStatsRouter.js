@@ -74,7 +74,7 @@ router.get("/overview", async (req, res) => {
         .select(
           `id, customer_id, status, order_type, review_status, payment_status, source,
           price_mmk, total_paid_mmk, expiry_date, created_at,
-          customer:vpn_customers(id, full_name, telegram_username, phone, customer_type),
+          customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username, phone, customer_type),
           plan:vpn_plans(id, name),
           payments:order_payments(id, amount_mmk, review_status, apply_status, created_at)`
         )

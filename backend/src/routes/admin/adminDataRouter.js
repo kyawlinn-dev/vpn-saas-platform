@@ -330,7 +330,7 @@ router.get("/overview", async (req, res) => {
         .eq("apply_status", "applied"),
       supabase
         .from("vpn_orders")
-        .select("*, customer:vpn_customers(id, full_name, telegram_username), plan:vpn_plans(id, name), reseller:resellers(id, name)")
+        .select("*, customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username), plan:vpn_plans(id, name), reseller:resellers(id, name)")
         .order("created_at", { ascending: false })
         .limit(10),
     ]);
@@ -382,7 +382,7 @@ router.get("/analytics", async (req, res) => {
           apply_status, source, created_at, submitted_at, reviewed_at,
           reseller:resellers!order_payments_reseller_id_fkey(id, name, email),
           order:vpn_orders(id, status, order_type, created_at,
-            customer:vpn_customers(id, full_name, telegram_username),
+            customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username),
             plan:vpn_plans(id, name))`
         )
         .gte("created_at", monthWindow.start.toISOString())
@@ -396,7 +396,7 @@ router.get("/analytics", async (req, res) => {
           apply_status, source, created_at, submitted_at, reviewed_at,
           reseller:resellers!order_payments_reseller_id_fkey(id, name, email),
           order:vpn_orders(id, status, order_type, created_at,
-            customer:vpn_customers(id, full_name, telegram_username),
+            customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username),
             plan:vpn_plans(id, name))`
         )
         .order("created_at", { ascending: false })
@@ -689,7 +689,7 @@ router.get("/orders", async (req, res) => {
       .from("vpn_orders")
       .select(
         `*,
-        customer:vpn_customers(id, full_name, telegram_username, phone, ssconf_token),
+        customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username, phone, ssconf_token),
         plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb),
         reseller:resellers(id, name),
         payments:order_payments(

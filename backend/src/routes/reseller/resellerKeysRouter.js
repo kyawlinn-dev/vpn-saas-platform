@@ -49,7 +49,7 @@ router.get("/", async (req, res) => {
           payment_status,
           expiry_date
         ),
-        customer:vpn_customers (
+        customer:vpn_customers!vpn_keys_customer_id_fkey (
           id,
           full_name,
           telegram_username,

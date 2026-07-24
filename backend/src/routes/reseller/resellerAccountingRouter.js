@@ -128,7 +128,7 @@ async function loadMonthlySnapshot({ reseller, month }) {
           price_mmk,
           total_paid_mmk,
           created_at,
-          customer:vpn_customers (
+          customer:vpn_customers!vpn_orders_customer_id_fkey (
             id,
             full_name,
             telegram_username,
@@ -192,7 +192,7 @@ async function loadMonthlySnapshot({ reseller, month }) {
         commission_percent,
         commission_amount_mmk,
         created_at,
-        customer:vpn_customers (
+        customer:vpn_customers!vpn_orders_customer_id_fkey (
           id,
           full_name,
           telegram_username,

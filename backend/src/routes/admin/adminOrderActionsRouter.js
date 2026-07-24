@@ -28,7 +28,7 @@ async function getOrderWithPlan(orderId) {
     .from("vpn_orders")
     .select(`
       *,
-      customer:vpn_customers(id, full_name, reseller_id, telegram_username, phone),
+      customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, reseller_id, telegram_username, phone),
       plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb, max_devices, allowed_regions)
     `)
     .eq("id", orderId)

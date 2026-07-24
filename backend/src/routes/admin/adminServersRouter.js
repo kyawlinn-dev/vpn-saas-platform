@@ -266,7 +266,7 @@ router.post("/:serverId/decommission", async (req, res) => {
         .from("vpn_orders")
         .select(`
           id, customer_id, reseller_id, status, order_type,
-          customer:vpn_customers(id, full_name),
+          customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name),
           plan:vpn_plans(id, name, data_limit_gb, allowed_regions, is_trial)
         `)
         .in("id", orderIds)
