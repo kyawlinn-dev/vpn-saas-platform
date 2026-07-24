@@ -163,6 +163,13 @@ fields for compatibility and fast dashboard display.
 
 One row per reseller — configures the Telegram Mini App experience for that reseller's customers. The `miniapp_slug` is the URL identifier.
 
+**Ownership:** `bot_token_encrypted`, `miniapp_slug`, `brand_logo_url`,
+`primary_color`, and the `trial_*` columns are admin-managed only, via
+`PATCH /api/admin/resellers/:id/workspace`. `brand_name`, `support_username`,
+and `payment_info` stay reseller-managed via `PATCH /api/reseller/workspace`,
+which also exposes `bot_connected`/bot status read-only so a reseller can
+tell whether to contact the admin.
+
 | Column | Type | NOT NULL | Default | Notes |
 |--------|------|----------|---------|-------|
 | `id` | uuid | ✓ | gen_random_uuid() | PK |

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Copy,
   ExternalLink,
@@ -16,6 +16,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogBody, DialogClose, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { TablePagination } from "@/components/ui/table-pagination";
 import {
   Table,
   TableBody,
@@ -24,14 +25,15 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useScopedDashboard } from "../hooks/useScopedDashboard";
+import { api } from "../lib/api";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import { formatDate, formatDaysLeft, formatMMK, isExpiringSoon } from "../lib/format";
-import type { Customer, Order, VpnKey } from "../types/api";
+import type { EnrichedCustomer, Order, VpnKey } from "../types/api";
 
 type CustomerFilter = "all" | "normal" | "telegram" | "active" | "expiring" | "inactive";
 
 interface CustomerSummary {
-  customer: Customer;
+  customer: EnrichedCustomer;
   orders: Order[];
   activeOrder?: Order;
   latestOrder?: Order;
@@ -42,19 +44,34 @@ interface CustomerSummary {
   customerType: "normal" | "telegram";
 }
 
-function isTelegramCustomer(customer: Customer, orders: Order[]) {
-  return (
-    customer.customer_type === "telegram" ||
-    orders.some((order) => ["miniapp", "bot"].includes(String(order.source || "").toLowerCase()))
-  );
-}
-
 function getAccessUrl(key?: VpnKey | null) {
   return key?.dynamic_access_url || key?.ssconf_url || key?.preferred_access_url || key?.access_url || "";
 }
 
-function sortNewest(a?: string | null, b?: string | null) {
-  return new Date(b || 0).getTime() - new Date(a || 0).getTime();
+function toSummary(customer: EnrichedCustomer): CustomerSummary {
+  const orders = customer.orders ?? [];
+  const activeOrder = customer.active_order ?? undefined;
+  const latestOrder = orders[0];
+  const activeKey =
+    (customer.keys ?? []).find((key) => key.status === "active") || customer.keys?.[0];
+  const totalPaid = orders.reduce((sum, order) => sum + Number(order.total_paid_mmk || 0), 0);
+  const status: CustomerSummary["status"] = activeOrder
+    ? isExpiringSoon(activeOrder.expiry_date, 7)
+      ? "expiring"
+      : "active"
+    : "inactive";
+
+  return {
+    customer,
+    orders,
+    activeOrder,
+    latestOrder,
+    activeKey,
+    totalPaid,
+    totalOrders: orders.length,
+    status,
+    customerType: customer.customer_type,
+  };
 }
 
 function initials(name?: string | null) {
@@ -88,90 +105,71 @@ function CustomerStatusBadge({ status }: { status: CustomerSummary["status"] }) 
   return <Badge variant="default">Inactive</Badge>;
 }
 
+const FILTER_TO_PARAMS: Record<CustomerFilter, Record<string, string>> = {
+  all: {},
+  normal: { customer_type: "normal" },
+  telegram: { customer_type: "telegram" },
+  active: { status: "active" },
+  expiring: { status: "expiring" },
+  inactive: { status: "inactive" },
+};
+
 export function CustomersPage() {
   const navigate = useNavigate();
-  const { orders, keys, loading } = useScopedDashboard();
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [filter, setFilter] = useState<CustomerFilter>("all");
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerSummary | null>(null);
   const [message, setMessage] = useState("");
+  const [counts, setCounts] = useState({
+    total: 0,
+    normal: 0,
+    telegram: 0,
+    active: 0,
+    expiring: 0,
+    inactive: 0,
+  });
 
-  const customers = useMemo<CustomerSummary[]>(() => {
-    const grouped = new Map<string, { customer: Customer; orders: Order[] }>();
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(t);
+  }, [query]);
 
-    for (const order of orders) {
-      if (!order.customer) continue;
-      const current = grouped.get(order.customer.id);
-      if (current) {
-        current.orders.push(order);
-      } else {
-        grouped.set(order.customer.id, { customer: order.customer, orders: [order] });
+  const queryFilters = useMemo(() => {
+    const params: Record<string, string> = { ...FILTER_TO_PARAMS[filter] };
+    if (debouncedQuery.trim()) params.search = debouncedQuery.trim();
+    return params;
+  }, [filter, debouncedQuery]);
+
+  const {
+    data: customers,
+    total,
+    page,
+    totalPages,
+    loading,
+    setPage,
+  } = usePaginatedTable<EnrichedCustomer>("/reseller/customers", queryFilters, 20);
+
+  const summaries = useMemo(() => customers.map(toSummary), [customers]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCounts() {
+      try {
+        const res = await api.get("/reseller/customers/counts");
+        if (cancelled) return;
+        setCounts(res.data);
+      } catch {
+        // Tab counts are a convenience summary — a failure here shouldn't block the list.
       }
     }
 
-    return Array.from(grouped.values())
-      .map(({ customer, orders: customerOrders }) => {
-        const sortedOrders = [...customerOrders].sort((a, b) => sortNewest(a.created_at, b.created_at));
-        const activeOrder = sortedOrders.find((order) => order.status === "active");
-        const latestOrder = sortedOrders[0];
-        const activeKey =
-          keys.find((key) => key.customer_id === customer.id && key.status === "active") ||
-          keys.find((key) => key.customer_id === customer.id);
-        const totalPaid = customerOrders.reduce((sum, order) => sum + Number(order.total_paid_mmk || 0), 0);
-        const customerType: CustomerSummary["customerType"] = isTelegramCustomer(customer, customerOrders)
-          ? "telegram"
-          : "normal";
-        const status: CustomerSummary["status"] = activeOrder
-          ? isExpiringSoon(activeOrder.expiry_date, 7)
-            ? "expiring"
-            : "active"
-          : "inactive";
-
-        return {
-          customer,
-          orders: sortedOrders,
-          activeOrder,
-          latestOrder,
-          activeKey,
-          totalPaid,
-          totalOrders: customerOrders.length,
-          status,
-          customerType,
-        };
-      })
-      .sort((a, b) => sortNewest(a.latestOrder?.created_at, b.latestOrder?.created_at));
-  }, [orders, keys]);
-
-  const filteredCustomers = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return customers.filter((item) => {
-      if (filter === "normal" && item.customerType !== "normal") return false;
-      if (filter === "telegram" && item.customerType !== "telegram") return false;
-      if (filter === "active" && item.status !== "active") return false;
-      if (filter === "expiring" && item.status !== "expiring") return false;
-      if (filter === "inactive" && item.status !== "inactive") return false;
-
-      if (!needle) return true;
-      return (
-        String(item.customer.full_name || "").toLowerCase().includes(needle) ||
-        String(item.customer.telegram_username || "").toLowerCase().includes(needle) ||
-        String(item.customer.phone || "").toLowerCase().includes(needle) ||
-        String(item.latestOrder?.plan?.name || "").toLowerCase().includes(needle)
-      );
-    });
-  }, [customers, filter, query]);
-
-  const counts = useMemo(
-    () => ({
-      total: customers.length,
-      normal: customers.filter((item) => item.customerType === "normal").length,
-      telegram: customers.filter((item) => item.customerType === "telegram").length,
-      active: customers.filter((item) => item.status === "active").length,
-      expiring: customers.filter((item) => item.status === "expiring").length,
-      inactive: customers.filter((item) => item.status === "inactive").length,
-    }),
-    [customers]
-  );
+    void loadCounts();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const copyText = async (value: string, label: string) => {
     await navigator.clipboard.writeText(value);
@@ -223,7 +221,7 @@ export function CustomersPage() {
         </div>
         <Badge variant="default" className="w-fit gap-1">
           <Users size={13} />
-          {filteredCustomers.length} shown
+          {total} total
         </Badge>
       </div>
 
@@ -244,7 +242,7 @@ export function CustomersPage() {
               className="h-8 pl-8 text-xs"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search customer, Telegram, phone, plan..."
+              placeholder="Search customer, Telegram, phone..."
             />
           </div>
 
@@ -266,71 +264,124 @@ export function CustomersPage() {
           </div>
         </div>
 
-        {loading && customers.length === 0 ? (
+        {loading && summaries.length === 0 ? (
           <div className="h-64 rounded-md bg-secondary animate-pulse" />
-        ) : filteredCustomers.length === 0 ? (
+        ) : summaries.length === 0 ? (
           <div className="rounded-md border border-dashed border-border bg-muted/55 px-4 py-8 text-center text-sm text-muted-foreground">
             No customers match this filter.
           </div>
         ) : (
-          <Table className="table-fixed text-xs">
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "24%" }}>Customer</TableHead>
-                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "10%" }}>Type</TableHead>
-                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "10%" }}>Status</TableHead>
-                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "16%" }}>Latest plan</TableHead>
-                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "13%" }}>Expiry</TableHead>
-                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "10%" }}>Orders</TableHead>
-                <TableHead className="h-8 px-2 text-[10px]" style={{ width: "13%" }}>Total paid</TableHead>
-                <TableHead className="h-8 px-1" style={{ width: "4%" }} aria-label="Actions" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredCustomers.map((item) => (
-                <TableRow key={item.customer.id}>
-                  <TableCell className="px-2 py-2">
+          <>
+            {/* Desktop table */}
+            <div className="hidden md:block">
+              <Table className="table-fixed text-xs">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="h-8 px-2 text-[10px]" style={{ width: "24%" }}>Customer</TableHead>
+                    <TableHead className="h-8 px-2 text-[10px]" style={{ width: "10%" }}>Type</TableHead>
+                    <TableHead className="h-8 px-2 text-[10px]" style={{ width: "10%" }}>Status</TableHead>
+                    <TableHead className="h-8 px-2 text-[10px]" style={{ width: "16%" }}>Latest plan</TableHead>
+                    <TableHead className="h-8 px-2 text-[10px]" style={{ width: "13%" }}>Expiry</TableHead>
+                    <TableHead className="h-8 px-2 text-[10px]" style={{ width: "10%" }}>Orders</TableHead>
+                    <TableHead className="h-8 px-2 text-[10px]" style={{ width: "13%" }}>Total paid</TableHead>
+                    <TableHead className="h-8 px-1" style={{ width: "4%" }} aria-label="Actions" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {summaries.map((item) => (
+                    <TableRow key={item.customer.id}>
+                      <TableCell className="px-2 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary text-[10px] font-black text-primary-foreground">
+                            {initials(item.customer.full_name)}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="truncate text-xs font-semibold text-foreground">
+                              {item.customer.full_name}
+                            </div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {item.customer.telegram_username || item.customer.phone || "-"}
+                            </div>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-2 py-2"><TypeBadge type={item.customerType} /></TableCell>
+                      <TableCell className="px-2 py-2"><CustomerStatusBadge status={item.status} /></TableCell>
+                      <TableCell className="px-2 py-2">
+                        <div className="truncate text-xs font-medium">{item.latestOrder?.plan?.name || "-"}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {item.latestOrder ? formatMMK(item.latestOrder.price_mmk) : "-"}
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-2 py-2">
+                        <div>{formatDate(item.activeOrder?.expiry_date || item.latestOrder?.expiry_date)}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {formatDaysLeft(item.activeOrder?.expiry_date || item.latestOrder?.expiry_date)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-2 py-2">{item.totalOrders}</TableCell>
+                      <TableCell className="px-2 py-2">
+                        <span className="whitespace-nowrap font-bold">{formatMMK(item.totalPaid)}</span>
+                      </TableCell>
+                      <TableCell className="px-2 py-2">
+                        <div className="flex justify-end">
+                          <ActionMenu items={actionsFor(item)} />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {/* Mobile cards */}
+            <div className="space-y-2 md:hidden">
+              {summaries.map((item) => (
+                <div key={item.customer.id} className="rounded-lg border border-border bg-card p-3">
+                  <div className="flex items-start justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-primary text-[10px] font-black text-primary-foreground">
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary text-[11px] font-black text-primary-foreground">
                         {initials(item.customer.full_name)}
                       </span>
                       <div className="min-w-0">
-                        <div className="truncate text-xs font-semibold text-foreground">
+                        <div className="truncate text-sm font-semibold text-foreground">
                           {item.customer.full_name}
                         </div>
-                        <div className="truncate text-[11px] text-muted-foreground">
+                        <div className="truncate text-xs text-muted-foreground">
                           {item.customer.telegram_username || item.customer.phone || "-"}
                         </div>
                       </div>
                     </div>
-                  </TableCell>
-                  <TableCell className="px-2 py-2"><TypeBadge type={item.customerType} /></TableCell>
-                  <TableCell className="px-2 py-2"><CustomerStatusBadge status={item.status} /></TableCell>
-                  <TableCell className="px-2 py-2">
-                    <div className="truncate text-xs font-medium">{item.latestOrder?.plan?.name || "-"}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {item.latestOrder ? formatMMK(item.latestOrder.price_mmk) : "-"}
+                    <ActionMenu items={actionsFor(item)} />
+                  </div>
+
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                    <TypeBadge type={item.customerType} />
+                    <CustomerStatusBadge status={item.status} />
+                  </div>
+
+                  <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-border pt-2.5 text-xs">
+                    <div>
+                      <div className="text-[10px] text-muted-foreground">Latest plan</div>
+                      <div className="truncate font-medium">{item.latestOrder?.plan?.name || "-"}</div>
                     </div>
-                  </TableCell>
-                  <TableCell className="px-2 py-2">
-                    <div>{formatDate(item.activeOrder?.expiry_date || item.latestOrder?.expiry_date)}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {formatDaysLeft(item.activeOrder?.expiry_date || item.latestOrder?.expiry_date)}
+                    <div>
+                      <div className="text-[10px] text-muted-foreground">Expiry</div>
+                      <div>{formatDaysLeft(item.activeOrder?.expiry_date || item.latestOrder?.expiry_date) || "-"}</div>
                     </div>
-                  </TableCell>
-                  <TableCell className="px-2 py-2">{item.totalOrders}</TableCell>
-                  <TableCell className="px-2 py-2">
-                    <span className="whitespace-nowrap font-bold">{formatMMK(item.totalPaid)}</span>
-                  </TableCell>
-                  <TableCell className="px-2 py-2">
-                    <div className="flex justify-end">
-                      <ActionMenu items={actionsFor(item)} />
+                    <div>
+                      <div className="text-[10px] text-muted-foreground">Total paid</div>
+                      <div className="whitespace-nowrap font-bold">{formatMMK(item.totalPaid)}</div>
                     </div>
-                  </TableCell>
-                </TableRow>
+                  </div>
+                </div>
               ))}
-            </TableBody>
-          </Table>
+            </div>
+
+            <div className="flex justify-center pt-1">
+              <TablePagination page={page} count={totalPages} onChange={setPage} />
+            </div>
+          </>
         )}
       </Card>
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Search, Plus, Copy, Info, ChevronLeft, ChevronRight,
+  Search, Plus, Copy, Info,
   RefreshCw, Ban, KeyRound, Lightbulb, Send, UserRound,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -20,25 +20,24 @@ import {
   DialogBody, DialogFooter, DialogClose,
 } from "@/components/ui/dialog";
 import { FormField } from "@/components/ui/form-field";
+import { TablePagination } from "@/components/ui/table-pagination";
 import { cn } from "@/lib/utils";
 import { api } from "../lib/api";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import {
   formatDate, formatDaysLeft, formatMMK, formatUsageGb, isExpiringSoon,
 } from "../lib/format";
 import type { Order, Plan, VpnKey } from "../types/api";
 
 interface Props {
-  orders: Order[];
   plans: Plan[];
-  keys: VpnKey[];
-  onSuccess: () => Promise<void>;
+  scopeFilters?: Record<string, string>;
   title?: string;
   description?: string;
   initialRowsPerPage?: number;
   rowsPerPageOptions?: number[];
   showSearch?: boolean;
   showFilters?: boolean;
-  loading?: boolean;
   compactMobile?: boolean;
   compact?: boolean;
   showCustomerTypeFilter?: boolean;
@@ -151,13 +150,37 @@ function getOrderUsageGb(key?: VpnKey | null) {
   if (typeof key.order_total_used_bytes === "number") {
     return key.order_total_used_bytes / 1024 / 1024 / 1024;
   }
-  return Number(key.used_gb_30d || 0);
+  if (typeof key.used_gb_30d === "number") return key.used_gb_30d;
+  // Orders now embed keys straight from the DB (no live Prometheus fetch on
+  // every list load) — used_bytes is the cumulative usage kept in sync by
+  // syncUsageJob, the best available figure without a live metrics call.
+  if (typeof key.used_bytes === "number") return key.used_bytes / 1024 / 1024 / 1024;
+  return 0;
 }
 
 function getOrderRemainingGb(key?: VpnKey | null) {
   if (!key) return null;
   if (typeof key.order_total_remaining_gb === "number") return key.order_total_remaining_gb;
-  return key.remaining_gb_30d == null ? null : Number(key.remaining_gb_30d);
+  if (key.remaining_gb_30d != null) return Number(key.remaining_gb_30d);
+  if (typeof key.data_limit_bytes === "number" && typeof key.used_bytes === "number") {
+    return Math.max((key.data_limit_bytes - key.used_bytes) / 1024 / 1024 / 1024, 0);
+  }
+  return null;
+}
+
+function getOrderLimitGb(key?: VpnKey | null) {
+  if (!key) return 0;
+  if (typeof key.data_limit_gb === "number") return key.data_limit_gb;
+  if (typeof key.data_limit_bytes === "number") return key.data_limit_bytes / 1024 / 1024 / 1024;
+  return 0;
+}
+
+function getActiveKeyForOrder(order: Order): VpnKey | undefined {
+  return order.keys?.find((key) => key.status === "active");
+}
+
+function getAnyKeyForOrder(order: Order): VpnKey | undefined {
+  return getActiveKeyForOrder(order) ?? order.keys?.[0];
 }
 
 function useMediaQuery(query: string) {
@@ -172,76 +195,6 @@ function useMediaQuery(query: string) {
     return () => m.removeEventListener("change", handler);
   }, [query]);
   return matches;
-}
-
-function TablePagination({
-  page,
-  count,
-  onChange,
-}: {
-  page: number;
-  count: number;
-  onChange: (page: number) => void;
-}) {
-  const narrow = useMediaQuery("(max-width: 599px)");
-
-  const pages = useMemo(() => {
-    if (count <= 1) return [1];
-    const siblings = narrow ? 1 : 2;
-    const items: (number | "...")[] = [];
-    const left = Math.max(2, page - siblings);
-    const right = Math.min(count - 1, page + siblings);
-
-    items.push(1);
-    if (left > 2) items.push("...");
-    for (let i = left; i <= right; i++) items.push(i);
-    if (right < count - 1) items.push("...");
-    if (count > 1) items.push(count);
-
-    return items;
-  }, [page, count, narrow]);
-
-  return (
-    <div className="flex items-center gap-1 overflow-x-auto">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={page === 1}
-        onClick={() => onChange(page - 1)}
-      >
-        <ChevronLeft size={16} />
-        Prev
-      </Button>
-
-      {pages.map((p, i) =>
-        p === "..." ? (
-          <span key={`dots-${i}`} className="px-1 text-sm text-muted-foreground select-none">
-            …
-          </span>
-        ) : (
-          <Button
-            key={p}
-            size="sm"
-            variant={page === p ? "primary" : "outline"}
-            className="min-w-9"
-            onClick={() => onChange(p as number)}
-          >
-            {p}
-          </Button>
-        )
-      )}
-
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={page === count || count <= 1}
-        onClick={() => onChange(page + 1)}
-      >
-        Next
-        <ChevronRight size={16} />
-      </Button>
-    </div>
-  );
 }
 
 function LoadingView() {
@@ -274,17 +227,14 @@ function DetailItem({ label, value }: { label: string; value: React.ReactNode })
 }
 
 export function OrdersTable({
-  orders,
   plans,
-  keys,
-  onSuccess,
+  scopeFilters = {},
   title = "Orders",
   description = "",
   initialRowsPerPage = 10,
   rowsPerPageOptions = [5, 10, 20, 50],
   showSearch = true,
   showFilters = true,
-  loading = false,
   compactMobile = false,
   compact = false,
   showCustomerTypeFilter = false,
@@ -297,10 +247,51 @@ export function OrdersTable({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filter, setFilter] = useState<OrderFilter>("all");
   const [customerTypeFilter, setCustomerTypeFilter] = useState<CustomerTypeFilter>("all");
-  const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(initialRowsPerPage);
+  const [filterCounts, setFilterCounts] = useState({
+    all: 0,
+    pending: 0,
+    active: 0,
+    expiring: 0,
+    overdue: 0,
+    expired: 0,
+    stopped: 0,
+  });
+  const [countsRefreshKey, setCountsRefreshKey] = useState(0);
+
+  // Debounce search so typing doesn't fire a request per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const scopeFiltersKey = JSON.stringify(scopeFilters);
+  const queryFilters = useMemo(() => {
+    const params: Record<string, string> = { ...scopeFilters };
+    if (filter !== "all") params.status = filter;
+    if (customerTypeFilter !== "all") params.customer_type = customerTypeFilter;
+    if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
+    return params;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeFiltersKey, filter, customerTypeFilter, debouncedSearch]);
+
+  const {
+    data: pagedOrders,
+    total,
+    page,
+    totalPages,
+    loading,
+    error: loadError,
+    setPage,
+    refresh,
+  } = usePaginatedTable<Order>("/reseller/orders", queryFilters, rowsPerPage);
+
+  useEffect(() => {
+    if (loadError) setError(loadError);
+  }, [loadError]);
 
   const [renewDialog, setRenewDialog] = useState<RenewDialogState>({
     open: false,
@@ -358,18 +349,46 @@ export function OrdersTable({
       setPage(newPage);
       scrollToTableTop();
     },
-    [scrollToTableTop]
+    [scrollToTableTop, setPage]
   );
+
+  const refreshAll = useCallback(async () => {
+    await refresh();
+    setCountsRefreshKey((n) => n + 1);
+  }, [refresh]);
 
   useEffect(() => {
     if (!resetTrigger) return;
     setPage(1);
+    setCountsRefreshKey((n) => n + 1);
     scrollToTableTop();
-  }, [resetTrigger, scrollToTableTop]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetTrigger]);
 
+  // Filter-tab counts span every status, independent of the currently
+  // selected tab/search, so they're fetched separately from the paginated
+  // list — via one consolidated /counts request rather than one request per
+  // tab, which was enough concurrent load to saturate the connection pool.
   useEffect(() => {
-    setPage(1);
-  }, [search, filter, customerTypeFilter, rowsPerPage]);
+    if (!showFilters) return;
+    let cancelled = false;
+
+    async function loadCounts() {
+      try {
+        const res = await api.get("/reseller/orders/counts", { params: scopeFilters });
+        if (cancelled) return;
+        setFilterCounts(res.data.status);
+      } catch {
+        // Tab counts are a convenience summary — a failure here shouldn't block the list.
+      }
+    }
+
+    void loadCounts();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFilters, scopeFiltersKey, countsRefreshKey]);
 
   useEffect(() => {
     if (!message) return;
@@ -395,87 +414,6 @@ export function OrdersTable({
     return () => clearTimeout(t);
   }, [stopError]);
 
-  const activeKeyByOrderId = useMemo(() => {
-    const map: Record<string, VpnKey> = {};
-    for (const key of keys) {
-      if (key.order_id && key.status === "active" && !map[key.order_id]) {
-        map[key.order_id] = key;
-      }
-    }
-    return map;
-  }, [keys]);
-
-  const keyByOrderId = useMemo(() => {
-    const map: Record<string, VpnKey> = {};
-    for (const key of keys) {
-      if (!key.order_id) continue;
-      if (!map[key.order_id] || key.status === "active") {
-        map[key.order_id] = key;
-      }
-    }
-    return map;
-  }, [keys]);
-
-  const filteredOrders = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return orders.filter((order) => {
-      const key = activeKeyByOrderId[order.id];
-      const matchesSearch =
-        !query ||
-        String(order.customer?.full_name || "").toLowerCase().includes(query) ||
-        String(order.customer?.telegram_username || "").toLowerCase().includes(query) ||
-        String(order.customer?.phone || "").toLowerCase().includes(query) ||
-        String(order.plan?.name || "").toLowerCase().includes(query) ||
-        String(order.status || "").toLowerCase().includes(query) ||
-        String(getPaymentDisplayStatus(order) || "").toLowerCase().includes(query) ||
-        String(getPreferredAccessUrl(key) || "").toLowerCase().includes(query);
-
-      if (!matchesSearch) return false;
-
-      const isTelegramCustomer = isTelegramManagedOrder(order);
-      if (customerTypeFilter === "telegram" && !isTelegramCustomer) return false;
-      if (customerTypeFilter === "normal" && isTelegramCustomer) return false;
-
-      switch (filter) {
-        case "pending":
-          return order.status === "pending";
-        case "active":
-          return order.status === "active";
-        case "expiring":
-          return order.status === "active" && isExpiringSoon(order.expiry_date, 7);
-        case "overdue":
-          return order.status === "overdue";
-        case "expired":
-          return order.status === "expired";
-        case "stopped":
-          return order.status === "stopped";
-        default:
-          return true;
-      }
-    });
-  }, [orders, filter, search, customerTypeFilter, activeKeyByOrderId]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / rowsPerPage));
-  const currentPage = Math.min(page, totalPages);
-
-  const pagedOrders = useMemo(() => {
-    const start = (currentPage - 1) * rowsPerPage;
-    return filteredOrders.slice(start, start + rowsPerPage);
-  }, [filteredOrders, currentPage, rowsPerPage]);
-
-  const filterCounts = useMemo(
-    () => ({
-      all: orders.length,
-      pending: orders.filter((i) => i.status === "pending").length,
-      active: orders.filter((i) => i.status === "active").length,
-      expiring: orders.filter((i) => i.status === "active" && isExpiringSoon(i.expiry_date, 7)).length,
-      overdue: orders.filter((i) => i.status === "overdue").length,
-      expired: orders.filter((i) => i.status === "expired").length,
-      stopped: orders.filter((i) => i.status === "stopped").length,
-    }),
-    [orders]
-  );
-
   const copyText = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -492,7 +430,7 @@ export function OrdersTable({
       setError("");
       setMessage("");
       const res = await api.post(`/reseller/order-actions/${order.id}/activate`);
-      await onSuccess();
+      await refreshAll();
 
       const data = res?.data;
       const accessUrl: string = getPreferredAccessUrlFromPayload(data);
@@ -534,7 +472,7 @@ export function OrdersTable({
       });
 
       closeRenewDialog();
-      await onSuccess();
+      await refreshAll();
 
       const data = res?.data;
       const accessUrl: string = getPreferredAccessUrlFromPayload(data);
@@ -569,7 +507,7 @@ export function OrdersTable({
       await api.post(`/reseller/order-actions/${stopDialog.order.id}/stop`);
       setStopDialog({ open: false, order: null });
       setMessage(`Stopped ${stopDialog.order.customer?.full_name || "order"}.`);
-      await onSuccess();
+      await refreshAll();
     } catch (err: any) {
       setStopError(mapActionError(err?.response?.data) || err.message || "Failed to stop");
       setError(mapActionError(err?.response?.data) || err.message || "Failed to stop");
@@ -583,7 +521,7 @@ export function OrdersTable({
     return (
       <UsageBar
         used={getOrderUsageGb(key)}
-        limit={Number(key.data_limit_gb || 0)}
+        limit={getOrderLimitGb(key)}
         remaining={getOrderRemainingGb(key)}
         connections={Number(key.recent_connections_24h || 0)}
       />
@@ -591,7 +529,7 @@ export function OrdersTable({
   };
 
   const renderAccessDetails = (order: Order) => {
-    const key = keyByOrderId[order.id];
+    const key = getAnyKeyForOrder(order);
     const dynamicUrl =
       key?.dynamic_access_url ||
       key?.ssconf_url ||
@@ -650,7 +588,7 @@ export function OrdersTable({
   };
 
   const renderAccessCell = (order: Order) => {
-    const key = keyByOrderId[order.id];
+    const key = getAnyKeyForOrder(order);
     const accessUrl = getPreferredAccessUrl(key);
 
     if (!accessUrl) {
@@ -674,7 +612,7 @@ export function OrdersTable({
 
   const renderActions = (order: Order) => {
     const isTelegramCustomer = isTelegramManagedOrder(order);
-    const key = keyByOrderId[order.id];
+    const key = getAnyKeyForOrder(order);
     const accessUrl = getPreferredAccessUrl(key);
     const actions: ActionMenuItem[] = [
       {
@@ -1001,7 +939,7 @@ export function OrdersTable({
                 </TableRow>
               ) : (
                 pagedOrders.map((order) => {
-                  const key = activeKeyByOrderId[order.id];
+                  const key = getActiveKeyForOrder(order);
                   const expirySoon = isExpiringSoon(order.expiry_date, 7) && order.status === "active";
                   return (
                     <TableRow key={order.id}>
@@ -1067,16 +1005,13 @@ export function OrdersTable({
               </Select>
             </div>
             <span>
-              {filteredOrders.length === 0
+              {total === 0
                 ? "0–0"
-                : `${(currentPage - 1) * rowsPerPage + 1}–${Math.min(
-                    currentPage * rowsPerPage,
-                    filteredOrders.length
-                  )}`}{" "}
-              of {filteredOrders.length}
+                : `${(page - 1) * rowsPerPage + 1}–${Math.min(page * rowsPerPage, total)}`}{" "}
+              of {total}
             </span>
           </div>
-          <TablePagination page={currentPage} count={totalPages} onChange={handlePageChange} />
+          <TablePagination page={page} count={totalPages} onChange={handlePageChange} />
         </div>
       </Card>
 
@@ -1263,7 +1198,7 @@ export function OrdersTable({
 
                   <div className="rounded-md border border-border bg-card p-2.5">
                     <div className="mb-1.5 text-xs font-bold">Usage</div>
-                    {renderUsageCompact(activeKeyByOrderId[detailsDialog.order.id])}
+                    {renderUsageCompact(getActiveKeyForOrder(detailsDialog.order))}
                   </div>
                 </div>
 

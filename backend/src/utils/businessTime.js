@@ -29,6 +29,24 @@ export function addDaysToDateOnly(dateOnly, days) {
   return date.toISOString().slice(0, 10);
 }
 
+export function parseBusinessDay(value) {
+  const raw = String(value || businessDateOnly()).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const start = new Date(Date.UTC(year, month - 1, day, -BANGKOK_UTC_OFFSET_HOURS));
+  const end = new Date(Date.UTC(year, month - 1, day + 1, -BANGKOK_UTC_OFFSET_HOURS));
+  return {
+    date: raw,
+    startIso: start.toISOString(),
+    endIso: end.toISOString(),
+  };
+}
+
 export function parseBusinessMonth(value) {
   const raw = String(value || "").trim();
   const match = raw.match(/^(\d{4})-(\d{2})$/);

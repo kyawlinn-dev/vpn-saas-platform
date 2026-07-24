@@ -1,5 +1,12 @@
 export type Nullable<T> = T | null;
 
+export interface PaginatedResponse<T> {
+  data: T[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface Reseller {
   id: string;
   name: string;
@@ -67,6 +74,10 @@ export interface Order {
   reseller?: Reseller;
   plan?: Plan;
   payments?: OrderPayment[];
+  keys?: VpnKey[];
+  ssconf_url?: Nullable<string>;
+  dynamic_access_url?: Nullable<string>;
+  preferred_access_url?: Nullable<string>;
 }
 
 export interface OrderPayment {
@@ -168,15 +179,11 @@ export interface BotStatus {
 }
 
 export interface WorkspaceSettings {
-  miniapp_slug: string;
   brand_name: string;
-  brand_logo_url: string;
   support_username: string;
-  primary_color: string;
-  trial_enabled: boolean;
-  trial_data_limit_gb: number | null;
-  trial_duration_days: number | null;
   payment_info: PaymentMethod[];
+  // Read-only — Telegram bot setup is admin-managed now (see admin-dashboard's
+  // Mini App panel). This just tells the reseller whether to ping the admin.
   bot_connected: boolean;
   bot_status?: BotStatus;
 }
@@ -261,6 +268,51 @@ export interface MonthlySettlement {
     full_name?: Nullable<string>;
     email?: Nullable<string>;
   } | null;
+}
+
+export interface EnrichedCustomer extends Customer {
+  customer_type: "normal" | "telegram";
+  telegram_link: Nullable<{
+    id: string;
+    telegram_user_id: number;
+    telegram_username: Nullable<string>;
+    trial_used_at: Nullable<string>;
+    trial_order_id: Nullable<string>;
+    created_at?: string;
+  }>;
+  orders: Order[];
+  active_order: Order | null;
+  keys: VpnKey[];
+  payment_summary: {
+    gross_mmk: number;
+    commission_mmk: number;
+    platform_due_mmk: number;
+    pending_mmk: number;
+    confirmed_count: number;
+    pending_count: number;
+  };
+  ssconf_url: Nullable<string>;
+  dynamic_access_url: Nullable<string>;
+  preferred_access_url: Nullable<string>;
+}
+
+export interface ResellerOverviewStats {
+  active_orders: number;
+  pending_orders: number;
+  total_orders: number;
+  active_keys: number;
+  active_customers: number;
+  today_revenue_mmk: number;
+  month_revenue_mmk: number;
+  telegram_review: {
+    count: number;
+    recent: Order[];
+  };
+  expiring_soon: {
+    count: number;
+    recent: Order[];
+  };
+  recent_orders: Order[];
 }
 
 export interface MonthlyAccountingSnapshot {

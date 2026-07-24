@@ -123,6 +123,52 @@ Purpose:
 | `deploy.yml` | Backend code sync, production dependency install, PM2 reload |
 | `deploy-miniapp.yml` | Mini App source sync, production build, publish static files |
 
+## Database Migrations
+
+Supabase migrations are a production release gate. Apply and verify pending
+migrations before deploying backend code that depends on them. Do not deploy the
+backend first and "catch up" the database afterward.
+
+Current migration files live in:
+
+```text
+backend/supabase/migrations/
+```
+
+For manual Supabase SQL Editor deployments, run pending files in filename order.
+For this project, the current post-initial migration sequence is:
+
+```text
+0002_add_monthly_settlements.sql
+0003_add_order_payments.sql
+0004_package_payment_events.sql
+0005_add_server_tier.sql
+0006_business_integrity_constraints.sql
+```
+
+If production has ever been patched manually, first inventory the live schema
+instead of assuming every migration was applied in order. A partially applied
+migration must be completed statement-by-statement, skipping objects that
+already exist. This is especially important for
+`0006_business_integrity_constraints.sql`, which contains some guarded
+statements and some unguarded `alter table ... add constraint` statements.
+
+Before applying a migration that adds integrity constraints, run the preflight
+queries documented in `DEPLOYMENT_RUNBOOK.md`. If preflight finds duplicate
+active purchases or duplicate active server keys, stop and clean the data
+explicitly before deployment.
+
+Minimum production order:
+
+```text
+1. Back up Supabase.
+2. Apply and verify all pending migrations.
+3. Push/update production env values if needed.
+4. Deploy backend with Ansible.
+5. Deploy Mini App with Ansible if Mini App code changed.
+6. Deploy dashboards manually after backend health checks pass.
+```
+
 ## Secret Management
 
 Production secrets live in `ansible/group_vars/novanet/vault.yml`, an
@@ -158,7 +204,8 @@ Before production deployment:
 
 - Confirm the working tree is clean or intentionally staged.
 - Confirm CI passes on the exact commit being released.
-- Review and apply pending Supabase migrations before deploying code that depends on them.
+- Back up production Supabase.
+- Apply and verify pending Supabase migrations before deploying code that depends on them.
 - Confirm `.env.production` exists on the Droplet for backend and Mini App (via `env.yml` or hand-placed).
 - Confirm `VITE_BACKEND_BASE_URL` points to the production API domain before building the Mini App.
 - Run backend tests locally.

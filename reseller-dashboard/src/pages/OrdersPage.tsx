@@ -5,7 +5,7 @@ import { OrdersTable } from "../components/OrdersTable";
 import { useScopedDashboard } from "../hooks/useScopedDashboard";
 
 export function OrdersPage() {
-  const { orders, plans, keys, refresh, error, loading } = useScopedDashboard();
+  const { plans, refresh, error, loading } = useScopedDashboard();
   const [openCreateModal, setOpenCreateModal] = useState(false);
   const [orderResetTrigger, setOrderResetTrigger] = useState(0);
 
@@ -24,11 +24,7 @@ export function OrdersPage() {
       ) : null}
 
       <OrdersTable
-        orders={orders}
         plans={plans}
-        keys={keys}
-        onSuccess={refresh}
-        loading={loading && orders.length === 0}
         title="Customer Orders"
         description="Search by customer or plan and filter by pending, active, expiring, overdue, expired, or stopped."
         initialRowsPerPage={10}
@@ -38,6 +34,7 @@ export function OrdersPage() {
         showCustomerTypeFilter
         compactMobile
         resetTrigger={orderResetTrigger}
+        scopeFilters={{ hide_rejected_telegram: "true" }}
         headerAction={{
           label: "Create Order",
           icon: <Plus size={16} />,

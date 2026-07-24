@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   RefreshCw, Image as ImageIcon, ExternalLink, CheckCircle2, XCircle, Bot,
 } from "lucide-react";
@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/select";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
+import { TablePagination } from "@/components/ui/table-pagination";
 import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
@@ -16,7 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { api } from "../lib/api";
 import { formatDate, formatMMK } from "../lib/format";
-import { useScopedDashboard } from "../hooks/useScopedDashboard";
+import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import type { Order } from "../types/api";
 
 function ReviewChip({ value }: { value?: string | null }) {
@@ -37,57 +38,69 @@ function AccessChip({ value }: { value?: string | null }) {
   );
 }
 
-function getOrderSource(order: Order) {
-  return String(order.source || "dashboard");
-}
-
-function getTelegramOrders(orders: Order[]) {
-  return orders.filter((order) => {
-    const source = getOrderSource(order);
-    const telegramManaged =
-      source === "miniapp" ||
-      source === "bot" ||
-      order.customer?.customer_type === "telegram";
-    return telegramManaged && order.order_type === "purchase";
-  });
-}
-
 export function TelegramOrdersPage() {
-  const { orders, refresh, loading, error } = useScopedDashboard();
-
   const [reviewFilter, setReviewFilter] = useState("pending_review");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [rejectConfirmOrder, setRejectConfirmOrder] = useState<Order | null>(null);
   const [actionError, setActionError] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  // Signed URLs keyed by orderId — cached for the session so repeated clicks
-  // don't hit the backend again until the component unmounts.
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [fetchingSignedUrl, setFetchingSignedUrl] = useState<string | null>(null);
+  const [counts, setCounts] = useState({ total: 0, pending: 0, confirmed: 0, rejected: 0 });
+  const [countsRefreshKey, setCountsRefreshKey] = useState(0);
 
-  const telegramOrders = useMemo(() => getTelegramOrders(orders), [orders]);
+  const {
+    data: filteredOrders,
+    total,
+    page,
+    totalPages,
+    loading,
+    error,
+    setPage,
+    refresh,
+  } = usePaginatedTable<Order>(
+    "/reseller/orders",
+    {
+      scope: "telegram_purchases",
+      review_status: reviewFilter === "all" ? "" : reviewFilter,
+      source: sourceFilter === "all" ? "" : sourceFilter,
+    },
+    10
+  );
 
-  const filteredOrders = useMemo(() => {
-    return telegramOrders.filter((order) => {
-      const matchReview =
-        reviewFilter === "all" ? true : String(order.review_status || "") === reviewFilter;
+  // Filter-tab counts span every review status, independent of the currently
+  // selected filter, so they're fetched separately via one consolidated
+  // /counts request rather than one request per review status.
+  useEffect(() => {
+    let cancelled = false;
 
-      const matchSource =
-        sourceFilter === "all" ? true : String(order.source || "") === sourceFilter;
+    async function loadCounts() {
+      try {
+        const res = await api.get("/reseller/orders/counts");
+        if (cancelled) return;
+        const t = res.data.telegram_review;
+        setCounts({
+          total: t.total ?? 0,
+          pending: t.pending ?? 0,
+          confirmed: t.confirmed ?? 0,
+          rejected: t.rejected ?? 0,
+        });
+      } catch {
+        // Counts are a convenience summary — a failure here shouldn't block the list.
+      }
+    }
 
-      return matchReview && matchSource;
-    });
-  }, [telegramOrders, reviewFilter, sourceFilter]);
-
-  const counts = useMemo(() => {
-    return {
-      total: telegramOrders.length,
-      pending: telegramOrders.filter((o) => o.review_status === "pending_review").length,
-      confirmed: telegramOrders.filter((o) => o.review_status === "confirmed").length,
-      rejected: telegramOrders.filter((o) => o.review_status === "rejected").length,
+    void loadCounts();
+    return () => {
+      cancelled = true;
     };
-  }, [telegramOrders]);
+  }, [countsRefreshKey]);
+
+  const refreshAll = async () => {
+    await refresh();
+    setCountsRefreshKey((n) => n + 1);
+  };
 
   const getSignedUrl = async (orderId: string): Promise<string | null> => {
     if (signedUrls[orderId]) return signedUrls[orderId];
@@ -123,7 +136,7 @@ export function TelegramOrdersPage() {
       setBusyOrderId(orderId);
       setActionError("");
       await api.post(`/reseller/order-actions/${orderId}/confirm-payment`);
-      await refresh();
+      await refreshAll();
     } catch (err: any) {
       setActionError(err?.response?.data?.error || err?.message || "Failed to confirm payment");
     } finally {
@@ -136,7 +149,7 @@ export function TelegramOrdersPage() {
       setBusyOrderId(orderId);
       setActionError("");
       await api.post(`/reseller/order-actions/${orderId}/reject-payment`);
-      await refresh();
+      await refreshAll();
     } catch (err: any) {
       setActionError(err?.response?.data?.error || err?.message || "Failed to reject payment");
     } finally {
@@ -196,7 +209,7 @@ export function TelegramOrdersPage() {
         <Button
           variant="outline"
           leftIcon={<RefreshCw size={16} className={loading ? "animate-spin" : undefined} />}
-          onClick={() => void refresh()}
+          onClick={() => void refreshAll()}
           disabled={loading}
         >
           Refresh
@@ -275,12 +288,12 @@ export function TelegramOrdersPage() {
           </div>
           <Badge variant="default" className="gap-1 self-start md:self-center">
             <Bot size={14} />
-            {filteredOrders.length} result{filteredOrders.length === 1 ? "" : "s"}
+            {total} result{total === 1 ? "" : "s"}
           </Badge>
         </div>
 
         {/* Orders list */}
-        {filteredOrders.length === 0 ? (
+        {!loading && filteredOrders.length === 0 ? (
           <div className="rounded-md border border-border bg-secondary/40 px-4 py-8 text-center text-sm text-muted-foreground">
             No Telegram purchase orders found for the current filter.
           </div>
@@ -473,6 +486,10 @@ export function TelegramOrdersPage() {
                   </Card>
                 );
               })}
+            </div>
+
+            <div className="flex justify-center pt-1">
+              <TablePagination page={page} count={totalPages} onChange={setPage} />
             </div>
           </>
         )}

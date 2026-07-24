@@ -5,14 +5,8 @@ import type { PaymentMethod, WorkspaceSettings } from "../types/api";
 
 export interface WorkspaceSettingsPatch {
   brand_name?: string;
-  brand_logo_url?: string;
   support_username?: string;
-  primary_color?: string;
-  trial_enabled?: boolean;
-  trial_data_limit_gb?: number | null;
-  trial_duration_days?: number | null;
   payment_info?: PaymentMethod[];
-  bot_token?: string;
 }
 
 export function useWorkspaceSettings() {

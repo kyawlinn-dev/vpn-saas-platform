@@ -30,7 +30,6 @@ function AuthenticatedApp() {
 
   return (
     <AppLayout
-      adminName={undefined}
       onRefresh={refresh}
       error={error || undefined}
     >

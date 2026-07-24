@@ -1,36 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { useResellerAuth } from "../providers/ResellerAuthProvider";
-import type {
-  Order,
-  Plan,
-  Reseller,
-  ServerInventoryCounts,
-  VpnKey,
-  VpnServer,
-} from "../types/api";
+import type { Plan } from "../types/api";
 
 export interface DashboardDataState {
-  orders: Order[];
   plans: Plan[];
-  resellers: Reseller[];
-  keys: VpnKey[];
-  servers: VpnServer[];
-  serverCounts: ServerInventoryCounts;
   loading: boolean;
   error: string;
   refresh: () => Promise<void>;
 }
-
-const emptyServerCounts: ServerInventoryCounts = {
-  total: 0,
-  available: 0,
-  provisioning: 0,
-  active_configured: 0,
-  active_not_ready: 0,
-  full: 0,
-  failed: 0,
-};
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === "object") {
@@ -52,27 +30,25 @@ function readArrayPayload<T>(data: unknown): T[] {
   if (data && typeof data === "object") {
     const d = data as Record<string, unknown>;
     if (Array.isArray(d.data)) return d.data as T[];
-    if (Array.isArray(d.orders)) return d.orders as T[];
     if (Array.isArray(d.plans)) return d.plans as T[];
-    if (Array.isArray(d.keys)) return d.keys as T[];
-    if (Array.isArray(d.customers)) return d.customers as T[];
   }
   return [];
 }
 
+// Plans are a small, bounded catalogue shared across a reseller's whole
+// workspace, so they're still fetched in full here. Orders/customers/keys
+// scale with usage and are fetched per-page by the pages that need them
+// (usePaginatedTable against /reseller/orders, /reseller/customers) instead
+// of being loaded wholesale on every dashboard mount.
 export function useDashboardData(): DashboardDataState {
   const { isAuthenticated, initializing, logout } = useResellerAuth();
 
-  const [orders, setOrders] = useState<Order[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [keys, setKeys] = useState<VpnKey[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const clearData = useCallback(() => {
-    setOrders([]);
     setPlans([]);
-    setKeys([]);
     setError("");
     setLoading(false);
   }, []);
@@ -86,52 +62,18 @@ export function useDashboardData(): DashboardDataState {
     setLoading(true);
     setError("");
 
-    const results = await Promise.allSettled([
-      api.get<Order[]>("/reseller/orders"),
-      api.get<Plan[]>("/reseller/plans"),
-      api.get<VpnKey[]>("/reseller/keys"),
-    ]);
-
-    const [ordersResult, plansResult, keysResult] = results;
-    const errors: string[] = [];
-
-    if (ordersResult.status === "fulfilled") {
-      setOrders(readArrayPayload<Order>(ordersResult.value.data));
-    } else {
-      errors.push(
-        extractErrorMessage(ordersResult.reason, "Failed to load orders")
-      );
+    try {
+      const res = await api.get<Plan[]>("/reseller/plans");
+      setPlans(readArrayPayload<Plan>(res.data));
+    } catch (err: any) {
+      if (err?.response?.status === 401 || err?.response?.status === 403) {
+        await logout();
+        return;
+      }
+      setError(extractErrorMessage(err, "Failed to load plans"));
+    } finally {
+      setLoading(false);
     }
-
-    if (plansResult.status === "fulfilled") {
-      setPlans(readArrayPayload<Plan>(plansResult.value.data));
-    } else {
-      errors.push(
-        extractErrorMessage(plansResult.reason, "Failed to load plans")
-      );
-    }
-
-    if (keysResult.status === "fulfilled") {
-      setKeys(readArrayPayload<VpnKey>(keysResult.value.data));
-    } else {
-      errors.push(
-        extractErrorMessage(keysResult.reason, "Failed to load keys")
-      );
-    }
-
-    const authFailed = results.some(
-      (r) =>
-        r.status === "rejected" &&
-        (r.reason?.response?.status === 401 || r.reason?.response?.status === 403)
-    );
-
-    if (authFailed) {
-      await logout();
-      return;
-    }
-
-    setError(errors.join(" • "));
-    setLoading(false);
   }, [isAuthenticated, clearData, logout]);
 
   useEffect(() => {
@@ -147,16 +89,11 @@ export function useDashboardData(): DashboardDataState {
 
   return useMemo(
     () => ({
-      orders,
       plans,
-      resellers: [],
-      keys,
-      servers: [],
-      serverCounts: emptyServerCounts,
       loading,
       error,
       refresh,
     }),
-    [orders, plans, keys, loading, error, refresh]
+    [plans, loading, error, refresh]
   );
 }

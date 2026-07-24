@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "reseller-dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "reseller-dashboard", "run", "dev"],
+      "port": 3002
+    },
+    {
+      "name": "admin-dashboard",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "admin-dashboard", "run", "dev"],
+      "port": 3001
+    }
+  ]
+}

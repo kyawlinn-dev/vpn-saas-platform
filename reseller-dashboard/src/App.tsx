@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
+import { ThemeProvider } from "./providers/ThemeProvider";
 import { ResellerAuthProvider } from "./providers/ResellerAuthProvider";
 import { DashboardDataProvider } from "./providers/DashboardDataProvider";
 import LoginPage from "./pages/LoginPage";
@@ -20,34 +21,36 @@ function RouteLoading() {
 
 export default function App() {
   return (
-    <ResellerAuthProvider>
-      <DashboardDataProvider>
-        <Suspense fallback={<RouteLoading />}>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
+    <ThemeProvider>
+      <ResellerAuthProvider>
+        <DashboardDataProvider>
+          <Suspense fallback={<RouteLoading />}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
 
-            <Route
-              path="/app"
-              element={
-                <ProtectedRoute>
-                  <AppShell />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Navigate to="overview" replace />} />
-              <Route path="overview" element={<OverviewPage />} />
-              <Route path="orders" element={<OrdersPage />} />
-              <Route path="customers" element={<CustomersPage />} />
-              <Route path="accounting" element={<AccountingPage />} />
-              <Route path="telegram-orders" element={<TelegramOrdersPage />} />
-              <Route path="plans" element={<PlansPage />} />
-              <Route path="settings" element={<SettingsPage />} />
-            </Route>
+              <Route
+                path="/app"
+                element={
+                  <ProtectedRoute>
+                    <AppShell />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Navigate to="overview" replace />} />
+                <Route path="overview" element={<OverviewPage />} />
+                <Route path="orders" element={<OrdersPage />} />
+                <Route path="customers" element={<CustomersPage />} />
+                <Route path="accounting" element={<AccountingPage />} />
+                <Route path="telegram-orders" element={<TelegramOrdersPage />} />
+                <Route path="plans" element={<PlansPage />} />
+                <Route path="settings" element={<SettingsPage />} />
+              </Route>
 
-            <Route path="*" element={<Navigate to="/app" replace />} />
-          </Routes>
-        </Suspense>
-      </DashboardDataProvider>
-    </ResellerAuthProvider>
+              <Route path="*" element={<Navigate to="/app" replace />} />
+            </Routes>
+          </Suspense>
+        </DashboardDataProvider>
+      </ResellerAuthProvider>
+    </ThemeProvider>
   );
 }

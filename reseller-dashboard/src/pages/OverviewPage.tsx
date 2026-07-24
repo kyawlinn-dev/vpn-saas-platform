@@ -15,16 +15,16 @@ import {
   Wallet,
 } from "lucide-react";
 import { useScopedDashboard } from "../hooks/useScopedDashboard";
-import { formatDate, formatDaysLeft, formatMMK, isExpiringSoon } from "../lib/format";
+import { useResellerOverviewStats } from "../hooks/useResellerOverviewStats";
+import { formatDate, formatDaysLeft, formatMMK } from "../lib/format";
 import { CreateOrderDialog } from "../components/CreateOrderDialog";
 import { OrdersTable } from "../components/OrdersTable";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { GlowStatCard } from "@/components/ui/glow-stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { cn } from "@/lib/utils";
 import type { Order } from "../types/api";
-import type { OrderPayment } from "../types/api";
 
 function OverviewLoading() {
   return (
@@ -46,63 +46,6 @@ function OverviewLoading() {
   );
 }
 
-function isToday(value?: string | null) {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  const now = new Date();
-  return date.toDateString() === now.toDateString();
-}
-
-function isThisMonth(value?: string | null) {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
-}
-
-function isConfirmedAppliedPayment(payment: OrderPayment) {
-  return (
-    payment.review_status === "confirmed" &&
-    (!payment.apply_status || payment.apply_status === "applied")
-  );
-}
-
-function getConfirmedAppliedPayments(orders: Order[]) {
-  return orders.flatMap((order) => order.payments || []).filter(isConfirmedAppliedPayment);
-}
-
-function revenueFromPayments(payments: OrderPayment[], predicate: (value?: string | null) => boolean) {
-  return payments.reduce(
-    (sum, payment) => sum + (predicate(payment.created_at) ? Number(payment.amount_mmk || 0) : 0),
-    0
-  );
-}
-
-function legacyRevenueFromOrders(orders: Order[], predicate: (value?: string | null) => boolean) {
-  return orders.reduce((sum, order) => {
-    const hasLedgerRows = Boolean(order.payments?.length);
-    if (hasLedgerRows || order.order_type !== "purchase" || order.review_status !== "confirmed") {
-      return sum;
-    }
-    return sum + (predicate(order.created_at) ? Number(order.total_paid_mmk || 0) : 0);
-  }, 0);
-}
-
-function isTelegramManagedOrder(order: Order) {
-  const source = String(order.source || "").toLowerCase();
-  return (
-    order.customer?.customer_type === "telegram" ||
-    source === "miniapp" ||
-    source === "bot"
-  );
-}
-
-function sortNewest(a: Order, b: Order) {
-  return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-}
-
 function getInitials(value?: string | null) {
   const source = value?.trim() || "Customer";
   const letters = source
@@ -113,45 +56,6 @@ function getInitials(value?: string | null) {
     .toUpperCase()
     .slice(0, 2);
   return letters || "C";
-}
-
-function KpiCard({
-  label,
-  value,
-  caption,
-  icon,
-  tone = "violet",
-}: {
-  label: string;
-  value: string | number;
-  caption: string;
-  icon: ReactNode;
-  tone?: "violet" | "cyan" | "emerald" | "amber" | "rose";
-}) {
-  const styles = {
-    violet: "bg-primary/15 text-primary",
-    cyan: "bg-[#161616]/8 text-[#161616]",
-    emerald: "bg-success/10 text-[color:var(--success)]",
-    amber: "bg-warning/10 text-[color:var(--warning)]",
-    rose: "bg-destructive/10 text-destructive",
-  };
-
-  return (
-    <Card className="p-2.5">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{label}</p>
-          <p className="mt-1.5 truncate font-display text-[17px] font-black leading-none text-foreground">
-            {value}
-          </p>
-        </div>
-        <span className={cn("grid h-7 w-7 shrink-0 place-items-center rounded-md", styles[tone])}>
-          {icon}
-        </span>
-      </div>
-      <p className="mt-1.5 truncate text-[10px] text-muted-foreground">{caption}</p>
-    </Card>
-  );
 }
 
 function SectionHeader({
@@ -181,84 +85,32 @@ function EmptyPanel({ children }: { children: ReactNode }) {
 
 export function OverviewPage() {
   const navigate = useNavigate();
-  const { orders, keys, plans, loading, error, refresh } = useScopedDashboard();
+  const { plans } = useScopedDashboard();
+  const { stats, loading, error, refresh } = useResellerOverviewStats();
   const [openCreateModal, setOpenCreateModal] = useState(false);
   const [orderResetTrigger, setOrderResetTrigger] = useState(0);
 
-  const initialLoading =
-    loading && orders.length === 0 && plans.length === 0 && keys.length === 0;
+  const initialLoading = loading && stats.total_orders === 0;
 
-  const overview = useMemo(() => {
-    const activeOrders = orders.filter((item) => item.status === "active");
-    const pendingOrders = orders.filter((item) => item.status === "pending");
-    const telegramReviewOrders = orders
-      .filter(
-        (item) =>
-          isTelegramManagedOrder(item) &&
-          item.order_type === "purchase" &&
-          item.review_status === "pending_review"
-      )
-      .sort(sortNewest);
-    const expiringOrders = orders
-      .filter(
-        (item) =>
-          ["active", "overdue"].includes(item.status) &&
-          isExpiringSoon(item.expiry_date, 7)
-      )
-      .sort((a, b) => new Date(a.expiry_date || 0).getTime() - new Date(b.expiry_date || 0).getTime());
-    const overdueOrders = orders
-      .filter((item) => item.status === "overdue")
-      .sort((a, b) => new Date(a.expiry_date || 0).getTime() - new Date(b.expiry_date || 0).getTime());
-    const confirmedPayments = getConfirmedAppliedPayments(orders);
-    const todayRevenue =
-      revenueFromPayments(confirmedPayments, isToday) +
-      legacyRevenueFromOrders(orders, isToday);
-    const monthRevenue =
-      revenueFromPayments(confirmedPayments, isThisMonth) +
-      legacyRevenueFromOrders(orders, isThisMonth);
-    const activeCustomerIds = new Set(activeOrders.map((item) => item.customer_id).filter(Boolean));
-    const totalConnections = keys.reduce(
-      (sum, item) => sum + Number(item.recent_connections_24h || 0),
-      0
-    );
-    const recentOrders = [...orders].sort(sortNewest).slice(0, 5);
-    const attentionRows = [
-      ...telegramReviewOrders.slice(0, 3).map((order) => ({
+  const attentionRows = useMemo(() => {
+    const rows = [
+      ...stats.telegram_review.recent.slice(0, 3).map((order) => ({
         id: `review:${order.id}`,
         order,
         label: "Review Telegram payment",
         caption: `${order.customer?.full_name || "Customer"} · ${formatMMK(order.price_mmk)}`,
         tone: "warning" as const,
       })),
-      ...expiringOrders.slice(0, 3).map((order) => ({
+      ...stats.expiring_soon.recent.slice(0, 3).map((order) => ({
         id: `expiry:${order.id}`,
         order,
         label: "Expires soon",
         caption: `${order.customer?.full_name || "Customer"} · ${formatDaysLeft(order.expiry_date)}`,
         tone: "info" as const,
       })),
-      ...overdueOrders.slice(0, 2).map((order) => ({
-        id: `overdue:${order.id}`,
-        order,
-        label: "Overdue order",
-        caption: `${order.customer?.full_name || "Customer"} · ${formatDate(order.expiry_date)}`,
-        tone: "destructive" as const,
-      })),
-    ].slice(0, 6);
-
-    return {
-      activeOrders,
-      pendingOrders,
-      telegramReviewOrders,
-      expiringOrders,
-      todayRevenue,
-      monthRevenue,
-      activeCustomers: activeCustomerIds.size,
-      totalConnections,
-      recentOrders,
-      attentionRows,
-    };
-  }, [orders, keys]);
+    ];
+    return rows;
+  }, [stats.telegram_review.recent, stats.expiring_soon.recent]);
 
   if (initialLoading) return <OverviewLoading />;
 
@@ -309,39 +161,40 @@ export function OverviewPage() {
       )}
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
-        <KpiCard
+        <GlowStatCard
           label="Today revenue"
-          value={formatMMK(overview.todayRevenue)}
+          value={formatMMK(stats.today_revenue_mmk)}
           caption="Paid orders today"
-          icon={<Wallet size={14} />}
-          tone="emerald"
+          icon={<Wallet size={12} />}
+          tone="success"
         />
-        <KpiCard
+        <GlowStatCard
           label="Month revenue"
-          value={formatMMK(overview.monthRevenue)}
+          value={Number(stats.month_revenue_mmk || 0).toLocaleString("en-US")}
+          unit="MMK"
           caption="Current month"
-          icon={<TrendingUp size={14} />}
-          tone="violet"
-        />
-        <KpiCard
-          label="Active customers"
-          value={overview.activeCustomers}
-          caption={`${overview.totalConnections} live connections`}
-          icon={<Users size={14} />}
+          icon={<TrendingUp size={12} />}
           tone="cyan"
         />
-        <KpiCard
-          label="Pending reviews"
-          value={overview.telegramReviewOrders.length}
-          caption="Telegram payments"
-          icon={<CreditCard size={14} />}
-          tone="amber"
+        <GlowStatCard
+          label="Active customers"
+          value={stats.active_customers}
+          caption={`${stats.active_keys} active keys`}
+          icon={<Users size={12} />}
+          tone="blue"
         />
-        <KpiCard
+        <GlowStatCard
+          label="Pending reviews"
+          value={stats.telegram_review.count}
+          caption="Telegram payments"
+          icon={<CreditCard size={12} />}
+          tone="warning"
+        />
+        <GlowStatCard
           label="Expire soon"
-          value={overview.expiringOrders.length}
+          value={stats.expiring_soon.count}
           caption="Within 7 days"
-          icon={<Clock3 size={14} />}
+          icon={<Clock3 size={12} />}
           tone="rose"
         />
       </div>
@@ -351,16 +204,16 @@ export function OverviewPage() {
           <SectionHeader
             title="Attention Queue"
             action={
-              <Badge variant={overview.attentionRows.length ? "warning" : "success"}>
-                {overview.attentionRows.length ? `${overview.attentionRows.length} open` : "Clear"}
+              <Badge variant={attentionRows.length ? "warning" : "success"}>
+                {attentionRows.length ? `${attentionRows.length} open` : "Clear"}
               </Badge>
             }
           />
-          {overview.attentionRows.length === 0 ? (
+          {attentionRows.length === 0 ? (
             <EmptyPanel>No urgent payment reviews or expiring orders right now.</EmptyPanel>
           ) : (
             <div className="divide-y divide-border overflow-hidden rounded-md border border-border">
-              {overview.attentionRows.map((item) => (
+              {attentionRows.map((item) => (
                 <button
                   key={item.id}
                   type="button"
@@ -440,15 +293,15 @@ export function OverviewPage() {
             </div>
             <div className="grid grid-cols-3 gap-1.5 text-center">
               <div>
-                <p className="text-sm font-black text-foreground">{overview.activeOrders.length}</p>
+                <p className="text-sm font-black text-foreground">{stats.active_orders}</p>
                 <p className="text-[10px] text-muted-foreground">Active</p>
               </div>
               <div>
-                <p className="text-sm font-black text-foreground">{overview.pendingOrders.length}</p>
+                <p className="text-sm font-black text-foreground">{stats.pending_orders}</p>
                 <p className="text-[10px] text-muted-foreground">Pending</p>
               </div>
               <div>
-                <p className="text-sm font-black text-foreground">{orders.length}</p>
+                <p className="text-sm font-black text-foreground">{stats.total_orders}</p>
                 <p className="text-[10px] text-muted-foreground">Total</p>
               </div>
             </div>
@@ -465,7 +318,7 @@ export function OverviewPage() {
             </Button>
           }
         />
-        {overview.recentOrders.length === 0 ? (
+        {stats.recent_orders.length === 0 ? (
           <EmptyPanel>No orders yet.</EmptyPanel>
         ) : (
           <div className="overflow-hidden rounded-md border border-border bg-card">
@@ -477,7 +330,7 @@ export function OverviewPage() {
               <span className="text-right">Amount</span>
             </div>
             <div className="divide-y divide-border">
-              {overview.recentOrders.map((order) => {
+              {stats.recent_orders.map((order: Order) => {
                 const customerName = order.customer?.full_name || "Unknown customer";
                 return (
                   <div
@@ -508,7 +361,15 @@ export function OverviewPage() {
                       <StatusBadge status={order.status} />
                     </div>
                     <div className="[&>span]:px-1.5 [&>span]:py-0.5 [&>span]:text-[10px]">
-                      <StatusBadge status={order.order_type === "trial" ? "trial" : order.payment_status} />
+                      <StatusBadge
+                        status={
+                          order.order_type === "trial"
+                            ? "trial"
+                            : order.review_status === "rejected"
+                              ? "rejected"
+                              : order.payment_status
+                        }
+                      />
                     </div>
 
                     <div className="min-w-0 text-right">
@@ -526,11 +387,7 @@ export function OverviewPage() {
       </Card>
 
       <OrdersTable
-        orders={orders}
         plans={plans}
-        keys={keys}
-        onSuccess={refresh}
-        loading={loading && orders.length === 0}
         title="Order Workbench"
         description=""
         initialRowsPerPage={5}
@@ -540,6 +397,7 @@ export function OverviewPage() {
         compactMobile
         compact
         resetTrigger={orderResetTrigger}
+        scopeFilters={{ hide_unconfirmed_telegram: "true" }}
       />
 
       <CreateOrderDialog

@@ -19,7 +19,7 @@ export function Dialog({ open, onClose, children, size = 'md' }: DialogProps) {
         <RadixDialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
         <RadixDialog.Content
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] rounded-xl border border-border bg-card shadow-xl focus:outline-none',
+            'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100vw-2rem)] rounded-2xl border border-border bg-card shadow-xl focus:outline-none',
             sizeMap[size],
           )}
         >
@@ -64,7 +64,7 @@ export function DialogClose({ onClose }: { onClose: () => void }) {
   return (
     <button
       onClick={onClose}
-      className="rounded-md p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+      className="rounded-lg p-1 text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
     >
       <X size={16} />
     </button>

@@ -1,5 +1,6 @@
 import { Menu, LogOut, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useAdminAuth } from '@/providers/AdminAuthProvider';
 
 interface Props {
@@ -28,6 +29,7 @@ export function TopBar({ onMenuClick, onRefresh, refreshing }: Props) {
             <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
           </Button>
         )}
+        <ThemeToggle />
         <div className="hidden sm:block text-sm text-muted-foreground">
           {admin?.name || admin?.email}
         </div>

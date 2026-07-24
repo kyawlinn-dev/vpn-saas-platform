@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Copy, Eye, Plus, Search, Store, ToggleLeft, ToggleRight, Wallet } from 'lucide-react';
+import { Bot, Check, Copy, Eye, Plus, Search, Store, ToggleLeft, ToggleRight, Wallet } from 'lucide-react';
 import { Badge, StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { api } from '@/lib/api';
 import { formatDate, formatMMK } from '@/lib/format';
 import { usePaginatedTable } from '@/hooks/usePaginatedTable';
+import { ResellerWorkspaceDialog } from '@/components/ResellerWorkspaceDialog';
 import type { AdminAnalytics, AdminResellerBreakdown, OrderPayment, Reseller } from '@/types/api';
 
 interface Props {
@@ -73,6 +74,7 @@ export function ResellersPage({ onSuccess }: Props) {
   const [analytics, setAnalytics] = useState<AdminAnalytics | null>(null);
   const [analyticsError, setAnalyticsError] = useState('');
   const [selectedReseller, setSelectedReseller] = useState<Reseller | null>(null);
+  const [configuringReseller, setConfiguringReseller] = useState<Reseller | null>(null);
 
   const { data: resellers, total, page, totalPages, loading, error, setPage, refresh } =
     usePaginatedTable<Reseller>('/admin/resellers', {}, 20);
@@ -275,6 +277,9 @@ export function ResellersPage({ onSuccess }: Props) {
                         <Button variant="outline" size="sm" leftIcon={<Eye size={14} />} onClick={() => setSelectedReseller(reseller)}>
                           View
                         </Button>
+                        <Button variant="outline" size="sm" leftIcon={<Bot size={14} />} onClick={() => setConfiguringReseller(reseller)}>
+                          Mini App
+                        </Button>
                         <Button
                           variant={reseller.status === 'active' ? 'destructiveOutline' : 'success'}
                           size="sm"
@@ -339,6 +344,16 @@ export function ResellersPage({ onSuccess }: Props) {
       )}
 
       {tempPassword && <TempPasswordDialog {...tempPassword} onClose={() => { void tempPassword.onDone(); setTempPassword(null); }} />}
+
+      {configuringReseller && (
+        <ResellerWorkspaceDialog
+          reseller={configuringReseller}
+          onClose={() => {
+            setConfiguringReseller(null);
+            refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

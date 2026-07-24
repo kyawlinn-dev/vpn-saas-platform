@@ -9,10 +9,12 @@ Mini App workspace and sells Outline VPN access to their own customers.
 ```text
 ADMIN
   controls servers, plans, resellers, enable/disable, oversight
+  also configures each reseller's Telegram bot, miniapp_slug, brand
+  logo/color, and trial settings (reseller sees bot status read-only)
        |
        v
 RESELLER
-  owns miniapp_slug, brand, bot token, payment info
+  owns brand name, support contact, payment info
        |
        v
 MINI APP

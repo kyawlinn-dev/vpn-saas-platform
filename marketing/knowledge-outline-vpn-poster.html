@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="my">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NovaNet MM Knowledge Poster - Outline VPN Key</title>
+  <style>
+    @page { size: 1080px 1920px; margin: 0; }
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #06110c;
+      color: #fff;
+      font-family: "Noto Sans Myanmar", "Pyidaungsu", "Padauk", Arial, sans-serif;
+    }
+
+    .poster {
+      width: 1080px;
+      height: 1920px;
+      position: relative;
+      overflow: hidden;
+      padding: 72px 64px;
+      background:
+        radial-gradient(circle at 50% -6%, rgba(34, 255, 140, .35), transparent 30%),
+        radial-gradient(circle at 92% 72%, rgba(28, 216, 255, .23), transparent 28%),
+        linear-gradient(160deg, #082318 0%, #041016 52%, #020604 100%);
+    }
+
+    .poster::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+      background-size: 64px 64px;
+      opacity: .55;
+    }
+
+    .top {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .logo {
+      width: 82px;
+      height: 82px;
+      border-radius: 22px;
+      background: #ffffff;
+      color: #06130d;
+      display: grid;
+      place-items: center;
+      font-size: 42px;
+      font-weight: 1000;
+      box-shadow: 0 0 36px rgba(34,255,140,.45);
+    }
+
+    .brand-name {
+      font-size: 38px;
+      line-height: 1;
+      font-weight: 1000;
+    }
+
+    .brand-sub {
+      margin-top: 7px;
+      color: #a4ffcc;
+      font-size: 22px;
+      font-weight: 850;
+    }
+
+    .badge {
+      padding: 15px 24px;
+      border-radius: 999px;
+      background: #22ff8a;
+      color: #03120a;
+      font-size: 27px;
+      line-height: 1;
+      font-weight: 1000;
+      box-shadow: 0 0 36px rgba(34,255,140,.45);
+    }
+
+    .hero {
+      position: relative;
+      z-index: 2;
+      margin-top: 82px;
+      text-align: center;
+    }
+
+    .kicker {
+      display: inline-block;
+      margin-bottom: 24px;
+      padding: 14px 26px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.13);
+      border: 1px solid rgba(255,255,255,.16);
+      font-size: 28px;
+      font-weight: 950;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 86px;
+      line-height: 1.15;
+      font-weight: 1000;
+      letter-spacing: 0;
+      text-shadow: 0 7px 0 rgba(0,0,0,.24);
+    }
+
+    .green { color: #22ff8a; }
+    .cyan { color: #22d8ff; }
+    .yellow { color: #ffde32; }
+
+    .ssconf {
+      margin: 36px auto 0;
+      width: 880px;
+      padding: 30px 34px;
+      border-radius: 32px;
+      background: rgba(0,0,0,.58);
+      border: 2px solid rgba(34,255,140,.32);
+      color: #d9fff0;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 34px;
+      line-height: 1.25;
+      font-weight: 900;
+      box-shadow: 0 24px 65px rgba(0,0,0,.34);
+    }
+
+    .points {
+      position: relative;
+      z-index: 2;
+      margin-top: 58px;
+      display: grid;
+      gap: 24px;
+    }
+
+    .point {
+      display: grid;
+      grid-template-columns: 82px 1fr;
+      gap: 22px;
+      align-items: center;
+      min-height: 154px;
+      padding: 26px 30px;
+      border-radius: 32px;
+      background: rgba(0,0,0,.50);
+      border: 1px solid rgba(255,255,255,.13);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+    }
+
+    .num {
+      width: 74px;
+      height: 74px;
+      border-radius: 24px;
+      background: linear-gradient(135deg, #22ff8a, #22d8ff);
+      color: #03120a;
+      display: grid;
+      place-items: center;
+      font-size: 34px;
+      font-weight: 1000;
+    }
+
+    .point-title {
+      font-size: 37px;
+      line-height: 1.28;
+      font-weight: 1000;
+    }
+
+    .point-copy {
+      margin-top: 8px;
+      color: #cce5db;
+      font-size: 25px;
+      line-height: 1.38;
+      font-weight: 780;
+    }
+
+    .tip {
+      position: relative;
+      z-index: 2;
+      margin-top: 38px;
+      padding: 28px 32px;
+      border-radius: 30px;
+      background: rgba(255, 222, 50, .15);
+      border: 2px solid rgba(255, 222, 50, .32);
+      color: #fff6c8;
+      font-size: 30px;
+      line-height: 1.45;
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .cta {
+      position: absolute;
+      z-index: 3;
+      left: 64px;
+      right: 64px;
+      bottom: 72px;
+      min-height: 106px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 0 42px;
+      background: linear-gradient(90deg, #22ff8a, #22d8ff);
+      color: #03120a;
+      box-shadow: 0 0 48px rgba(34,255,140,.42);
+      font-size: 37px;
+      line-height: 1.24;
+      font-weight: 1000;
+    }
+  </style>
+</head>
+<body>
+  <section class="poster" data-document-role="page" data-label="Outline VPN Knowledge Poster">
+    <div class="top">
+      <div class="brand">
+        <div class="logo">N</div>
+        <div>
+          <div class="brand-name">NovaNet MM</div>
+          <div class="brand-sub">VPN KNOWLEDGE</div>
+        </div>
+      </div>
+      <div class="badge">INFO</div>
+    </div>
+
+    <main class="hero">
+      <div class="kicker">VPN Knowledge Sharing</div>
+      <h1><span class="green">Outline VPN Key</span><br>ဆိုတာဘာလဲ?</h1>
+      <div class="ssconf">ssconf://api.example.com/k/xxxxx<br>#NovaNet-MM</div>
+    </main>
+
+    <div class="points">
+      <div class="point">
+        <div class="num">1</div>
+        <div>
+          <div class="point-title">Key တစ်ခု = VPN Access တစ်ခု</div>
+          <div class="point-copy">Outline App ထဲထည့်လိုက်တာနဲ့ VPN server ကို connect လုပ်နိုင်ပါတယ်။</div>
+        </div>
+      </div>
+
+      <div class="point">
+        <div class="num">2</div>
+        <div>
+          <div class="point-title">App က Outline ဖြစ်ရမယ်</div>
+          <div class="point-copy">Key ကို copy/paste မလုပ်ဘဲ “Add Key To Outline” ခလုတ်နဲ့ တန်းထည့်နိုင်ပါတယ်။</div>
+        </div>
+      </div>
+
+      <div class="point">
+        <div class="num">3</div>
+        <div>
+          <div class="point-title">Data Limit ပါနိုင်တယ်</div>
+          <div class="point-copy">Plan အလိုက် 50GB / 100GB စသဖြင့် data usage ကို system ထဲမှာစစ်နိုင်ပါတယ်။</div>
+        </div>
+      </div>
+
+      <div class="point">
+        <div class="num">4</div>
+        <div>
+          <div class="point-title">Server ပြောင်းလို့ရတယ်</div>
+          <div class="point-copy">Connection အဆင်မပြေရင် Singapore / India စတဲ့ server ကိုပြောင်းစမ်းနိုင်ပါတယ်။</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tip">Tip: Key ကို public comment ထဲ မတင်ပါနဲ့။ ကိုယ့် key ကို ကိုယ်ပဲသုံးပါ။</div>
+    <div class="cta">New User အတွက် 5GB Free Trial ရယူနိုင်ပါတယ်</div>
+  </section>
+</body>
+</html>

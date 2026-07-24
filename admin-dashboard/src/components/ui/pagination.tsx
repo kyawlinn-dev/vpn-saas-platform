@@ -40,7 +40,7 @@ export function Pagination({ page, totalPages, total, label, onPageChange, loadi
         <button
           onClick={() => onPageChange(page - 1)}
           disabled={page <= 1 || loading}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40 transition-colors"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40 transition-colors"
         >
           <ChevronLeft size={15} />
         </button>
@@ -56,7 +56,7 @@ export function Pagination({ page, totalPages, total, label, onPageChange, loadi
               onClick={() => onPageChange(p as number)}
               disabled={loading}
               className={cn(
-                'inline-flex h-8 w-8 items-center justify-center rounded-md text-sm transition-colors disabled:pointer-events-none',
+                'inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm transition-colors disabled:pointer-events-none',
                 p === page
                   ? 'bg-primary text-primary-foreground font-medium'
                   : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
@@ -70,7 +70,7 @@ export function Pagination({ page, totalPages, total, label, onPageChange, loadi
         <button
           onClick={() => onPageChange(page + 1)}
           disabled={page >= totalPages || loading}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40 transition-colors"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground disabled:pointer-events-none disabled:opacity-40 transition-colors"
         >
           <ChevronRight size={15} />
         </button>

@@ -113,6 +113,39 @@ export interface Reseller {
   miniapp_enabled?: boolean | null;
 }
 
+export interface BotStatus {
+  token_saved: boolean;
+  token_valid: boolean;
+  webhook_registered: boolean;
+  running: boolean;
+  connected: boolean;
+  bot_username: Nullable<string>;
+  bot_id: Nullable<number>;
+  webhook_registered_at?: Nullable<string>;
+}
+
+export interface AdminResellerWorkspace {
+  miniapp_slug: string;
+  brand_name: string;
+  brand_logo_url: string;
+  primary_color: string;
+  trial_enabled: boolean;
+  trial_data_limit_gb: number | null;
+  trial_duration_days: number | null;
+  bot_connected: boolean;
+  bot_status: BotStatus;
+}
+
+export interface AdminResellerWorkspacePatch {
+  miniapp_slug?: string;
+  brand_logo_url?: string;
+  primary_color?: string;
+  trial_enabled?: boolean;
+  trial_data_limit_gb?: number | null;
+  trial_duration_days?: number | null;
+  bot_token?: string;
+}
+
 export interface Customer {
   id: string;
   reseller_id: Nullable<string>;

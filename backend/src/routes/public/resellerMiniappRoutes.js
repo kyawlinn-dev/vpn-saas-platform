@@ -21,11 +21,7 @@ import {
   activatePendingReviewPurchase,
   OrderLifecycleError,
 } from "../../services/orderLifecycleService.js";
-import {
-  createOrderPayment,
-  loadOrderPayments,
-  syncOrderPaymentSummary,
-} from "../../services/paymentLedgerService.js";
+import { createOrderPayment } from "../../services/paymentLedgerService.js";
 import { createTrialOrder, provisionTrialKey } from "../../services/trialService.js";
 import {
   buildDynamicAccessUrl,
@@ -1841,6 +1837,18 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
       });
     }
 
+    // Renew/top-up while a package is already active is not supported yet —
+    // one active purchase order at a time. Customers must wait for expiry,
+    // or contact their reseller, until the renew flow ships in a future version.
+    if (activePurchaseOrder) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "You already have an active package. Renewing or adding a top-up isn't available yet — please contact your reseller.",
+        code: "ACTIVE_PACKAGE_EXISTS",
+      });
+    }
+
     const { data: reseller, error: resellerError } = await supabase
       .from("resellers")
       .select("id, commission_percent")
@@ -1860,93 +1868,6 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
     const commissionAmountMmk = Math.floor(
       (priceMmk * commissionPercent) / 100
     );
-
-    if (activePurchaseOrder) {
-      const payments = await loadOrderPayments(activePurchaseOrder.id);
-      const hasPendingPayment = payments.some(
-        (payment) => payment.review_status === "pending_review"
-      );
-
-      if (hasPendingPayment) {
-        return res.status(409).json({
-          success: false,
-          message: "You already have a payment waiting for reseller review.",
-        });
-      }
-
-      await createOrderPayment({
-        order: {
-          ...activePurchaseOrder,
-          commission_percent: activePurchaseOrder.commission_percent ?? commissionPercent,
-          reseller_id: miniapp.reseller_id,
-          customer_id: customer.id,
-        },
-        amountMmk: priceMmk,
-        reviewStatus: "pending_review",
-        applyStatus: "pending",
-        paymentType: "extend",
-        source: "miniapp",
-        plan,
-        paymentNote: payment_note,
-        paymentScreenshotUrl: payment_screenshot_url || null,
-      });
-
-      const { order: updatedOrder } = await syncOrderPaymentSummary(activePurchaseOrder.id);
-
-      const { data: activeKey, error: activeKeyError } = await supabase
-        .from("vpn_keys")
-        .select(`
-          id,
-          data_limit_bytes,
-          used_bytes,
-          vpn_servers (
-            id,
-            name,
-            region,
-            server_tier,
-            is_default
-          )
-        `)
-        .eq("order_id", activePurchaseOrder.id)
-        .eq("status", "active")
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (activeKeyError) {
-        throw new Error(activeKeyError.message || "Failed to load active VPN key");
-      }
-
-      const currentServer = activeKey?.vpn_servers || null;
-
-      return res.status(202).json({
-        success: true,
-        message: "Top-up submitted. Your reseller will review the payment before adding the package.",
-        data: {
-          order: {
-            id: updatedOrder.id,
-            status: updatedOrder.status,
-            payment_status: updatedOrder.payment_status,
-            review_status: updatedOrder.review_status,
-            order_type: updatedOrder.order_type,
-            source: updatedOrder.source,
-            price_mmk: priceMmk,
-            start_date: updatedOrder.start_date,
-            expiry_date: updatedOrder.expiry_date,
-            payment_screenshot_url: payment_screenshot_url || null,
-            payment_note: payment_note || null,
-            created_at: updatedOrder.created_at,
-            plan,
-            payment_type: "extend",
-          },
-          current_server: mapServerForMiniApp(currentServer, Boolean(activeKey)),
-          outline_key: activeKey
-            ? toPublicOutlineKey(req, customerSsconfToken, activeKey, label, activeKey.used_bytes || 0)
-            : null,
-        },
-      });
-    }
 
     const { data: createdOrder, error: orderError } = await supabase
       .from("vpn_orders")

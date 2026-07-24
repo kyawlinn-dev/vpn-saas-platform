@@ -29,7 +29,7 @@ function Dialog({ open, onClose, size = "md", children }: DialogProps) {
         <BaseDialog.Popup
           className={cn(
             "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2",
-            "w-full mx-4 bg-card text-card-foreground rounded-xl border border-border shadow-xl",
+            "w-full mx-4 bg-card text-card-foreground rounded-2xl border border-border shadow-xl",
             "max-sm:inset-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:left-0 max-sm:top-0 max-sm:rounded-none max-sm:mx-0",
             SIZE_CLASSES[size]
           )}
@@ -85,7 +85,7 @@ function DialogClose({ className, ...props }: React.ButtonHTMLAttributes<HTMLBut
   return (
     <BaseDialog.Close
       className={cn(
-        "absolute top-4 right-4 h-7 w-7 rounded-md inline-flex items-center justify-center",
+        "absolute top-4 right-4 h-7 w-7 rounded-lg inline-flex items-center justify-center",
         "text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         className

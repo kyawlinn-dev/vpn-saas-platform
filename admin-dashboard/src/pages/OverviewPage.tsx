@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { Badge, StatusBadge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { StatCard } from '@/components/ui/stat-card';
+import { GlowStatCard } from '@/components/ui/glow-stat-card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { formatDate, formatMMK } from '@/lib/format';
@@ -131,12 +131,52 @@ export function OverviewPage() {
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-6">
-          <StatCard label="Today Revenue" value={formatMMK(summary?.today_gross_mmk ?? 0)} accent="success" icon={<CreditCard size={16} />} />
-          <StatCard label="Month Revenue" value={formatMMK(summary?.month_gross_mmk ?? 0)} accent="info" icon={<TrendingUp size={16} />} />
-          <StatCard label="Platform Due" value={formatMMK(summary?.platform_due_mmk ?? 0)} icon={<Calculator size={16} />} />
-          <StatCard label="Pending Review" value={formatMMK(summary?.pending_review_mmk ?? 0)} accent="warning" icon={<Clock size={16} />} />
-          <StatCard label="Active Orders" value={summary?.active_orders ?? 0} accent="success" icon={<Activity size={16} />} />
-          <StatCard label="Active Keys" value={summary?.active_keys ?? 0} accent="info" icon={<Key size={16} />} />
+          <GlowStatCard
+            label="Today Revenue"
+            value={Number(summary?.today_gross_mmk || 0).toLocaleString('en-US')}
+            unit="MMK"
+            caption="Confirmed today"
+            icon={<CreditCard size={12} />}
+            tone="success"
+          />
+          <GlowStatCard
+            label="Month Revenue"
+            value={Number(summary?.month_gross_mmk || 0).toLocaleString('en-US')}
+            unit="MMK"
+            caption="Platform-wide, this month"
+            icon={<TrendingUp size={12} />}
+            tone="cyan"
+          />
+          <GlowStatCard
+            label="Platform Due"
+            value={Number(summary?.platform_due_mmk || 0).toLocaleString('en-US')}
+            unit="MMK"
+            caption="Owed from resellers"
+            icon={<Calculator size={12} />}
+            tone="blue"
+          />
+          <GlowStatCard
+            label="Pending Review"
+            value={Number(summary?.pending_review_mmk || 0).toLocaleString('en-US')}
+            unit="MMK"
+            caption="Awaiting confirmation"
+            icon={<Clock size={12} />}
+            tone="warning"
+          />
+          <GlowStatCard
+            label="Active Orders"
+            value={summary?.active_orders ?? 0}
+            caption="Currently active"
+            icon={<Activity size={12} />}
+            tone="violet"
+          />
+          <GlowStatCard
+            label="Active Keys"
+            value={summary?.active_keys ?? 0}
+            caption="Provisioned VPN keys"
+            icon={<Key size={12} />}
+            tone="success"
+          />
         </div>
       )}
 

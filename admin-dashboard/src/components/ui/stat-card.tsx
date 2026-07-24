@@ -29,7 +29,7 @@ export function StatCard({ label, value, icon, accent = 'default', className }: 
           </p>
         </div>
         {icon && (
-          <div className="shrink-0 rounded-lg bg-secondary p-2 text-muted-foreground">
+          <div className="shrink-0 rounded-xl bg-secondary p-2 text-muted-foreground">
             {icon}
           </div>
         )}

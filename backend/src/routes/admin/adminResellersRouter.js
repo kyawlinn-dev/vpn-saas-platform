@@ -1,6 +1,11 @@
 import express from "express";
 import crypto from "node:crypto";
 import { supabase } from "../../lib/supabase.js";
+import { encrypt } from "../../lib/tokenEncryption.js";
+import {
+  buildBotStatus,
+  applyWorkspacePostUpdateEffects,
+} from "../../services/workspaceSettingsService.js";
 
 const router = express.Router();
 
@@ -313,6 +318,136 @@ router.patch("/:id", async (req, res) => {
   } catch (err) {
     console.error("admin PATCH resellers crash:", err);
     return res.status(500).json({ error: err.message || "Internal server error" });
+  }
+});
+
+// GET /api/admin/resellers/:id/workspace — Mini App config admin owns:
+// Telegram bot, slug, brand logo/color, trial settings. brand_name /
+// support_username / payment_info stay reseller-managed and aren't editable
+// here, though brand_name is included read-only for context.
+router.get("/:id/workspace", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { data, error } = await supabase
+      .from("reseller_miniapps")
+      .select(
+        "miniapp_slug, brand_name, brand_logo_url, primary_color, " +
+          "trial_enabled, trial_data_limit_gb, trial_duration_days, " +
+          "bot_token_encrypted, bot_connected, bot_username, bot_id"
+      )
+      .eq("reseller_id", id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("admin GET reseller workspace error:", error);
+      return res.status(500).json({ error: "Failed to load mini app settings" });
+    }
+    if (!data) {
+      return res.status(404).json({ error: "Mini app workspace not configured" });
+    }
+
+    const botStatus = buildBotStatus(data, id);
+
+    return res.json({
+      miniapp_slug: data.miniapp_slug,
+      brand_name: data.brand_name ?? "",
+      brand_logo_url: data.brand_logo_url ?? "",
+      primary_color: data.primary_color ?? "",
+      trial_enabled: data.trial_enabled ?? false,
+      trial_data_limit_gb: data.trial_data_limit_gb ?? null,
+      trial_duration_days: data.trial_duration_days ?? null,
+      bot_connected: botStatus.connected,
+      bot_status: botStatus,
+    });
+  } catch (err) {
+    console.error("admin GET reseller workspace crash:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /api/admin/resellers/:id/workspace
+router.patch("/:id/workspace", async (req, res) => {
+  try {
+    const resellerId = req.params.id;
+    const body = req.body;
+    const updates = {};
+
+    if ("miniapp_slug" in body) {
+      const slug = sanitizeSlug(String(body.miniapp_slug || "").trim());
+      if (!slug) {
+        return res.status(400).json({ error: "miniapp_slug must contain a-z, 0-9, or hyphens" });
+      }
+
+      const { data: existing, error: slugCheckError } = await supabase
+        .from("reseller_miniapps")
+        .select("reseller_id")
+        .eq("miniapp_slug", slug)
+        .neq("reseller_id", resellerId)
+        .maybeSingle();
+
+      if (slugCheckError) {
+        console.error("admin PATCH reseller workspace slug check error:", slugCheckError);
+        return res.status(500).json({ error: "Failed to check slug availability" });
+      }
+      if (existing) {
+        return res.status(409).json({ error: `Slug '${slug}' is already taken` });
+      }
+
+      updates.miniapp_slug = slug;
+    }
+
+    for (const f of ["brand_logo_url", "primary_color"]) {
+      if (f in body) {
+        if (typeof body[f] !== "string") {
+          return res.status(400).json({ error: `${f} must be a string` });
+        }
+        updates[f] = body[f];
+      }
+    }
+
+    if ("trial_enabled" in body) {
+      if (typeof body.trial_enabled !== "boolean") {
+        return res.status(400).json({ error: "trial_enabled must be a boolean" });
+      }
+      updates.trial_enabled = body.trial_enabled;
+    }
+
+    for (const f of ["trial_data_limit_gb", "trial_duration_days"]) {
+      if (f in body) {
+        if (!Number.isInteger(body[f]) || body[f] <= 0) {
+          return res.status(400).json({ error: `${f} must be a positive integer` });
+        }
+        updates[f] = body[f];
+      }
+    }
+
+    if ("bot_token" in body) {
+      if (typeof body.bot_token !== "string" || !body.bot_token.trim()) {
+        return res.status(400).json({ error: "bot_token must be a non-empty string" });
+      }
+      updates.bot_token_encrypted = encrypt(body.bot_token.trim());
+      // plaintext token is never logged or persisted beyond this scope
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "No valid fields to update" });
+    }
+
+    const { error } = await supabase
+      .from("reseller_miniapps")
+      .update(updates)
+      .eq("reseller_id", resellerId);
+
+    if (error) {
+      console.error("admin PATCH reseller workspace error:", error);
+      return res.status(500).json({ error: "Failed to update mini app settings" });
+    }
+
+    const result = await applyWorkspacePostUpdateEffects({ resellerId, body, updates });
+    return res.json(result);
+  } catch (err) {
+    console.error("admin PATCH reseller workspace crash:", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
 });
 

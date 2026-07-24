@@ -31,7 +31,7 @@ function StatCard({ label, value, caption, delta, icon, accent = "violet" }: Sta
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
         {icon && (
           <div
-            className="h-9 w-9 rounded-md grid place-items-center shrink-0"
+            className="h-9 w-9 rounded-xl grid place-items-center shrink-0"
             style={{ backgroundColor: accentStyle.bg, color: accentStyle.text }}
           >
             {icon}

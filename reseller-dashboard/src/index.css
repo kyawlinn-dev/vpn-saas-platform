@@ -1,8 +1,10 @@
 @import "tailwindcss";
 
-/* NovaNet Reseller — Light "Flup-style" shadcn token foundation.
-   Maps Tailwind utility names (bg-card, text-muted-foreground, border-border…)
-   to the CSS variables in :root. */
+/* NovaNet Reseller — Aurora Cyan token foundation, shared hue family with
+   the Mini App and admin-dashboard. Dark is the default palette (:root);
+   `.light` on <html> overrides it. Sidebar tokens are intentionally not
+   redefined in `.light` — the sidebar stays a fixed dark rail in both
+   themes, same as before this reskin. */
 
 @theme inline {
   --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
@@ -36,7 +38,6 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
 
-  /* seeded now so Phase 2's two-tier sidebar needs no token migration */
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -49,57 +50,97 @@
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-xl: calc(var(--radius) + 6px);
+  --radius-2xl: calc(var(--radius) + 8px);
 }
 
 :root {
+  color-scheme: dark;
+
+  --background: oklch(0.16 0.028 264);
+  --foreground: oklch(0.97 0.006 250);
+
+  --card: oklch(0.22 0.03 264);
+  --card-foreground: oklch(0.97 0.006 250);
+
+  --popover: oklch(0.2 0.03 264);
+  --popover-foreground: oklch(0.97 0.006 250);
+
+  --primary: oklch(0.78 0.13 200);
+  --primary-foreground: oklch(0.15 0.03 264);
+
+  --secondary: oklch(0.28 0.035 264);
+  --secondary-foreground: oklch(0.95 0.006 250);
+
+  --muted: oklch(0.26 0.03 264);
+  --muted-foreground: oklch(0.68 0.02 258);
+
+  --accent: oklch(0.3 0.04 264);
+  --accent-foreground: oklch(0.97 0.006 250);
+
+  --destructive: oklch(0.62 0.2 22);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(0.9 0.02 258 / 12%);
+  --input: oklch(0.9 0.02 258 / 15%);
+  --ring: oklch(0.78 0.13 200);
+
+  --brand-violet: oklch(0.66 0.16 285);
+  --brand-blue: oklch(0.68 0.15 235);
+  --success: oklch(0.74 0.16 155);
+  --success-foreground: oklch(0.15 0.03 264);
+  --warning: oklch(0.78 0.15 65);
+  --warning-foreground: oklch(0.15 0.03 264);
+
+  --sidebar: oklch(0.12 0.026 264);
+  --sidebar-foreground: oklch(0.85 0.015 258);
+  --sidebar-primary: oklch(0.78 0.13 200);
+  --sidebar-primary-foreground: oklch(0.15 0.03 264);
+  --sidebar-accent: oklch(0.2 0.03 264);
+  --sidebar-accent-foreground: oklch(0.97 0.006 250);
+  --sidebar-border: oklch(0.22 0.03 264);
+  --sidebar-ring: oklch(0.78 0.13 200);
+
+  --radius: 0.875rem;
+}
+
+:root.light {
   color-scheme: light;
 
-  --background: #fff1ec;
-  --foreground: #0f172a;
+  --background: oklch(0.98 0.006 250);
+  --foreground: oklch(0.18 0.03 264);
 
-  --card: #ffffff;
-  --card-foreground: #0f172a;
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.03 264);
 
-  --popover: #ffffff;
-  --popover-foreground: #0f172a;
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.03 264);
 
-  --primary: #ff7954;
-  --primary-foreground: #161616;
+  --primary: oklch(0.6 0.13 200);
+  --primary-foreground: oklch(0.99 0 0);
 
-  --secondary: #ffebe5;
-  --secondary-foreground: #0f172a;
+  --secondary: oklch(0.94 0.012 250);
+  --secondary-foreground: oklch(0.18 0.03 264);
 
-  --muted: #fff6f3;
-  --muted-foreground: #6f625e;
+  --muted: oklch(0.95 0.01 250);
+  --muted-foreground: oklch(0.45 0.02 258);
 
-  --accent: #f9d7cd;
-  --accent-foreground: #161616;
+  --accent: oklch(0.92 0.02 264);
+  --accent-foreground: oklch(0.18 0.03 264);
 
-  --destructive: #dc2626;
-  --destructive-foreground: #ffffff;
+  --destructive: oklch(0.58 0.2 22);
+  --destructive-foreground: oklch(0.99 0 0);
 
-  --border: #ead8d1;
-  --input: #ead8d1;
-  --ring: #ff7954;
+  --border: oklch(0.88 0.015 258);
+  --input: oklch(0.88 0.015 258);
+  --ring: oklch(0.6 0.13 200);
 
-  --brand-violet: #ff7954;
-  --brand-blue: #161616;
-  --success: #16a34a;
-  --success-foreground: #ffffff;
-  --warning: #d97706;
-  --warning-foreground: #ffffff;
-
-  --sidebar: #161616;
-  --sidebar-foreground: #e8dedb;
-  --sidebar-primary: #ff7954;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #2a2827;
-  --sidebar-accent-foreground: #ffffff;
-  --sidebar-border: #2b2928;
-  --sidebar-ring: #ff7954;
-
-  --radius: 0.75rem;
+  --brand-violet: oklch(0.56 0.16 285);
+  --brand-blue: oklch(0.58 0.15 235);
+  --success: oklch(0.55 0.15 155);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.62 0.15 65);
+  --warning-foreground: oklch(0.99 0 0);
 }
 
 body {

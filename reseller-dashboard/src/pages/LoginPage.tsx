@@ -129,14 +129,14 @@ export default function LoginPage() {
       className="min-h-screen flex bg-background"
       style={{
         background:
-          "radial-gradient(ellipse 100% 60% at 50% -5%, rgba(124,58,237,0.08), transparent), #f6f7f9",
+          "radial-gradient(ellipse 100% 60% at 50% -5%, color-mix(in oklch, var(--primary) 10%, transparent), transparent), var(--background)",
       }}
     >
       {/* ── Left brand panel (desktop only) ── */}
       <div className="hidden md:flex w-[44%] flex-col justify-center px-12 py-10 bg-gradient-to-br from-primary/10 to-[color:var(--brand-blue)]/5 border-r border-border relative overflow-hidden">
         {/* Brand logo */}
-        <div className="grid h-13 w-13 place-items-center rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#2563eb] shadow-lg">
-          <span className="font-display text-2xl font-black text-white">R</span>
+        <div className="grid h-13 w-13 place-items-center rounded-xl bg-gradient-to-br from-primary to-[color:var(--brand-blue)] shadow-[0_0_20px_-2px_var(--primary)]">
+          <span className="font-display text-2xl font-black text-primary-foreground">R</span>
         </div>
 
         <h1 className="mt-6 font-display text-4xl font-black leading-tight tracking-tight text-foreground">
@@ -155,7 +155,7 @@ export default function LoginPage() {
         <div className="mt-8 space-y-4">
           {featureItems.map((f) => (
             <div key={f.title} className="flex gap-3">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-[#f5f3ff] text-[#7c3aed]">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
                 {f.icon}
               </div>
               <div>
@@ -171,14 +171,14 @@ export default function LoginPage() {
       <div className="flex-1 flex flex-col items-center justify-center px-4 sm:px-8 md:px-12 py-10">
         {/* Mobile brand header */}
         <div className="flex flex-col items-center gap-2 mb-8 md:hidden">
-          <div className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#2563eb] shadow-lg">
-            <span className="font-display text-xl font-black text-white">R</span>
+          <div className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-primary to-[color:var(--brand-blue)] shadow-[0_0_20px_-2px_var(--primary)]">
+            <span className="font-display text-xl font-black text-primary-foreground">R</span>
           </div>
           <div className="font-display text-lg font-bold">Reseller Dashboard</div>
         </div>
 
         {/* Auth card */}
-        <div className="w-full max-w-[420px] rounded-xl border border-border bg-card p-6 sm:p-8 shadow-[0_12px_48px_rgba(124,58,237,0.08)]">
+        <div className="w-full max-w-[420px] rounded-xl border border-border bg-card p-6 sm:p-8 shadow-[0_12px_48px_-16px_var(--primary)]">
           <h2 className="font-display text-2xl font-bold text-foreground">
             {tab === "signin" ? "Welcome back" : "Create account"}
           </h2>

@@ -1,6 +1,7 @@
 import { Menu, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 interface TopbarProps {
   onOpenDrawer: () => void;
@@ -54,6 +55,8 @@ export function Topbar({ onOpenDrawer, loading, onRefresh }: TopbarProps) {
         >
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
         </Button>
+
+        <ThemeToggle />
       </div>
     </div>
   );

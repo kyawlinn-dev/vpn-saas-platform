@@ -199,6 +199,10 @@ export default function PackagesPage({
       onToast("Telegram user is not ready yet", "warning");
       return;
     }
+    if (subscription?.type === "purchase") {
+      onToast(t("packages.activePackageWarning"), "warning");
+      return;
+    }
     onNavigateToCheckout(plan);
   };
 

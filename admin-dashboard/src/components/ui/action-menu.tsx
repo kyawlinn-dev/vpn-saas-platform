@@ -75,7 +75,7 @@ export function ActionMenu({
     ? createPortal(
         <div
           ref={menuRef}
-          className="fixed z-[90] w-[196px] rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-[0_18px_48px_rgba(0,0,0,0.35)]"
+          className="fixed z-[90] w-[196px] rounded-2xl border border-border bg-popover p-1.5 text-popover-foreground shadow-[0_18px_48px_rgba(0,0,0,0.35)]"
           style={{ top: position.top, left: position.left }}
         >
           {items.map((item) => (
@@ -89,7 +89,7 @@ export function ActionMenu({
                 item.onSelect();
               }}
               className={cn(
-                'flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-xs font-medium transition-colors',
+                'flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-medium transition-colors',
                 item.destructive
                   ? 'text-destructive hover:bg-destructive/10'
                   : 'text-foreground hover:bg-secondary',

@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="my">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NovaNet MM Screenshot Carousel</title>
+  <style>
+    @page { size: 1080px 1920px; margin: 0; }
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #03100b;
+      color: #fff;
+      font-family: "Noto Sans Myanmar", "Pyidaungsu", "Padauk", Arial, sans-serif;
+    }
+
+    .page {
+      width: 1080px;
+      height: 1920px;
+      position: relative;
+      overflow: hidden;
+      padding: 64px 58px 72px;
+      background:
+        radial-gradient(circle at 52% 8%, rgba(0, 255, 128, .34), transparent 28%),
+        radial-gradient(circle at 10% 78%, rgba(0, 194, 255, .24), transparent 32%),
+        linear-gradient(160deg, #082215 0%, #041016 48%, #020704 100%);
+    }
+
+    .page::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+      background-size: 64px 64px;
+      opacity: .55;
+    }
+
+    .brand {
+      position: relative;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .brand-left {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+    }
+
+    .logo {
+      width: 82px;
+      height: 82px;
+      border-radius: 22px;
+      background: #fff;
+      color: #06130d;
+      display: grid;
+      place-items: center;
+      font-size: 42px;
+      font-weight: 1000;
+      box-shadow: 0 0 36px rgba(31, 255, 140, .45);
+    }
+
+    .brand-name {
+      font-size: 38px;
+      line-height: 1;
+      font-weight: 1000;
+    }
+
+    .brand-sub {
+      margin-top: 7px;
+      color: #9dffc7;
+      font-size: 22px;
+      font-weight: 850;
+    }
+
+    .badge {
+      padding: 15px 23px;
+      border-radius: 999px;
+      background: #21ff87;
+      color: #03120a;
+      font-size: 27px;
+      line-height: 1;
+      font-weight: 1000;
+      box-shadow: 0 0 36px rgba(33,255,135,.45);
+    }
+
+    .headline {
+      position: relative;
+      z-index: 3;
+      margin: 72px 0 0;
+      text-align: center;
+    }
+
+    .kicker {
+      display: inline-block;
+      margin-bottom: 22px;
+      padding: 14px 24px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.13);
+      color: #f4fff8;
+      border: 1px solid rgba(255,255,255,.15);
+      font-size: 28px;
+      font-weight: 950;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 88px;
+      line-height: 1.12;
+      letter-spacing: 0;
+      font-weight: 1000;
+      text-shadow: 0 7px 0 rgba(0,0,0,.24);
+    }
+
+    .mega {
+      display: block;
+      margin-top: 18px;
+      color: #21ff87;
+      font-size: 164px;
+      line-height: .95;
+      text-shadow: 0 0 44px rgba(33,255,135,.48), 0 10px 0 rgba(0,0,0,.26);
+    }
+
+    .yellow { color: #ffde32; }
+    .green { color: #21ff87; }
+    .cyan { color: #21d8ff; }
+
+    .subcopy {
+      margin: 28px auto 0;
+      max-width: 880px;
+      color: #eafff1;
+      font-size: 39px;
+      line-height: 1.42;
+      font-weight: 850;
+    }
+
+    .phone-stage {
+      position: absolute;
+      z-index: 2;
+      left: 0;
+      right: 0;
+      bottom: 214px;
+      height: 820px;
+    }
+
+    .phone {
+      position: absolute;
+      width: 430px;
+      height: 760px;
+      border-radius: 54px;
+      padding: 13px;
+      background: linear-gradient(180deg, rgba(255,255,255,.94), rgba(180, 215, 205, .84));
+      box-shadow: 0 34px 90px rgba(0,0,0,.54), 0 0 76px rgba(33,255,135,.22);
+      overflow: hidden;
+    }
+
+    .phone img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 42px;
+      display: block;
+    }
+
+    .phone-main {
+      left: 325px;
+      bottom: 24px;
+      transform: rotate(0deg);
+    }
+
+    .phone-left {
+      left: 92px;
+      bottom: 10px;
+      transform: rotate(-7deg) scale(.92);
+    }
+
+    .phone-right {
+      right: 92px;
+      bottom: 10px;
+      transform: rotate(7deg) scale(.92);
+    }
+
+    .phone-wide {
+      left: 246px;
+      bottom: 10px;
+      width: 588px;
+      height: 770px;
+      border-radius: 42px;
+    }
+
+    .phone-wide img { border-radius: 30px; }
+
+    .proof {
+      position: absolute;
+      z-index: 4;
+      left: 72px;
+      right: 72px;
+      bottom: 188px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .proof-item {
+      min-height: 102px;
+      padding: 22px 20px;
+      border-radius: 28px;
+      background: rgba(0,0,0,.58);
+      border: 1px solid rgba(255,255,255,.16);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      color: #fff;
+      font-size: 28px;
+      line-height: 1.28;
+      font-weight: 950;
+      backdrop-filter: blur(8px);
+    }
+
+    .price-strip {
+      position: absolute;
+      z-index: 4;
+      left: 58px;
+      right: 58px;
+      bottom: 188px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .price {
+      padding: 26px 24px;
+      border-radius: 30px;
+      background: rgba(0,0,0,.62);
+      border: 2px solid rgba(33,255,135,.38);
+      text-align: center;
+    }
+
+    .price strong {
+      display: block;
+      color: #21ff87;
+      font-size: 56px;
+      line-height: 1;
+      font-weight: 1000;
+    }
+
+    .price span {
+      display: block;
+      margin-top: 10px;
+      color: #dceee6;
+      font-size: 25px;
+      font-weight: 800;
+    }
+
+    .cta {
+      position: absolute;
+      z-index: 5;
+      left: 58px;
+      right: 58px;
+      bottom: 64px;
+      min-height: 104px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 0 36px;
+      color: #03120b;
+      background: linear-gradient(90deg, #21ff87, #23d7ff);
+      box-shadow: 0 0 48px rgba(33,255,135,.42);
+      font-size: 37px;
+      line-height: 1.24;
+      font-weight: 1000;
+    }
+
+    .slide-no {
+      position: absolute;
+      z-index: 5;
+      right: 62px;
+      bottom: 183px;
+      color: rgba(255,255,255,.55);
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .sticker {
+      position: absolute;
+      z-index: 4;
+      right: 58px;
+      top: 310px;
+      width: 250px;
+      height: 250px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      background: #ffde32;
+      color: #101006;
+      border: 8px solid #fff;
+      font-size: 34px;
+      line-height: 1.2;
+      font-weight: 1000;
+      transform: rotate(9deg);
+      box-shadow: 0 20px 42px rgba(0,0,0,.35);
+    }
+
+    .large-screen {
+      position: absolute;
+      z-index: 2;
+      left: 112px;
+      right: 112px;
+      bottom: 246px;
+      height: 890px;
+      border-radius: 52px;
+      padding: 13px;
+      background: linear-gradient(180deg, rgba(255,255,255,.95), rgba(177,220,205,.84));
+      box-shadow: 0 34px 90px rgba(0,0,0,.54), 0 0 82px rgba(33,255,135,.22);
+      overflow: hidden;
+    }
+
+    .large-screen img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 38px;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <section class="page" data-document-role="page" data-label="01 New System">
+    <div class="brand">
+      <div class="brand-left"><div class="logo">N</div><div><div class="brand-name">NovaNet MM</div><div class="brand-sub">OUTLINE VPN</div></div></div>
+      <div class="badge">NEW</div>
+    </div>
+    <div class="headline">
+      <div class="kicker">Manual မဟုတ်တော့ဘူး</div>
+      <h1>Telegram Bot<br><span class="green">Mini App</span></h1>
+      <p class="subcopy">VPN Key ကို 24/7 ကိုယ်တိုင်ဝယ်နိုင်ပြီ</p>
+    </div>
+    <div class="phone-stage">
+      <div class="phone phone-left"><img src="assets/bot-start.jpg" alt="NovaNet bot start screen"></div>
+      <div class="phone phone-right"><img src="assets/miniapp-home.jpg" alt="NovaNet miniapp home"></div>
+    </div>
+    <div class="price-strip">
+      <div class="price"><strong>5GB</strong><span>New User Free Trial</span></div>
+      <div class="price"><strong>24/7</strong><span>Auto VPN System</span></div>
+    </div>
+    <div class="slide-no">01/07</div>
+    <div class="cta">Bio ထဲက Telegram Bot ကိုနှိပ်ပါ</div>
+  </section>
+
+  <section class="page" data-document-role="page" data-label="02 Free Trial">
+    <div class="brand">
+      <div class="brand-left"><div class="logo">N</div><div><div class="brand-name">NovaNet MM</div><div class="brand-sub">FREE TRIAL</div></div></div>
+      <div class="badge">FREE</div>
+    </div>
+    <div class="headline">
+      <div class="kicker">User အသစ်တိုင်းအတွက်</div>
+      <h1>အခမဲ့<br><span class="mega">5GB</span></h1>
+      <p class="subcopy">7 Days Trial Key ကို Bot ထဲမှာယူနိုင်ပါတယ်</p>
+    </div>
+    <div class="sticker">စမ်းသုံးပြီးမှ<br>ဝယ်ပါ</div>
+    <div class="phone-stage">
+      <div class="phone phone-main"><img src="assets/bot-menu.jpg" alt="NovaNet bot free trial menu"></div>
+    </div>
+    <div class="proof">
+      <div class="proof-item">Start နှိပ်</div>
+      <div class="proof-item">5GB Trial ယူ</div>
+    </div>
+    <div class="slide-no">02/07</div>
+    <div class="cta">Free Trial ယူပြီး Speed စမ်းကြည့်ပါ</div>
+  </section>
+
+  <section class="page" data-document-role="page" data-label="03 Instant Key">
+    <div class="brand">
+      <div class="brand-left"><div class="logo">N</div><div><div class="brand-name">NovaNet MM</div><div class="brand-sub">OUTLINE KEY</div></div></div>
+      <div class="badge">KEY</div>
+    </div>
+    <div class="headline">
+      <div class="kicker">Admin reply စောင့်စရာမလို</div>
+      <h1>Outline Key<br><span class="cyan">ချက်ချင်းရ</span></h1>
+      <p class="subcopy">Bot ကနေ key ပြန်ထုတ်ပြီး Outline ထဲ တန်းထည့်နိုင်တယ်</p>
+    </div>
+    <div class="large-screen"><img src="assets/outline-key.jpg" alt="Outline key delivered in Telegram"></div>
+    <div class="proof">
+      <div class="proof-item">Add Key To Outline</div>
+      <div class="proof-item">Linked Server ပါတယ်</div>
+    </div>
+    <div class="slide-no">03/07</div>
+    <div class="cta">Key ပျောက်ရင်လည်း Bot ထဲက ပြန်ယူနိုင်တယ်</div>
+  </section>
+
+  <section class="page" data-document-role="page" data-label="04 Mini App Control">
+    <div class="brand">
+      <div class="brand-left"><div class="logo">N</div><div><div class="brand-name">NovaNet MM</div><div class="brand-sub">MINI APP</div></div></div>
+      <div class="badge">APP</div>
+    </div>
+    <div class="headline">
+      <div class="kicker">VPN ကို ကိုယ်တိုင် Control</div>
+      <h1>Usage စစ်<br><span class="green">Server ပြောင်း</span></h1>
+      <p class="subcopy">Data ဘယ်လောက်သုံးပြီးလဲ Mini App ထဲမှာ ကြည့်နိုင်တယ်</p>
+    </div>
+    <div class="phone-stage">
+      <div class="phone phone-main"><img src="assets/miniapp-home.jpg" alt="NovaNet miniapp usage screen"></div>
+    </div>
+    <div class="proof">
+      <div class="proof-item">Data Usage</div>
+      <div class="proof-item">Add Key Button</div>
+    </div>
+    <div class="slide-no">04/07</div>
+    <div class="cta">Telegram ထဲက Mini App တစ်ခုနဲ့ အားလုံးပြီး</div>
+  </section>
+
+  <section class="page" data-document-role="page" data-label="05 Packages">
+    <div class="brand">
+      <div class="brand-left"><div class="logo">N</div><div><div class="brand-name">NovaNet MM</div><div class="brand-sub">PACKAGES</div></div></div>
+      <div class="badge">BUY</div>
+    </div>
+    <div class="headline">
+      <div class="kicker">Plan ကိုယ်တိုင်ရွေးနိုင်တယ်</div>
+      <h1>Premium VPN<br><span class="mega">100GB</span></h1>
+    </div>
+    <div class="large-screen"><img src="assets/packages.jpg" alt="NovaNet package plans"></div>
+    <div class="price-strip">
+      <div class="price"><strong>4,000</strong><span>50GB / 30 Days</span></div>
+      <div class="price"><strong>5,000</strong><span>100GB / 30 Days</span></div>
+    </div>
+    <div class="slide-no">05/07</div>
+    <div class="cta">Package ရွေးပြီး Buy Now နှိပ်ပါ</div>
+  </section>
+
+  <section class="page" data-document-role="page" data-label="06 Payment">
+    <div class="brand">
+      <div class="brand-left"><div class="logo">N</div><div><div class="brand-name">NovaNet MM</div><div class="brand-sub">PAYMENT</div></div></div>
+      <div class="badge">KBZPay</div>
+    </div>
+    <div class="headline">
+      <div class="kicker">Payment Flow ရှင်းတယ်</div>
+      <h1>KBZPay<br><span class="yellow">Screenshot တင်</span></h1>
+    </div>
+    <div class="phone-stage">
+      <div class="phone phone-main"><img src="assets/payment.jpg" alt="NovaNet payment screen"></div>
+    </div>
+    <div class="proof">
+      <div class="proof-item">ငွေလွှဲ</div>
+      <div class="proof-item">Screenshot Upload</div>
+    </div>
+    <div class="slide-no">06/07</div>
+    <div class="cta">Payment Submit ပြီး Order တင်ပါ</div>
+  </section>
+
+  <section class="page" data-document-role="page" data-label="07 Server Change CTA">
+    <div class="brand">
+      <div class="brand-left"><div class="logo">N</div><div><div class="brand-name">NovaNet MM</div><div class="brand-sub">SERVER CHANGE</div></div></div>
+      <div class="badge">SG / IN</div>
+    </div>
+    <div class="headline">
+      <div class="kicker">Server ကိုယ်တိုင်ရွေးနိုင်တယ်</div>
+      <h1>Singapore<br><span class="cyan">India</span></h1>
+      <p class="subcopy">လိုအပ်တဲ့ server ကို Mini App ထဲကနေ Change လုပ်နိုင်ပါတယ်</p>
+    </div>
+    <div class="phone-stage">
+      <div class="phone phone-left"><img src="assets/server.jpg" alt="NovaNet server selection"></div>
+      <div class="phone phone-right"><img src="assets/tiktok-profile.jpg" alt="NovaNet TikTok profile"></div>
+    </div>
+    <div class="price-strip">
+      <div class="price"><strong>5GB</strong><span>Free Trial</span></div>
+      <div class="price"><strong>5,000</strong><span>100GB / 30 Days</span></div>
+    </div>
+    <div class="slide-no">07/07</div>
+    <div class="cta">👇 Bio ထဲက Link ကိုနှိပ်ပြီး စမ်းသုံးပါ</div>
+  </section>
+</body>
+</html>

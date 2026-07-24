@@ -484,46 +484,83 @@ export function AccountingPage() {
               No confirmed paid purchase orders in this month yet.
             </div>
           ) : (
-            <Table className="text-[12px]">
-              <TableHeader>
-                <TableRow className="bg-muted/65 hover:bg-muted/65">
-                  <TableHead className="h-8 px-2.5">Customer</TableHead>
-                  <TableHead className="h-8 px-2.5">Plan</TableHead>
-                  <TableHead className="h-8 px-2.5 text-right">Paid</TableHead>
-                  <TableHead className="h-8 px-2.5 text-right">Commission</TableHead>
-                  <TableHead className="h-8 px-2.5 text-right">Due</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+            <>
+              {/* Desktop table */}
+              <div className="hidden md:block">
+                <Table className="text-[12px]">
+                  <TableHeader>
+                    <TableRow className="bg-muted/65 hover:bg-muted/65">
+                      <TableHead className="h-8 px-2.5">Customer</TableHead>
+                      <TableHead className="h-8 px-2.5">Plan</TableHead>
+                      <TableHead className="h-8 px-2.5 text-right">Paid</TableHead>
+                      <TableHead className="h-8 px-2.5 text-right">Commission</TableHead>
+                      <TableHead className="h-8 px-2.5 text-right">Due</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {settlementOrders.map((order) => (
+                      <TableRow key={order.id}>
+                        <TableCell className="px-2.5 py-2">
+                          <div className="min-w-0">
+                            <p className="truncate font-semibold text-foreground">{order.customer_name}</p>
+                            <p className="truncate text-[10px] text-muted-foreground">
+                              {order.telegram_username || order.source || "-"} - {formatDate(order.created_at)}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-2.5 py-2">
+                          <span className="line-clamp-2">{order.plan_name}</span>
+                        </TableCell>
+                        <TableCell className="px-2.5 py-2 text-right font-semibold">
+                          {formatMMK(order.total_paid_mmk)}
+                        </TableCell>
+                        <TableCell className="px-2.5 py-2 text-right">
+                          <p className="font-semibold text-[color:var(--success)]">
+                            {formatMMK(order.commission_amount_mmk)}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">{order.commission_percent}%</p>
+                        </TableCell>
+                        <TableCell className="px-2.5 py-2 text-right font-black text-primary">
+                          {formatMMK(order.platform_due_mmk)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Mobile cards */}
+              <div className="space-y-2 md:hidden">
                 {settlementOrders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="px-2.5 py-2">
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-foreground">{order.customer_name}</p>
-                        <p className="truncate text-[10px] text-muted-foreground">
-                          {order.telegram_username || order.source || "-"} - {formatDate(order.created_at)}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-2.5 py-2">
-                      <span className="line-clamp-2">{order.plan_name}</span>
-                    </TableCell>
-                    <TableCell className="px-2.5 py-2 text-right font-semibold">
-                      {formatMMK(order.total_paid_mmk)}
-                    </TableCell>
-                    <TableCell className="px-2.5 py-2 text-right">
-                      <p className="font-semibold text-[color:var(--success)]">
-                        {formatMMK(order.commission_amount_mmk)}
+                  <div key={order.id} className="rounded-lg border border-border bg-card p-3 text-xs">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-foreground">{order.customer_name}</p>
+                      <p className="truncate text-[10px] text-muted-foreground">
+                        {order.telegram_username || order.source || "-"} - {formatDate(order.created_at)}
                       </p>
-                      <p className="text-[10px] text-muted-foreground">{order.commission_percent}%</p>
-                    </TableCell>
-                    <TableCell className="px-2.5 py-2 text-right font-black text-primary">
-                      {formatMMK(order.platform_due_mmk)}
-                    </TableCell>
-                  </TableRow>
+                      <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">{order.plan_name}</p>
+                    </div>
+                    <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-border pt-2.5">
+                      <div>
+                        <div className="text-[10px] text-muted-foreground">Paid</div>
+                        <div className="font-semibold">{formatMMK(order.total_paid_mmk)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-muted-foreground">Commission</div>
+                        <div className="font-semibold text-[color:var(--success)]">
+                          {formatMMK(order.commission_amount_mmk)}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">{order.commission_percent}%</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-muted-foreground">Due</div>
+                        <div className="font-black text-primary">{formatMMK(order.platform_due_mmk)}</div>
+                      </div>
+                    </div>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
+              </div>
+            </>
           )}
         </Card>
       </div>

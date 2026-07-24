@@ -151,6 +151,13 @@ Common routes:
 - `GET /api/reseller/me`
 - `GET /api/reseller/workspace`
 - `PATCH /api/reseller/workspace`
+
+`GET/PATCH /api/reseller/workspace` only cover `brand_name`,
+`support_username`, and `payment_info` now, plus a read-only
+`bot_connected`/`bot_status` indicator. Telegram bot token, `miniapp_slug`,
+`brand_logo_url`, `primary_color`, and trial settings moved to admin — see
+`PATCH /api/admin/resellers/:id/workspace` below. Resellers can't set up or
+change their own bot.
 - `GET /api/reseller/launch-readiness`
 - `GET /api/reseller/orders`
 - `POST /api/reseller/orders`
@@ -300,6 +307,15 @@ Common routes:
 - `GET /api/admin/resellers`
 - `POST /api/admin/resellers`
 - `PATCH /api/admin/resellers/:id`
+- `GET /api/admin/resellers/:id/workspace`
+- `PATCH /api/admin/resellers/:id/workspace`
+
+`GET/PATCH /api/admin/resellers/:id/workspace` own Telegram bot token,
+`miniapp_slug` (with a uniqueness check against other resellers), `brand_logo_url`,
+`primary_color`, and trial settings (`trial_enabled`, `trial_data_limit_gb`,
+`trial_duration_days`). Shares bot-restart/status logic with the reseller
+workspace route via `backend/src/services/workspaceSettingsService.js` —
+keep both routers using it rather than re-implementing the restart flow.
 - `GET /api/admin/plans`
 - `POST /api/admin/plans`
 - `PATCH /api/admin/plans/:id`
