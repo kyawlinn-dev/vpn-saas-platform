@@ -117,7 +117,7 @@ async function fetchEnrichedCustomer(customerId, req) {
           apply_status, source, payment_method, payment_note, created_at, submitted_at,
           reviewed_at, review_note, package_duration_days, package_data_limit_gb
         ),
-        keys:vpn_keys(
+        keys:vpn_keys!vpn_keys_order_tenant_fk(
           id, order_id, customer_id, reseller_id, server_id, outline_key_id,
           key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
           deleted_at
@@ -610,7 +610,7 @@ router.get("/customers", async (req, res) => {
               apply_status, source, payment_method, payment_note, created_at, submitted_at,
               reviewed_at, review_note, package_duration_days, package_data_limit_gb
             ),
-            keys:vpn_keys(
+            keys:vpn_keys!vpn_keys_order_tenant_fk(
               id, order_id, customer_id, reseller_id, server_id, outline_key_id,
               key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
               deleted_at
@@ -698,7 +698,7 @@ router.get("/orders", async (req, res) => {
           apply_status, source, payment_method, payment_note, created_at, submitted_at,
           reviewed_at, review_note, package_duration_days, package_data_limit_gb
         ),
-        keys:vpn_keys(
+        keys:vpn_keys!vpn_keys_order_tenant_fk(
           id, order_id, customer_id, reseller_id, server_id, outline_key_id,
           key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
           deleted_at
@@ -761,7 +761,7 @@ router.get("/keys", async (req, res) => {
 
     let query = supabase
       .from("vpn_keys")
-      .select("*, order:vpn_orders(id, status, payment_status)", { count: "exact" })
+      .select("*, order:vpn_orders!vpn_keys_order_tenant_fk(id, status, payment_status)", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
 
