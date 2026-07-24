@@ -7,7 +7,6 @@ import {
   isConfirmedAppliedPayment,
   addPaymentToBucket,
   enrichOrderAccess,
-  summarizeOrderPayments,
   getCustomerActiveOrder,
   enrichCustomer,
 } from "../../services/customerOrderEnrichmentService.js";
@@ -90,6 +89,78 @@ function getTodayWindow(now = new Date()) {
     start: zonedDateTimeToUtc({ year, month, day }),
     end: zonedDateTimeToUtc({ year, month, day: day + 1 }),
   };
+}
+
+function isPurchaseOrder(order) {
+  return String(order?.order_type || "purchase").toLowerCase() !== "trial";
+}
+
+function isConfirmedPaidPurchaseOrder(order) {
+  return (
+    isPurchaseOrder(order) &&
+    String(order?.payment_status || "").toLowerCase() === "paid" &&
+    String(order?.review_status || "confirmed").toLowerCase() === "confirmed"
+  );
+}
+
+function orderPaidAmount(order) {
+  const totalPaid = toNumber(order?.total_paid_mmk);
+  if (totalPaid > 0) return totalPaid;
+  return String(order?.payment_status || "").toLowerCase() === "paid" ? toNumber(order?.price_mmk) : 0;
+}
+
+function orderCommissionAmount(order, amount) {
+  const cachedCommission = toNumber(order?.commission_amount_mmk);
+  if (cachedCommission > 0) return cachedCommission;
+  const percent = toNumber(order?.commission_percent ?? order?.reseller?.commission_percent);
+  return Math.floor((amount * percent) / 100);
+}
+
+function hasPaymentRows(order) {
+  return Array.isArray(order?.payments) && order.payments.length > 0;
+}
+
+export function legacyOrderToPayment(order) {
+  const amount = orderPaidAmount(order);
+  const commission = orderCommissionAmount(order, amount);
+  const commissionPercent = toNumber(order?.commission_percent ?? order?.reseller?.commission_percent);
+
+  return {
+    id: `legacy-${order.id}`,
+    order_id: order.id,
+    customer_id: order.customer_id,
+    reseller_id: order.reseller_id,
+    amount_mmk: amount,
+    commission_percent: commissionPercent,
+    commission_amount_mmk: commission,
+    platform_due_mmk: Math.max(0, amount - commission),
+    review_status: "confirmed",
+    payment_type: "initial",
+    apply_status: "applied",
+    source: order.source ?? "legacy",
+    submitted_at: order.created_at,
+    reviewed_at: null,
+    created_at: order.created_at,
+    reseller: order.reseller ?? null,
+    order: {
+      id: order.id,
+      status: order.status,
+      order_type: order.order_type,
+      created_at: order.created_at,
+      customer: order.customer ?? null,
+      plan: order.plan ?? null,
+    },
+  };
+}
+
+export function isLegacyAccountingOrder(order) {
+  return !hasPaymentRows(order) && isConfirmedPaidPurchaseOrder(order) && orderPaidAmount(order) > 0;
+}
+
+export function combinePaymentEvents({ payments = [], legacyOrders = [] }) {
+  const ledgerEvents = payments.filter(isConfirmedAppliedPayment);
+  const legacyEvents = legacyOrders.filter(isLegacyAccountingOrder).map(legacyOrderToPayment);
+  return [...ledgerEvents, ...legacyEvents];
 }
 
 async function fetchEnrichedCustomer(customerId, req) {
@@ -317,6 +388,7 @@ router.get("/overview", async (req, res) => {
       { count: stoppedOrders },
       { count: activeKeys },
       { data: confirmedPayments },
+      { data: legacyPaidOrders },
       { data: recentOrders },
     ] = await Promise.all([
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active"),
@@ -330,12 +402,24 @@ router.get("/overview", async (req, res) => {
         .eq("apply_status", "applied"),
       supabase
         .from("vpn_orders")
+        .select(
+          `id, customer_id, reseller_id, status, payment_status, review_status, order_type,
+          source, price_mmk, total_paid_mmk, commission_percent, commission_amount_mmk,
+          created_at, reseller:resellers(id, name, commission_percent), payments:order_payments(id)`
+        )
+        .eq("payment_status", "paid")
+        .eq("review_status", "confirmed"),
+      supabase
+        .from("vpn_orders")
         .select("*, customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username), plan:vpn_plans(id, name), reseller:resellers(id, name)")
         .order("created_at", { ascending: false })
         .limit(10),
     ]);
 
-    const totalValue = (confirmedPayments ?? []).reduce(
+    const totalValue = combinePaymentEvents({
+      payments: confirmedPayments ?? [],
+      legacyOrders: legacyPaidOrders ?? [],
+    }).reduce(
       (sum, payment) => sum + toNumber(payment.amount_mmk),
       0
     );
@@ -367,7 +451,9 @@ router.get("/analytics", async (req, res) => {
       { count: activeResellers },
       { count: submittedSettlements },
       { data: payments, error: paymentsError },
+      { data: legacyOrders, error: legacyOrdersError },
       { data: recentPayments, error: recentPaymentsError },
+      { data: recentLegacyOrders, error: recentLegacyOrdersError },
     ] = await Promise.all([
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active"),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
@@ -389,6 +475,20 @@ router.get("/analytics", async (req, res) => {
         .lt("created_at", monthWindow.end.toISOString())
         .order("created_at", { ascending: false }),
       supabase
+        .from("vpn_orders")
+        .select(
+          `id, customer_id, reseller_id, status, payment_status, review_status, order_type,
+          source, price_mmk, total_paid_mmk, commission_percent, commission_amount_mmk,
+          created_at,
+          reseller:resellers(id, name, email, commission_percent),
+          customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username),
+          plan:vpn_plans(id, name),
+          payments:order_payments(id)`
+        )
+        .gte("created_at", monthWindow.start.toISOString())
+        .lt("created_at", monthWindow.end.toISOString())
+        .order("created_at", { ascending: false }),
+      supabase
         .from("order_payments")
         .select(
           `id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
@@ -401,23 +501,55 @@ router.get("/analytics", async (req, res) => {
         )
         .order("created_at", { ascending: false })
         .limit(12),
+      supabase
+        .from("vpn_orders")
+        .select(
+          `id, customer_id, reseller_id, status, payment_status, review_status, order_type,
+          source, price_mmk, total_paid_mmk, commission_percent, commission_amount_mmk,
+          created_at,
+          reseller:resellers(id, name, email, commission_percent),
+          customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username),
+          plan:vpn_plans(id, name),
+          payments:order_payments(id)`
+        )
+        .eq("payment_status", "paid")
+        .eq("review_status", "confirmed")
+        .order("created_at", { ascending: false })
+        .limit(24),
     ]);
 
     if (paymentsError) {
       console.error("admin GET analytics payments error:", paymentsError);
       return res.status(500).json({ error: paymentsError.message });
     }
+    if (legacyOrdersError) {
+      console.error("admin GET analytics legacy orders error:", legacyOrdersError);
+      return res.status(500).json({ error: legacyOrdersError.message });
+    }
     if (recentPaymentsError) {
       console.error("admin GET analytics recent payments error:", recentPaymentsError);
       return res.status(500).json({ error: recentPaymentsError.message });
     }
+    if (recentLegacyOrdersError) {
+      console.error("admin GET analytics recent legacy orders error:", recentLegacyOrdersError);
+      return res.status(500).json({ error: recentLegacyOrdersError.message });
+    }
 
-    const confirmedPayments = (payments ?? []).filter(isConfirmedAppliedPayment);
+    const confirmedPayments = combinePaymentEvents({
+      payments: payments ?? [],
+      legacyOrders: legacyOrders ?? [],
+    });
     const pendingReviewPayments = (payments ?? []).filter((payment) => payment.review_status === "pending_review");
     const todayConfirmedPayments = confirmedPayments.filter((payment) => {
       const createdAt = new Date(payment.created_at);
       return createdAt >= todayWindow.start && createdAt < todayWindow.end;
     });
+    const recentPaymentEvents = [
+      ...(recentPayments ?? []),
+      ...(recentLegacyOrders ?? []).filter(isLegacyAccountingOrder).map(legacyOrderToPayment),
+    ]
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+      .slice(0, 12);
 
     const dailyMap = new Map();
     const resellerMap = new Map();
@@ -491,7 +623,7 @@ router.get("/analytics", async (req, res) => {
       daily_revenue: Array.from(dailyMap.values()).sort((a, b) => a.date.localeCompare(b.date)),
       reseller_breakdown: Array.from(resellerMap.values()).sort((a, b) => b.gross_mmk - a.gross_mmk),
       payment_type_breakdown: Array.from(paymentTypeMap.values()).sort((a, b) => b.gross_mmk - a.gross_mmk),
-      recent_payments: recentPayments ?? [],
+      recent_payments: recentPaymentEvents,
       pending_reviews: pendingReviewPayments.slice(0, 10),
     });
   } catch (err) {

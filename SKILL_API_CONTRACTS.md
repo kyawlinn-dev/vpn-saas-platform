@@ -476,7 +476,10 @@ can stop access; rejecting a top-up reverses only the pending package event.
 Returns platform-wide payment analytics for the selected business month. The
 route uses the `order_payments` ledger as the source of truth and counts only
 `review_status = confirmed` plus `apply_status = applied` rows for gross paid,
-commission, and platform due. Pending-review amounts are reported separately.
+commission, and platform due. Legacy confirmed paid purchase orders that have
+no `order_payments` rows are included from `vpn_orders.created_at` so migrated
+production data stays visible without double-counting ledger-backed orders.
+Pending-review amounts are reported separately.
 The current business time zone is `Asia/Bangkok`, so local-day revenue aligns
 with dashboard testing even though database timestamps are stored as UTC.
 

@@ -67,6 +67,47 @@ export function summarizeOrderPayments(payments) {
   );
 }
 
+function isLegacyConfirmedPaidOrder(order) {
+  return (
+    !order?.payments?.length &&
+    String(order?.order_type || "purchase").toLowerCase() !== "trial" &&
+    String(order?.payment_status || "").toLowerCase() === "paid" &&
+    String(order?.review_status || "confirmed").toLowerCase() === "confirmed"
+  );
+}
+
+function paidOrderAmount(order) {
+  const totalPaid = toNumber(order?.total_paid_mmk);
+  if (totalPaid > 0) return totalPaid;
+  return String(order?.payment_status || "").toLowerCase() === "paid" ? toNumber(order?.price_mmk) : 0;
+}
+
+function legacyOrderCommission(order, amount) {
+  const cachedCommission = toNumber(order?.commission_amount_mmk);
+  if (cachedCommission > 0) return cachedCommission;
+  const percent = toNumber(order?.commission_percent ?? order?.reseller?.commission_percent);
+  return Math.floor((amount * percent) / 100);
+}
+
+export function addLegacyOrderSummary(paymentSummary, orders) {
+  const summary = { ...paymentSummary };
+
+  for (const order of Array.isArray(orders) ? orders : []) {
+    if (!isLegacyConfirmedPaidOrder(order)) continue;
+
+    const amount = paidOrderAmount(order);
+    if (amount <= 0) continue;
+
+    const commission = legacyOrderCommission(order, amount);
+    summary.gross_mmk += amount;
+    summary.commission_mmk += commission;
+    summary.platform_due_mmk += Math.max(0, amount - commission);
+    summary.confirmed_count += 1;
+  }
+
+  return summary;
+}
+
 export function getCustomerActiveOrder(orders) {
   const rows = Array.isArray(orders) ? orders : [];
   return (
@@ -84,7 +125,7 @@ export function enrichCustomer(customer, { orders = [], telegramLink = null, req
     .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
   const activeOrder = getCustomerActiveOrder(customerOrders);
   const allPayments = customerOrders.flatMap((order) => order.payments ?? []);
-  const paymentSummary = summarizeOrderPayments(allPayments);
+  const paymentSummary = addLegacyOrderSummary(summarizeOrderPayments(allPayments), customerOrders);
   const label = customer.reseller?.name || "NovaNet MM";
   const ssconfUrl = buildSsconfHttpUrl(customer.ssconf_token, { req });
   const dynamicAccessUrl = buildDynamicAccessUrl(customer.ssconf_token, label, { req });
