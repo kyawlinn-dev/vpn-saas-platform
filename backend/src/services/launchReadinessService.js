@@ -45,6 +45,14 @@ function isHttpsUrl(value) {
   }
 }
 
+function isRetiredWorkerUrl(value) {
+  try {
+    return new URL(value).hostname.endsWith(".workers.dev");
+  } catch {
+    return false;
+  }
+}
+
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -223,7 +231,15 @@ function addEnvironmentChecks(checks) {
     addCheck(checks, "webhook_base_url", "fail", "Telegram webhook base URL", "Set WEBHOOK_BASE_URL so Telegram can deliver bot updates.");
   }
 
-  if (subscriptionBaseUrl && isHttpsUrl(subscriptionBaseUrl)) {
+  if (subscriptionBaseUrl && isRetiredWorkerUrl(subscriptionBaseUrl)) {
+    addCheck(
+      checks,
+      "subscription_base_url",
+      "fail",
+      "Dynamic key public URL",
+      "PUBLIC_SUBSCRIPTION_BASE_URL points to retired Cloudflare Worker hosting. Use the API domain instead."
+    );
+  } else if (subscriptionBaseUrl && isHttpsUrl(subscriptionBaseUrl)) {
     addCheck(checks, "subscription_base_url", "pass", "Dynamic key public URL", "Public HTTPS API base URL is configured for /k customer keys.");
   } else if (subscriptionBaseUrl) {
     addCheck(checks, "subscription_base_url", "fail", "Dynamic key public URL", "PUBLIC_SUBSCRIPTION_BASE_URL must be a public HTTPS URL in production.");

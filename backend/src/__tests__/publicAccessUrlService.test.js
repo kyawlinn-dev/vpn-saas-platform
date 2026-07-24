@@ -8,6 +8,7 @@ import {
 const ORIGINAL_ENV = {
   PUBLIC_SUBSCRIPTION_BASE_URL: process.env.PUBLIC_SUBSCRIPTION_BASE_URL,
   WEBHOOK_BASE_URL: process.env.WEBHOOK_BASE_URL,
+  NODE_ENV: process.env.NODE_ENV,
 };
 
 function resetPublicUrlEnv() {
@@ -21,6 +22,12 @@ function resetPublicUrlEnv() {
     delete process.env.WEBHOOK_BASE_URL;
   } else {
     process.env.WEBHOOK_BASE_URL = ORIGINAL_ENV.WEBHOOK_BASE_URL;
+  }
+
+  if (ORIGINAL_ENV.NODE_ENV === undefined) {
+    delete process.env.NODE_ENV;
+  } else {
+    process.env.NODE_ENV = ORIGINAL_ENV.NODE_ENV;
   }
 }
 
@@ -55,6 +62,17 @@ describe("public access URL service", () => {
     process.env.WEBHOOK_BASE_URL = "https://api.novanetmm.com/";
 
     expect(getPublicSubscriptionBaseUrl(mockReq())).toBe("https://api.novanetmm.com");
+  });
+
+  it("ignores retired Cloudflare Worker base URLs in production", () => {
+    process.env.NODE_ENV = "production";
+    process.env.PUBLIC_SUBSCRIPTION_BASE_URL = "https://vpn.novanet-mm.workers.dev";
+    process.env.WEBHOOK_BASE_URL = "https://api.novanetmm.com";
+
+    expect(getPublicSubscriptionBaseUrl(mockReq())).toBe("https://api.novanetmm.com");
+    expect(buildDynamicAccessUrl("tok_123", "Shadow VPN", { req: mockReq() })).toBe(
+      "ssconf://api.novanetmm.com/k/tok_123.json#Shadow VPN"
+    );
   });
 
   it("uses request host only when no public env URL is configured", () => {

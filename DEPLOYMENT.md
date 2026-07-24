@@ -60,6 +60,10 @@ TELEGRAM_MINIAPP_URL=https://app.novanetmm.com
 MINIAPP_RELEASE_VERSION=20260725-abcdef0
 ```
 
+Do not point `PUBLIC_SUBSCRIPTION_BASE_URL` at `*.workers.dev`. Cloudflare
+Worker delivery is retired for customer keys; production `ssconf://` links must
+use `api.novanetmm.com`.
+
 `MINIAPP_RELEASE_VERSION` is appended to Telegram Mini App menu and inline
 button URLs as `v=...`. Bump it after each Mini App release so Telegram accounts
 with cached WebViews fetch the newest build while keeping the reseller

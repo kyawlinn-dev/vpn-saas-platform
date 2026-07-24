@@ -4,6 +4,22 @@ function normalizeBaseUrl(value) {
   return trimmed.replace(/\/+$/, "");
 }
 
+function isRetiredWorkerUrl(value) {
+  if (process.env.NODE_ENV !== "production") return false;
+
+  try {
+    return new URL(value).hostname.endsWith(".workers.dev");
+  } catch {
+    return false;
+  }
+}
+
+function normalizeProductionBaseUrl(value) {
+  const normalized = normalizeBaseUrl(value);
+  if (!normalized || isRetiredWorkerUrl(normalized)) return null;
+  return normalized;
+}
+
 function getRequestBaseUrl(req) {
   if (!req) return null;
 
@@ -25,8 +41,8 @@ function getRequestBaseUrl(req) {
 
 export function getPublicSubscriptionBaseUrl(req) {
   return (
-    normalizeBaseUrl(process.env.PUBLIC_SUBSCRIPTION_BASE_URL) ||
-    normalizeBaseUrl(process.env.WEBHOOK_BASE_URL) ||
+    normalizeProductionBaseUrl(process.env.PUBLIC_SUBSCRIPTION_BASE_URL) ||
+    normalizeProductionBaseUrl(process.env.WEBHOOK_BASE_URL) ||
     getRequestBaseUrl(req)
   );
 }
