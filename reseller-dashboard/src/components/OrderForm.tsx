@@ -18,7 +18,6 @@ const initialForm = {
   full_name: "",
   contact: "",
   plan_id: "",
-  payment_status: "paid",
   payment_note: "",
   notes: "",
 };
@@ -48,7 +47,7 @@ function splitContact(contact: string) {
 function PlanPreview({ plan }: { plan: Plan | undefined }) {
   if (!plan) {
     return (
-      <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">
+      <div className="rounded-xl border border-border bg-secondary/40 px-3 py-2 text-sm text-muted-foreground">
         Select a plan to see details.
       </div>
     );
@@ -60,10 +59,10 @@ function PlanPreview({ plan }: { plan: Plan | undefined }) {
     : "Unlimited devices";
 
   return (
-    <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 flex items-start justify-between gap-2">
-      <div>
+    <div className="flex items-start justify-between gap-3 rounded-xl border border-primary/25 bg-primary/10 px-3 py-2">
+      <div className="min-w-0">
         <div className="text-sm font-semibold text-primary">{plan.name}</div>
-        <div className="text-xs text-muted-foreground">
+        <div className="mt-0.5 text-xs text-muted-foreground">
           {plan.duration_days} days · {dataLabel} · {devicesLabel}
         </div>
       </div>
@@ -115,7 +114,7 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
       await api.post("/reseller/orders", {
         full_name: form.full_name.trim(),
         plan_id: form.plan_id,
-        payment_status: form.payment_status,
+        payment_status: "paid",
         payment_note: form.payment_note.trim() || null,
         notes: form.notes.trim() || null,
         phone: phone || null,
@@ -138,9 +137,15 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
   };
 
   return (
-    <div className="space-y-5">
+    <form
+      className="flex min-h-full flex-col"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
       {error ? (
-        <div className="flex items-start justify-between gap-3 rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           <span>{error}</span>
           <button type="button" onClick={() => setError("")} className="opacity-70 hover:opacity-100">
             ✕
@@ -148,7 +153,7 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
         </div>
       ) : null}
 
-      <div className="space-y-4">
+      <div className="space-y-4 pb-4">
         <FormField label="Customer name" required>
           <Input
             value={form.full_name}
@@ -175,11 +180,13 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
             <div className="mb-1.5 text-[11px] font-semibold text-muted-foreground">
               Duration
             </div>
-            <div className="flex flex-wrap gap-1.5">
+            <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
               <Button
                 variant={duration === "all" ? "primary" : "outline"}
                 size="sm"
                 onClick={() => setDuration("all")}
+                type="button"
+                className="shrink-0"
               >
                 All
               </Button>
@@ -189,6 +196,8 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
                   variant={duration === days ? "primary" : "outline"}
                   size="sm"
                   onClick={() => setDuration(days)}
+                  type="button"
+                  className="shrink-0"
                 >
                   {days} days
                 </Button>
@@ -197,7 +206,7 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
           </div>
         ) : null}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
           <FormField label="Plan">
             <Select
               value={form.plan_id}
@@ -210,19 +219,9 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
               ))}
             </Select>
           </FormField>
-
-          <FormField label="Payment status">
-            <Select
-              value={form.payment_status}
-              onChange={(e) => setForm((p) => ({ ...p, payment_status: e.target.value }))}
-            >
-              <option value="paid">Paid</option>
-              <option value="pending">Pending</option>
-              <option value="unpaid">Unpaid</option>
-              <option value="overdue">Overdue</option>
-            </Select>
-          </FormField>
         </div>
+
+        <PlanPreview plan={selectedPlan} />
 
         <FormField label="Payment note">
           <Input
@@ -244,18 +243,23 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
         </FormField>
       </div>
 
-      <PlanPreview plan={selectedPlan} />
-
-      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+      <div className="sticky bottom-0 -mx-4 mt-auto flex flex-col-reverse gap-2 border-t border-border/70 bg-card/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:-mx-0 sm:flex-row sm:justify-end sm:border-t-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:backdrop-blur-none">
         {onCancel ? (
-          <Button variant="outline" onClick={onCancel} disabled={loading}>
+          <Button
+            variant="outline"
+            onClick={onCancel}
+            disabled={loading}
+            type="button"
+            fullWidth
+            className="sm:w-auto"
+          >
             Cancel
           </Button>
         ) : null}
-        <Button variant="primary" onClick={() => void submit()} disabled={!canSubmit}>
+        <Button variant="primary" disabled={!canSubmit} type="submit" fullWidth className="sm:w-auto">
           {loading ? "Creating…" : "Create Order"}
         </Button>
       </div>
-    </div>
+    </form>
   );
 }
