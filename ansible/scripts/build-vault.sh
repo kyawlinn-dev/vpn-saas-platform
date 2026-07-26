@@ -63,7 +63,7 @@ vault_backend_env_production: |
   DO_AUTO_PROVISION_ENABLED=false
 
   SERVER_BOOTSTRAP_SSH_USER=$(get SERVER_BOOTSTRAP_SSH_USER)
-  SERVER_BOOTSTRAP_PRIVATE_KEY_PATH=/root/.ssh/id_ed25519
+  SERVER_BOOTSTRAP_PRIVATE_KEY_PATH=/root/.ssh/novanet_do_bootstrap_key
   SERVER_BOOTSTRAP_KNOWN_HOSTS_FILE=/root/.ssh/known_hosts
   SERVER_BOOTSTRAP_TIMEOUT_MS=$(get SERVER_BOOTSTRAP_TIMEOUT_MS)
   SERVER_BOOTSTRAP_POLL_INTERVAL_MS=10000
@@ -81,9 +81,9 @@ VAULTEOF
 
 echo "Wrote $OUT_FILE."
 echo "IMPORTANT: SERVER_BOOTSTRAP_PRIVATE_KEY_PATH was deliberately set to a Linux"
-echo "path (/root/.ssh/id_ed25519), NOT copied from your local .env — the value"
-echo "there is a Windows path and is currently broken in production (see report)."
-echo "Confirm that key actually exists on the Droplet before relying on it."
+echo "path (/root/.ssh/novanet_do_bootstrap_key), NOT copied from your local .env — the value"
+echo "there is usually a Windows path and would be wrong on the production Droplet."
+echo "Confirm that /root/.ssh/novanet_do_bootstrap_key exists on the Droplet before relying on it."
 echo ""
 echo "Next steps:"
 echo "  1. Open $OUT_FILE and fill in anything still blank."
