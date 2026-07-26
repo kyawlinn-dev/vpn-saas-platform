@@ -135,6 +135,15 @@ export async function getDroplet(dropletId) {
   return normalizeDroplet(res.data.droplet);
 }
 
+export async function listAccountSshKeys() {
+  const client = getClient();
+  const res = await client.get("/account/keys", {
+    params: { per_page: 200 },
+  });
+
+  return Array.isArray(res?.data?.ssh_keys) ? res.data.ssh_keys : [];
+}
+
 export async function waitForDropletReady(
   dropletId,
   {

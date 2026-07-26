@@ -39,6 +39,61 @@ function hasCapacity(server) {
   return max > 0 && current < max;
 }
 
+function serverLoadRatio(server) {
+  const current = toNumber(server.current_active_keys, 0);
+  const max = toNumber(server.max_active_keys, 0);
+  return max > 0 ? current / max : Number.POSITIVE_INFINITY;
+}
+
+function compareText(a, b) {
+  return String(a || "").localeCompare(String(b || ""));
+}
+
+export function rankProvisionableServers(servers = []) {
+  return [...servers]
+    .filter((server) => isServerReady(server) && hasCapacity(server))
+    .sort((a, b) => {
+      const loadDiff = serverLoadRatio(a) - serverLoadRatio(b);
+      if (loadDiff !== 0) return loadDiff;
+
+      if (Boolean(a.is_default) !== Boolean(b.is_default)) {
+        return Boolean(a.is_default) ? -1 : 1;
+      }
+
+      const currentDiff =
+        toNumber(a.current_active_keys, 0) - toNumber(b.current_active_keys, 0);
+      if (currentDiff !== 0) return currentDiff;
+
+      const sortDiff = toNumber(a.sort_order, 0) - toNumber(b.sort_order, 0);
+      if (sortDiff !== 0) return sortDiff;
+
+      const createdDiff = compareText(a.created_at, b.created_at);
+      if (createdDiff !== 0) return createdDiff;
+
+      return compareText(a.id, b.id);
+    });
+}
+
+function pickRankedServersForRegions(servers, regions) {
+  const ranked = rankProvisionableServers(servers);
+  const normalizedRegions = (regions || []).map((region) => normalizeRegion(region)).filter(Boolean);
+
+  if (!normalizedRegions.length) return ranked;
+
+  const selected = [];
+  const seenRegions = new Set();
+
+  for (const region of normalizedRegions) {
+    if (seenRegions.has(region)) continue;
+    seenRegions.add(region);
+
+    const match = ranked.find((server) => normalizeRegion(server.region) === region);
+    if (match) selected.push(match);
+  }
+
+  return selected;
+}
+
 export async function getServerById(serverId) {
   const { data, error } = await supabase
     .from("vpn_servers")
@@ -66,13 +121,8 @@ export async function listServers() {
 }
 
 export async function getAvailableServer() {
-  const servers = await listServers();
-  const server = servers.find(
-    (item) =>
-      normalizeServerTier(item.server_tier) === "premium" &&
-      isServerReady(item) &&
-      hasCapacity(item)
-  );
+  const servers = rankProvisionableServers(await listServers());
+  const server = servers.find((item) => normalizeServerTier(item.server_tier) === "premium");
 
   if (!server) {
     throw new ServerAvailabilityError(
@@ -91,7 +141,6 @@ export async function getActiveServers({ regions = [], limit = 1, serverTier = "
     .select("*")
     .eq("status", "active")
     .eq("server_tier", normalizedTier)
-    .order("is_default", { ascending: false })
     .order("current_active_keys", { ascending: true });
 
   const normalizedRegions = (regions || [])
@@ -105,9 +154,7 @@ export async function getActiveServers({ regions = [], limit = 1, serverTier = "
   const { data, error } = await query;
   if (error) throw new Error(error.message);
 
-  const filtered = (data || []).filter(
-    (server) => isServerReady(server) && hasCapacity(server)
-  );
+  const filtered = pickRankedServersForRegions(data || [], normalizedRegions);
 
   return limit > 0 ? filtered.slice(0, limit) : filtered;
 }

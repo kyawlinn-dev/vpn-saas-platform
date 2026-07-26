@@ -6,7 +6,7 @@ vi.mock("../lib/supabase.js", () => ({
   supabase: { from: mockFrom },
 }));
 
-const { getActiveServers, getAvailableServer } = await import("../services/serverService.js");
+const { getActiveServers, getAvailableServer, rankProvisionableServers } = await import("../services/serverService.js");
 
 function makeServer(overrides = {}) {
   return {
@@ -76,5 +76,96 @@ describe("server tier selection", () => {
     const server = await getAvailableServer();
 
     expect(server.id).toBe("premium-1");
+  });
+
+  it("ranks lower server load before the default server", () => {
+    const ranked = rankProvisionableServers([
+      makeServer({
+        id: "default-sg",
+        is_default: true,
+        current_active_keys: 4,
+        max_active_keys: 10,
+      }),
+      makeServer({
+        id: "lighter-sg",
+        current_active_keys: 1,
+        max_active_keys: 10,
+      }),
+    ]);
+
+    expect(ranked.map((server) => server.id)).toEqual(["lighter-sg", "default-sg"]);
+  });
+
+  it("uses the default server as the tie-breaker when load is equal", () => {
+    const ranked = rankProvisionableServers([
+      makeServer({
+        id: "non-default",
+        current_active_keys: 1,
+        max_active_keys: 5,
+        sort_order: 0,
+      }),
+      makeServer({
+        id: "default",
+        is_default: true,
+        current_active_keys: 2,
+        max_active_keys: 10,
+        sort_order: 10,
+      }),
+    ]);
+
+    expect(ranked.map((server) => server.id)).toEqual(["default", "non-default"]);
+  });
+
+  it("skips full servers before ranking", () => {
+    const ranked = rankProvisionableServers([
+      makeServer({
+        id: "full-default",
+        is_default: true,
+        current_active_keys: 10,
+        max_active_keys: 10,
+      }),
+      makeServer({
+        id: "available",
+        current_active_keys: 9,
+        max_active_keys: 10,
+      }),
+    ]);
+
+    expect(ranked.map((server) => server.id)).toEqual(["available"]);
+  });
+
+  it("selects the best available server per requested region", async () => {
+    mockQueryResult({
+      data: [
+        makeServer({
+          id: "sg-default",
+          region: "sgp1",
+          is_default: true,
+          current_active_keys: 6,
+          max_active_keys: 10,
+        }),
+        makeServer({
+          id: "sg-light",
+          region: "sgp1",
+          current_active_keys: 2,
+          max_active_keys: 10,
+        }),
+        makeServer({
+          id: "jp-default",
+          region: "jpn",
+          is_default: true,
+          current_active_keys: 1,
+          max_active_keys: 10,
+        }),
+      ],
+    });
+
+    const servers = await getActiveServers({
+      regions: ["sgp1", "jpn"],
+      limit: 2,
+      serverTier: "premium",
+    });
+
+    expect(servers.map((server) => server.id)).toEqual(["sg-light", "jp-default"]);
   });
 });

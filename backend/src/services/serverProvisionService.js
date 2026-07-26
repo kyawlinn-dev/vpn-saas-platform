@@ -1,6 +1,9 @@
 import { supabase } from "../lib/supabase.js";
+import { existsSync } from "node:fs";
 import {
   createDroplet,
+  destroyDroplet,
+  listAccountSshKeys,
   waitForDropletReady,
   getDropletPublicIp,
 } from "./digitalOceanService.js";
@@ -52,7 +55,13 @@ async function updateServer(serverId, patch) {
   }
 }
 
-async function insertProvisioningRow({ dropletName, dropletId, region, serverTier }) {
+async function insertProvisioningRow({
+  dropletName,
+  dropletId,
+  region,
+  serverTier,
+  sortOrder,
+}) {
   const now = new Date().toISOString();
 
   const { data, error } = await supabase
@@ -67,6 +76,7 @@ async function insertProvisioningRow({ dropletName, dropletId, region, serverTie
         status: "provisioning",
         max_active_keys: getDefaultMaxActiveKeys(),
         current_active_keys: 0,
+        sort_order: sortOrder,
         is_default: false,
         host_ip: null,
         outline_api_url: null,
@@ -103,7 +113,48 @@ function getProvisioningContext({ regionOverride, sizeOverride } = {}) {
     size: sizeOverride || getRequiredEnv("DIGITALOCEAN_SIZE"),
     image: getRequiredEnv("DIGITALOCEAN_IMAGE"),
     sshKeyFingerprint: getRequiredEnv("DIGITALOCEAN_SSH_KEY_FINGERPRINT"),
+    sshPrivateKeyPath: getRequiredEnv("SERVER_BOOTSTRAP_PRIVATE_KEY_PATH"),
   };
+}
+
+async function getNextSortOrder() {
+  const { data, error } = await supabase
+    .from("vpn_servers")
+    .select("sort_order")
+    .order("sort_order", { ascending: false, nullsFirst: false })
+    .limit(1);
+
+  if (error) {
+    throw new Error(`Failed to calculate next server sort order: ${error.message}`);
+  }
+
+  const highest = Number(data?.[0]?.sort_order);
+  return Number.isFinite(highest) ? highest + 1 : 0;
+}
+
+async function assertProvisionPreflight({ sshKeyFingerprint, sshPrivateKeyPath }) {
+  if (!existsSync(sshPrivateKeyPath)) {
+    throw new Error(
+      `SERVER_BOOTSTRAP_PRIVATE_KEY_PATH does not exist: ${sshPrivateKeyPath}`
+    );
+  }
+
+  let sshKeys;
+  try {
+    sshKeys = await listAccountSshKeys();
+  } catch (error) {
+    throw new Error(`DigitalOcean SSH key preflight failed: ${error.message}`);
+  }
+
+  const hasConfiguredKey = sshKeys.some(
+    (key) => key?.fingerprint === sshKeyFingerprint
+  );
+
+  if (!hasConfiguredKey) {
+    throw new Error(
+      "DIGITALOCEAN_SSH_KEY_FINGERPRINT was not found in the DigitalOcean account"
+    );
+  }
 }
 
 export async function startProvisionOutlineServer({
@@ -112,34 +163,85 @@ export async function startProvisionOutlineServer({
   size: sizeOverride,
   serverTier,
 } = {}) {
-  const { region, size, image, sshKeyFingerprint } = getProvisioningContext({
-    regionOverride,
-    sizeOverride,
-  });
+  const { region, size, image, sshKeyFingerprint, sshPrivateKeyPath } =
+    getProvisioningContext({
+      regionOverride,
+      sizeOverride,
+    });
 
   const dropletName = nameOverride?.trim() || buildDropletName();
+  const sortOrder = await getNextSortOrder();
 
-  const droplet = await createDroplet({
-    name: dropletName,
-    region,
-    size,
-    image,
-    sshKeyFingerprint,
-  });
+  await assertProvisionPreflight({ sshKeyFingerprint, sshPrivateKeyPath });
 
   const serverRow = await insertProvisioningRow({
     dropletName,
-    dropletId: droplet.id,
+    dropletId: null,
     region,
     serverTier,
+    sortOrder,
   });
 
+  let droplet;
+  try {
+    droplet = await createDroplet({
+      name: dropletName,
+      region,
+      size,
+      image,
+      sshKeyFingerprint,
+    });
+  } catch (error) {
+    try {
+      await updateServer(serverRow.id, {
+        status: "failed",
+        last_error: error.message,
+      });
+    } catch (updateError) {
+      console.error(
+        `[provision:${serverRow.id}] Failed to record DigitalOcean creation error:`,
+        updateError.message
+      );
+    }
+
+    throw error;
+  }
+
+  const dropletStageMessage =
+    "DigitalOcean droplet created: waiting for network readiness";
+
+  try {
+    await updateServer(serverRow.id, {
+      droplet_id: droplet.id,
+      last_error: dropletStageMessage,
+    });
+  } catch (error) {
+    try {
+      await destroyDroplet(droplet.id);
+    } catch (destroyError) {
+      console.error(
+        `[provision:${serverRow.id}] Failed to destroy droplet ${droplet.id} after DB tracking update failed:`,
+        destroyError.message
+      );
+    }
+
+    throw new Error(
+      `Failed to attach droplet ${droplet.id} to vpn_servers row: ${error.message}`
+    );
+  }
+
+  const trackedServerRow = {
+    ...serverRow,
+    droplet_id: droplet.id,
+    last_error: dropletStageMessage,
+  };
+
   void continueProvisionInBackground({
-    serverId: serverRow.id,
+    serverId: trackedServerRow.id,
     dropletId: droplet.id,
   });
 
-  return serverRow;
+  return trackedServerRow;
 }
 
 async function continueProvisionInBackground({ serverId, dropletId }) {

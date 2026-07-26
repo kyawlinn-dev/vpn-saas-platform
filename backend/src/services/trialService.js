@@ -14,7 +14,13 @@
 
 import { supabase } from "../lib/supabase.js";
 import { createOutlineKey, deleteOutlineKey } from "./outlineService.js";
-import { getActiveServers, incrementServerUsage } from "./serverService.js";
+import {
+  clearServerError,
+  decrementServerUsage,
+  getActiveServers,
+  incrementServerUsage,
+  setServerError,
+} from "./serverService.js";
 import { addDaysToDateOnly, businessDateOnly } from "../utils/businessTime.js";
 
 function gbToBytes(gb) {
@@ -208,8 +214,8 @@ export async function createTrialOrder({
  * The trial order is valid with or without a key — key absence lets the user
  * link a server manually in the miniapp as a fallback.
  *
- * Server selection: getActiveServers filters server_tier='trial', then orders
- * by is_default DESC and least-loaded.
+ * Server selection: getActiveServers filters server_tier='trial', then ranks by
+ * lowest load. The default server only wins ties.
  *
  * @param {{ customerId, resellerId, orderId, plan, customerFullName, keyName }} params
  */
@@ -233,60 +239,96 @@ export async function provisionTrialKey({
   if (existingKey) return;
 
   // Pick trial capacity only. Trial users must never land on premium servers.
-  const servers = await getActiveServers({ limit: 1, serverTier: "trial" });
+  const servers = await getActiveServers({ limit: 0, serverTier: "trial" });
   if (!servers.length) {
     throw new Error("No active trial server available for trial key provisioning");
   }
-  const server = servers[0];
-  if (String(server.server_tier || "").toLowerCase() !== "trial") {
-    throw new Error("Trial provisioning selected a non-trial server; check server_tier configuration");
-  }
 
   const dataLimitBytes = gbToBytes(plan?.data_limit_gb);
-  const name = keyName || [
-    customerFullName || "Customer",
-    server.name,
-    plan?.name || "Trial",
-    `ORD-${orderId}`,
-  ].join(" | ");
 
-  // Call the Outline server to create the key
-  const outlineKey = await createOutlineKey({
-    apiUrl: server.outline_api_url,
-    certSha256: server.outline_cert_sha256,
-    name,
-    dataLimitBytes,
-  });
+  let lastCapacityError = null;
 
-  // Persist the key in vpn_keys
-  const { error: insertErr } = await supabase
-    .from("vpn_keys")
-    .insert({
-      order_id: orderId,
-      customer_id: customerId,
-      reseller_id: resellerId,
-      server_id: server.id,
-      outline_key_id: outlineKey.outline_key_id,
-      key_name: outlineKey.key_name,
-      access_url: outlineKey.access_url,
-      data_limit_bytes: dataLimitBytes,
-      used_bytes: 0,
-      status: "active",
-      is_used: true,
-      used_at: new Date().toISOString(),
-    });
+  for (const server of servers) {
+    if (String(server.server_tier || "").toLowerCase() !== "trial") {
+      throw new Error("Trial provisioning selected a non-trial server; check server_tier configuration");
+    }
 
-  if (insertErr) {
-    // Clean up the Outline key to avoid an orphan on the server
+    let incremented = false;
+    let outlineKey = null;
+
     try {
-      await deleteOutlineKey({
+      await incrementServerUsage(server.id);
+      incremented = true;
+
+      const name = keyName || [
+        customerFullName || "Customer",
+        server.name,
+        plan?.name || "Trial",
+        `ORD-${orderId}`,
+      ].join(" | ");
+
+      // Call the Outline server to create the key
+      outlineKey = await createOutlineKey({
         apiUrl: server.outline_api_url,
         certSha256: server.outline_cert_sha256,
-        outlineKeyId: outlineKey.outline_key_id,
+        name,
+        dataLimitBytes,
       });
-    } catch {}
-    throw new Error(`vpn_keys insert failed: ${insertErr.message}`);
+
+      // Persist the key in vpn_keys
+      const { error: insertErr } = await supabase
+        .from("vpn_keys")
+        .insert({
+          order_id: orderId,
+          customer_id: customerId,
+          reseller_id: resellerId,
+          server_id: server.id,
+          outline_key_id: outlineKey.outline_key_id,
+          key_name: outlineKey.key_name,
+          access_url: outlineKey.access_url,
+          data_limit_bytes: dataLimitBytes,
+          used_bytes: 0,
+          status: "active",
+          is_used: true,
+          used_at: new Date().toISOString(),
+        });
+
+      if (insertErr) {
+        throw new Error(`vpn_keys insert failed: ${insertErr.message}`);
+      }
+
+      try {
+        await clearServerError(server.id);
+      } catch {}
+      return;
+    } catch (err) {
+      if (outlineKey?.outline_key_id) {
+        try {
+          await deleteOutlineKey({
+            apiUrl: server.outline_api_url,
+            certSha256: server.outline_cert_sha256,
+            outlineKeyId: outlineKey.outline_key_id,
+          });
+        } catch {}
+      }
+
+      if (incremented) {
+        try {
+          await decrementServerUsage(server.id);
+        } catch {}
+      }
+
+      if (err?.code === "SERVER_FULL" || err?.code === "SERVER_USAGE_RACE") {
+        lastCapacityError = err;
+        continue;
+      }
+
+      try {
+        await setServerError(server.id, err.message);
+      } catch {}
+      throw err;
+    }
   }
 
-  await incrementServerUsage(server.id);
+  throw lastCapacityError || new Error("No active trial server available for trial key provisioning");
 }

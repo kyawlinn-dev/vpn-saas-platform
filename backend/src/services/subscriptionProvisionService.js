@@ -380,6 +380,9 @@ export async function provisionServersForToken({
         continue;
       }
 
+      await incrementServerUsage(server.id);
+      incremented = true;
+
       const outlineKey = await createOutlineKey({
         apiUrl: server.outline_api_url,
         certSha256: server.outline_cert_sha256,
@@ -420,8 +423,6 @@ export async function provisionServersForToken({
         vpnKeyId: vpnKey.id,
       });
 
-      await incrementServerUsage(server.id);
-      incremented = true;
       await clearServerError(server.id);
 
       created.push(formatServerConfig(server, outlineKey.access_url));
