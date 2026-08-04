@@ -28,6 +28,7 @@ export function calculatePaymentAmounts({ amountMmk, commissionPercent }) {
 export async function createOrderPayment({
   order,
   amountMmk,
+  commissionPercent = null,
   reviewStatus = "pending_review",
   source,
   paymentType = "initial",
@@ -45,7 +46,7 @@ export async function createOrderPayment({
 
   const amounts = calculatePaymentAmounts({
     amountMmk,
-    commissionPercent: order.commission_percent,
+    commissionPercent: commissionPercent ?? order.commission_percent,
   });
 
   if (amounts.amount_mmk <= 0) return null;

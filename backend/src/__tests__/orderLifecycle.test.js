@@ -31,7 +31,13 @@ vi.mock('../services/serverService.js', () => ({
   ServerAvailabilityError: class ServerAvailabilityError extends Error {},
 }))
 
-const { OrderLifecycleError, assertNoOtherActivePurchase, stopOrder } =
+const {
+  OrderLifecycleError,
+  assertNoOtherActivePurchase,
+  getPackageCommissionPercent,
+  getPackageServerTier,
+  stopOrder,
+} =
   await import('../services/orderLifecycleService.js')
 
 beforeEach(() => vi.clearAllMocks())
@@ -118,5 +124,45 @@ describe('stopOrder', () => {
     const result = await stopOrder({ orderId: 'o1', resellerId: 'r1' })
     expect(result.already_stopped).toBe(true)
     expect(result.status).toBe('stopped')
+  })
+})
+
+describe('package lifecycle rules', () => {
+  it('routes a paid plan on an old trial order to premium capacity', () => {
+    expect(
+      getPackageServerTier({
+        order: { order_type: 'trial' },
+        plan: { is_trial: false },
+      })
+    ).toBe('premium')
+  })
+
+  it('routes a trial plan to trial capacity', () => {
+    expect(
+      getPackageServerTier({
+        order: { order_type: 'purchase' },
+        plan: { is_trial: true },
+      })
+    ).toBe('trial')
+  })
+
+  it('uses reseller commission when converting a trial order to a paid package', () => {
+    expect(
+      getPackageCommissionPercent({
+        order: { order_type: 'trial', commission_percent: 0 },
+        reseller: { commission_percent: 20 },
+        plan: { is_trial: false },
+      })
+    ).toBe(20)
+  })
+
+  it('keeps trial packages at zero commission', () => {
+    expect(
+      getPackageCommissionPercent({
+        order: { order_type: 'trial', commission_percent: 30 },
+        reseller: { commission_percent: 30 },
+        plan: { is_trial: true },
+      })
+    ).toBe(0)
   })
 })

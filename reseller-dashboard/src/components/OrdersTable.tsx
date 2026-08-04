@@ -105,11 +105,7 @@ function getPaymentDisplayStatus(order: Order) {
 
 function isTelegramManagedOrder(order: Order) {
   const source = String(order.source || "").toLowerCase();
-  return (
-    order.customer?.customer_type === "telegram" ||
-    source === "miniapp" ||
-    source === "bot"
-  );
+  return source === "miniapp" || source === "bot";
 }
 
 function getPreferredAccessUrl(key?: VpnKey | null) {

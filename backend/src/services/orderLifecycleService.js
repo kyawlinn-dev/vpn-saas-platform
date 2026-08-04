@@ -123,6 +123,61 @@ function getPlanRegions(plan) {
   return plan.allowed_regions.filter(Boolean);
 }
 
+function isTrialPlan(plan) {
+  return plan?.is_trial === true;
+}
+
+function getPackageOrderType(plan) {
+  return isTrialPlan(plan) ? "trial" : "purchase";
+}
+
+export function getPackageServerTier({ order, plan }) {
+  if (plan?.is_trial === true) return "trial";
+  if (plan?.is_trial === false) return "premium";
+  return order?.order_type === "trial" ? "trial" : "premium";
+}
+
+function normalizeCommissionPercent(value) {
+  const number = Number(value ?? 0);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(100, Math.max(0, number));
+}
+
+export function getPackageCommissionPercent({ order, reseller, plan }) {
+  if (isTrialPlan(plan)) return 0;
+  return normalizeCommissionPercent(reseller?.commission_percent ?? order?.commission_percent);
+}
+
+async function loadResellerForLifecycle(reseller) {
+  if (!reseller?.id) {
+    throw new OrderLifecycleError("Missing reseller ID", 401, "MISSING_RESELLER_ID");
+  }
+
+  if (reseller.commission_percent != null) {
+    return {
+      ...reseller,
+      commission_percent: normalizeCommissionPercent(reseller.commission_percent),
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("resellers")
+    .select("id, name, commission_percent")
+    .eq("id", reseller.id)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) {
+    throw new OrderLifecycleError("Reseller not found", 404, "RESELLER_NOT_FOUND");
+  }
+
+  return {
+    ...reseller,
+    ...data,
+    commission_percent: normalizeCommissionPercent(data.commission_percent),
+  };
+}
+
 export async function getResellerScopedOrder(orderId, resellerId) {
   if (!orderId) {
     throw new OrderLifecycleError("Invalid order ID", 400, "INVALID_ORDER_ID");
@@ -289,7 +344,7 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
   const now = new Date();
   const expiryAt = calcExpiryDate(now, plan.duration_days);
   const regions = getPlanRegions(plan);
-  const serverTier = order.order_type === "trial" || plan?.is_trial ? "trial" : "premium";
+  const serverTier = getPackageServerTier({ order, plan });
 
   if (["activate", "renew"].includes(mode)) {
     // Retry safety: if a previous activation attempt created partial access
@@ -362,6 +417,7 @@ async function beginPackagePayment({
   order,
   plan,
   resellerId,
+  commissionPercent = null,
   paymentType,
   source = "dashboard",
   idempotencyKey = null,
@@ -404,6 +460,7 @@ async function beginPackagePayment({
       plan_id: plan.id,
     },
     amountMmk: plan.price_mmk,
+    commissionPercent,
     reviewStatus: "confirmed",
     applyStatus: "pending",
     paymentType,
@@ -756,10 +813,31 @@ export async function extendOrder({ orderId, resellerId, planId, idempotencyKey 
   }
 
   const plan = await resolvePlan(planId, order.plan);
+  const reseller = await loadResellerForLifecycle({ id: resellerId });
+  const targetOrderType = getPackageOrderType(plan);
+  const commissionPercent = getPackageCommissionPercent({ order, reseller, plan });
+
+  if (targetOrderType === "purchase") {
+    await assertNoOtherActivePurchase({
+      customerId: order.customer_id,
+      resellerId: order.reseller_id,
+      excludeOrderId: order.id,
+    });
+
+    if (order.order_type === "trial") {
+      await stopActiveTrialsForCustomer({
+        customerId: order.customer_id,
+        resellerId: order.reseller_id,
+        excludeOrderId: order.id,
+      });
+    }
+  }
+
   const { payment, alreadyApplied } = await beginPackagePayment({
     order,
     plan,
     resellerId,
+    commissionPercent,
     paymentType: "extend",
     source,
     idempotencyKey,
@@ -789,15 +867,35 @@ export async function extendOrder({ orderId, resellerId, planId, idempotencyKey 
       await activateToken(token.id, expiryAt.toISOString());
     }
 
-    await updateProvisionedKeyLimitsForOrder({ orderId: order.id, plan });
+    if (order.order_type === "trial" && targetOrderType === "purchase") {
+      await provisionOrderAccess({
+        order,
+        reseller,
+        plan,
+        mode: "renew",
+      });
+      const refreshedToken = await getTokenByOrderId(order.id);
+      if (refreshedToken?.id) {
+        await activateToken(refreshedToken.id, expiryAt.toISOString());
+      }
+    } else {
+      await updateProvisionedKeyLimitsForOrder({ orderId: order.id, plan });
+    }
 
     const { error: updateErr } = await supabase
       .from("vpn_orders")
       .update({
         status: "active",
+        payment_status: "paid",
+        review_status: targetOrderType === "purchase" ? "confirmed" : order.review_status,
+        order_type: targetOrderType,
         expiry_date: toDateOnly(expiryAt),
+        start_date: order.order_type === "trial" && targetOrderType === "purchase" ? toDateOnly(new Date()) : order.start_date,
+        activated_at: order.order_type === "trial" && targetOrderType === "purchase" ? new Date().toISOString() : order.activated_at,
+        stopped_at: null,
         plan_id: plan.id,
         price_mmk: Number(plan.price_mmk ?? 0),
+        commission_percent: commissionPercent,
       })
       .eq("id", order.id);
 
@@ -837,7 +935,16 @@ export async function renewOrder({ orderId, reseller, planId, idempotencyKey = n
     );
   }
 
-  if (order.order_type === "purchase") {
+  const resolvedReseller = await loadResellerForLifecycle(reseller);
+  const plan = await resolvePlan(planId, order.plan);
+  const targetOrderType = getPackageOrderType(plan);
+  const commissionPercent = getPackageCommissionPercent({
+    order,
+    reseller: resolvedReseller,
+    plan,
+  });
+
+  if (targetOrderType === "purchase") {
     await assertNoOtherActivePurchase({
       customerId: order.customer_id,
       resellerId: order.reseller_id,
@@ -850,11 +957,11 @@ export async function renewOrder({ orderId, reseller, planId, idempotencyKey = n
     });
   }
 
-  const plan = await resolvePlan(planId, order.plan);
   const { payment, alreadyApplied } = await beginPackagePayment({
     order,
     plan,
-    resellerId: reseller.id,
+    resellerId: resolvedReseller.id,
+    commissionPercent,
     paymentType: "renew",
     source,
     idempotencyKey,
@@ -874,12 +981,12 @@ export async function renewOrder({ orderId, reseller, planId, idempotencyKey = n
   try {
     const result = await provisionOrderAccess({
       order,
-      reseller,
+      reseller: resolvedReseller,
       plan,
       mode: "renew",
     });
 
-    if (order.order_type === "purchase") {
+    if (targetOrderType === "purchase") {
       await assertNoOtherActivePurchase({
         customerId: order.customer_id,
         resellerId: order.reseller_id,
@@ -893,13 +1000,15 @@ export async function renewOrder({ orderId, reseller, planId, idempotencyKey = n
       .update({
         status: "active",
         payment_status: "paid",
-        review_status: order.order_type === "purchase" ? "confirmed" : order.review_status,
+        review_status: targetOrderType === "purchase" ? "confirmed" : order.review_status,
+        order_type: targetOrderType,
         activated_at: now.toISOString(),
         start_date: toDateOnly(now),
         expiry_date: result.expiry_date,
         stopped_at: null,
         plan_id: plan.id,
         price_mmk: Number(plan.price_mmk ?? 0),
+        commission_percent: commissionPercent,
       })
       .eq("id", order.id);
 
