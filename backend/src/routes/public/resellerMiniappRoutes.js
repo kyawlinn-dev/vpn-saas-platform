@@ -226,13 +226,15 @@ function mapServerForMiniApp(server, isCurrent = false) {
   if (!server) return null;
   const loc = getRegionLocation(server.region);
   const serverTier = normalizeMiniAppServerTier(server.server_tier);
+  const flag = server.flag_emoji || loc?.flag || "🌐";
   return {
     id: server.id,
     name: server.name,
     region: server.region,
-    country: loc?.country ?? server.region,
-    city: loc?.city ?? server.name,
-    flag: loc?.flag ?? "🌐",
+    country: server.display_country || loc?.country || server.region,
+    city: server.display_city || loc?.city || server.name,
+    flag,
+    flag_emoji: flag,
     server_tier: serverTier,
     is_default: server.is_default,
     is_current: isCurrent,
@@ -786,6 +788,9 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
             id,
             name,
             region,
+            display_country,
+            display_city,
+            flag_emoji,
             server_tier,
             is_default
           )
@@ -1046,7 +1051,7 @@ async function handleMiniAppServers(
 
     const { data: servers, error: serversError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, status, is_default, server_tier")
+      .select("id, name, region, display_country, display_city, flag_emoji, status, is_default, server_tier")
       .eq("status", "active")
       .order("created_at", { ascending: true });
 
@@ -1283,7 +1288,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
 
     const { data: server, error: serverError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, outline_api_url, outline_cert_sha256, status, is_default, server_tier")
+      .select("id, name, region, display_country, display_city, flag_emoji, outline_api_url, outline_cert_sha256, status, is_default, server_tier")
       .eq("id", serverId)
       .maybeSingle();
 
@@ -1962,6 +1967,9 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
           id,
           name,
           region,
+          display_country,
+          display_city,
+          flag_emoji,
           server_tier,
           is_default
         )
