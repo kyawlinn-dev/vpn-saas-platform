@@ -112,18 +112,24 @@ async function startBotForReseller(row) {
   // Throws on bad token or timeout — callers handle the error
   await registerWebhook(plainToken, reseller_id, secretToken);
 
-  // Menu button + commands are non-fatal — a failure here doesn't prevent the bot going live
+  // Menu button + commands are non-fatal — a failure here doesn't prevent the bot going live.
+  // MENU_BUTTON_TEXT is deliberately hardcoded to "Open VPN" (English) across
+  // every reseller bot: (1) it matches what operators set in @BotFather so we
+  // don't fight that setting on every restart, (2) it stays consistent per
+  // reseller regardless of brand_name, and (3) it avoids the cache/fallback
+  // issues Telegram clients hit when the text drifts.
   try {
     const label = brand_name || "App";
+    const MENU_BUTTON_TEXT = "Open VPN";
     const webAppUrl = buildWebAppUrl(miniappBaseUrl, miniapp_slug || "");
     if (webAppUrl) {
       console.info(`[bot:${reseller_id}] menu web_app payload`, {
-        text: `Open ${label}`,
+        text: MENU_BUTTON_TEXT,
         has_web_app: true,
         web_app_url: safeWebAppUrlMeta(webAppUrl),
       });
       await bot.telegram.setChatMenuButton({
-        menu_button: { type: "web_app", text: `Open ${label}`, web_app: { url: webAppUrl } },
+        menu_button: { type: "web_app", text: MENU_BUTTON_TEXT, web_app: { url: webAppUrl } },
       });
     }
     await bot.telegram.setMyCommands([

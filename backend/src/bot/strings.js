@@ -46,8 +46,14 @@ export function startWelcome(brandName) {
 export const START_CTA_TEXT = "📲 ဘာများ ကူညီပေးရမည်လဲ?";
 
 /** Inline button labels on /start */
-export const START_BTN_BUY   = "🛒 ဝယ်ယူရန် / သက်တမ်းတိုးရန်";
-export const START_BTN_ADMIN = "👤 Admin / Support";
+export const START_BTN_BUY          = "🛒 ဝယ်ယူရန် / သက်တမ်းတိုးရန်";
+export const START_BTN_ADMIN        = "👤 Admin / Support";
+export const START_BTN_TRIAL_KEY    = "🎁 Trial Key ရယူရန်";
+export const START_BTN_GET_KEY      = "🔑 Outline Key ရယူရန်";
+export const START_BTN_BUY_PACKAGE  = "🛒 Package ဝယ်ရန်";
+
+/** Callback data for the /start inline "get key" button. Shared with KEY handler. */
+export const START_CB_GET_KEY = "start:get_key";
 
 export function appOpenText(brandName) {
   const name = brandName || "VPN";

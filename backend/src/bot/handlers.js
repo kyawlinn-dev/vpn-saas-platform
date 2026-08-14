@@ -5,6 +5,10 @@ import {
   START_CTA_TEXT,
   START_BTN_BUY,
   START_BTN_ADMIN,
+  START_BTN_TRIAL_KEY,
+  START_BTN_GET_KEY,
+  START_BTN_BUY_PACKAGE,
+  START_CB_GET_KEY,
   APP_BTN_OPEN,
   appOpenText,
   PLACEHOLDER,
@@ -101,13 +105,22 @@ export function setupHandlers(bot, {
 
   // ── Persistent reply keyboard ────────────────────────────────────────────────
   // Sent on /start and persists in the user's chat. Layout: 2-2-1.
+  //
+  // is_persistent: true (Bot API 6.0+) — Telegram treats the keyboard as
+  // permanent. When the user taps the collapse icon it only hides for that
+  // session; on the next chat re-open the keyboard reappears automatically.
+  // Without this flag, a user who dismisses the keyboard never sees it again
+  // unless we send another reply_markup — which is exactly what the user
+  // reported ("5 buttons missing on chat re-open").
 
   function mainKeyboard() {
-    return Markup.keyboard([
+    const markup = Markup.keyboard([
       [BTN.KEY,    BTN.BALANCE  ],
       [BTN.SERVER, BTN.DOWNLOAD ],
       [BTN.HOWTO                ],
     ]).resize();
+    markup.reply_markup.is_persistent = true;
+    return markup;
   }
 
   // ── /start ───────────────────────────────────────────────────────────────────
@@ -117,6 +130,12 @@ export function setupHandlers(bot, {
   //
   // Two messages: (1) branded Burmese welcome + persistent reply keyboard,
   // (2) inline CTA buttons — Telegram only allows one reply_markup type per message.
+  //
+  // Also FORCES this chat's menu button to our web_app URL. setChatMenuButton
+  // without chat_id sets the DEFAULT for new chats only; existing chats keep
+  // whatever they had at first open. Calling it here with chat_id repairs any
+  // chat where Telegram reverted to "Menu" (ngrok tunnel drift, older
+  // deployments, etc).
 
   bot.start(async (ctx) => {
     try {
@@ -167,7 +186,28 @@ export function setupHandlers(bot, {
         }
       }
 
-      // 4. Welcome message; append trial-ready line if we just created one
+      // 4. Force-set the per-chat menu button so it always shows our brand +
+      //    web_app, even for chats that opened before the default was set.
+      //    Non-fatal — bot still works if this fails (e.g. Telegram rate limit).
+      if (homeUrl) {
+        try {
+          await ctx.telegram.setChatMenuButton({
+            chat_id: ctx.chat.id,
+            menu_button: {
+              type: "web_app",
+              // Hardcoded universal text — see manager.js MENU_BUTTON_TEXT
+              // comment for the reasoning (matches BotFather-configured value,
+              // consistent across resellers, avoids client fallback drift).
+              text: "Open VPN",
+              web_app: { url: homeUrl },
+            },
+          });
+        } catch (menuErr) {
+          console.warn(`[bot:${resellerId}] setChatMenuButton warning:`, menuErr.message);
+        }
+      }
+
+      // 5. Welcome message; append trial-ready line if we just created one
       const welcomeText = trialJustCreated
         ? startWelcome(brandName) +
           "\n\n✅ Trial Package ကို အလိုအလျောက် ဖန်တီးပြီးပါပြီ! 🔑 Outline Key ရယူရန် ကို နှိပ်ပါ"
@@ -175,10 +215,20 @@ export function setupHandlers(bot, {
 
       await ctx.replyWithHTML(welcomeText, mainKeyboard());
 
-      // 5. CTA inline buttons (second message)
+      // 6. CTA inline buttons (second message). Dynamic per user state:
+      //    - New user who just got a trial: [🎁 Trial Key] + [👤 Admin]
+      //    - Returning user (or trial disabled): [🔑 Get Key] + [🛒 Buy] + [👤 Admin]
+      //    The key button uses callback_data + a shared action handler so we
+      //    reuse the same Outline-key lookup logic as the reply-keyboard KEY
+      //    button.
       const ctaButtons = [];
-      if (homeUrl) {
-        ctaButtons.push([miniAppButton(START_BTN_BUY, homeUrl)]);
+      if (trialJustCreated) {
+        ctaButtons.push([Markup.button.callback(START_BTN_TRIAL_KEY, START_CB_GET_KEY)]);
+      } else {
+        ctaButtons.push([Markup.button.callback(START_BTN_GET_KEY, START_CB_GET_KEY)]);
+        if (homeUrl) {
+          ctaButtons.push([miniAppButton(START_BTN_BUY_PACKAGE, homeUrl)]);
+        }
       }
       if (supportUsername) {
         ctaButtons.push([
@@ -210,10 +260,11 @@ export function setupHandlers(bot, {
     }
   });
 
-  // ── Reply keyboard button handlers ───────────────────────────────────────────
-  // Stage 1: all return placeholders. Replace with real logic in later stages.
+  // ── Get Key flow ─────────────────────────────────────────────────────────────
+  // Shared by both the "🔑 Outline Key ရယူရန်" reply-keyboard button (hears)
+  // and the inline [Get Key] / [Trial Key] buttons on /start (action).
 
-  bot.hears(BTN.KEY, async (ctx) => {
+  async function sendActiveKey(ctx) {
     const telegramUserId = ctx.from?.id;
     if (!telegramUserId) return;
 
@@ -268,6 +319,14 @@ export function setupHandlers(bot, {
       console.error(`[bot:${resellerId}] KEY handler error:`, err.message);
       await ctx.reply(KEY_ERROR).catch(() => {});
     }
+  }
+
+  bot.hears(BTN.KEY, sendActiveKey);
+
+  // /start CTA inline button — same key-lookup flow as the reply-keyboard button.
+  bot.action(START_CB_GET_KEY, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {}); // ack the tap so Telegram stops spinning
+    await sendActiveKey(ctx);
   });
 
   bot.hears(BTN.BALANCE, async (ctx) => {
