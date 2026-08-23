@@ -32,8 +32,18 @@ export function usePaginatedTable<T>(
   // Serialize filters so useEffect only re-runs when values actually change
   const filtersKey = JSON.stringify(filters);
 
+  // Cancel a still-in-flight request when a newer one starts (e.g. typing
+  // search fast, or flipping filters before the previous page loaded) — a
+  // slow earlier response could otherwise resolve after a newer one and
+  // overwrite fresher data on screen.
+  const abortRef = useRef<AbortController | null>(null);
+
   const fetchPage = useCallback(
     async (p: number) => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       try {
         setLoading(true);
         setError('');
@@ -42,14 +52,17 @@ export function usePaginatedTable<T>(
           page: String(p),
           limit: String(limit),
         });
-        const res = await api.get<PaginatedResponse<T>>(`${path}?${params}`);
+        const res = await api.get<PaginatedResponse<T>>(`${path}?${params}`, {
+          signal: controller.signal,
+        });
         setData(res.data.data ?? []);
         setTotal(res.data.total ?? 0);
         setPageState(p);
       } catch (err: any) {
+        if (err?.code === 'ERR_CANCELED' || err?.name === 'CanceledError') return;
         setError(err?.response?.data?.error || err.message || 'Failed to load data');
       } finally {
-        setLoading(false);
+        if (abortRef.current === controller) setLoading(false);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps

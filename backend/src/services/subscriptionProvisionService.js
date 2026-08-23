@@ -12,6 +12,7 @@ import {
   clearServerError,
   getServerById,
 } from "./serverService.js";
+import { trackAppEvent } from "./appEventService.js";
 import { getTokenByOrderId } from "./tokenService.js";
 
 function gbToBytes(gb) {
@@ -425,6 +426,23 @@ export async function provisionServersForToken({
 
       await clearServerError(server.id);
 
+      trackAppEvent({
+        event_name: "key_provisioned",
+        event_source: "backend",
+        actor_type: "customer",
+        reseller_id: reseller.id,
+        customer_id: customer.id,
+        order_id: order.id,
+        server_id: server.id,
+        plan_id: plan?.id || order.plan_id || null,
+        status: "success",
+        metadata: {
+          server_tier: server.server_tier || "premium",
+          region: server.region,
+          order_type: order.order_type || "purchase",
+        },
+      });
+
       created.push(formatServerConfig(server, outlineKey.access_url));
     } catch (err) {
       // rollback local state as much as possible
@@ -458,6 +476,29 @@ export async function provisionServersForToken({
       // if Outline key was created but DB failed, clean it up so retries do not duplicate infra keys
       await cleanupNewOutlineKey({ server, outlineKeyId });
       await setServerError(server.id, err.message);
+
+      // Emit a failure event so admin monitoring can see provisioning breakage
+      // per server/reseller instead of hunting through logs.
+      try {
+        trackAppEvent({
+          event_name: "key_provisioned",
+          event_source: "backend",
+          actor_type: "customer",
+          reseller_id: reseller.id,
+          customer_id: customer.id,
+          order_id: order.id,
+          server_id: server.id,
+          plan_id: plan?.id || order.plan_id || null,
+          status: "failed",
+          metadata: {
+            server_tier: server.server_tier || "premium",
+            region: server.region,
+            order_type: order.order_type || "purchase",
+            error: String(err?.message || err).slice(0, 500),
+          },
+        });
+      } catch {}
+
       throw err;
     }
   }
@@ -556,4 +597,71 @@ export async function migrateActiveOrderToServer({ order, newServer, oldServerId
     }
     throw err;
   }
+}
+
+// Reseller-initiated server switch for a PAID order whose old server is
+// still healthy (unlike migrateActiveOrderToServer's only other caller —
+// admin server decommission — which deletes the old key BEFORE migrating
+// because the old server is being torn down). Here the old server stays
+// alive, so we must explicitly retire the old key ourselves after the new
+// one is confirmed working.
+//
+// Order of operations matters: provision the NEW key first, and only once
+// that succeeds do we tear down the OLD key. If provisioning fails, the
+// customer keeps their working connection — never leave them with nothing.
+export async function switchOrderServer({ order, newServer, oldKey }) {
+  const migrated = await migrateActiveOrderToServer({
+    order,
+    newServer,
+    oldServerId: oldKey.server_id,
+  });
+
+  // New key is live — now retire the old one. Best-effort: if any of this
+  // fails, the customer already has a working new key, so we log and move
+  // on rather than throwing (throwing here would incorrectly surface as a
+  // "switch failed" to the reseller when the switch actually succeeded).
+  try {
+    if (oldKey.outline_key_id) {
+      const oldServer = await getServerById(oldKey.server_id);
+      if (oldServer?.outline_api_url && oldServer?.outline_cert_sha256) {
+        await deleteOutlineKey({
+          apiUrl: oldServer.outline_api_url,
+          certSha256: oldServer.outline_cert_sha256,
+          outlineKeyId: oldKey.outline_key_id,
+        });
+      }
+    }
+  } catch (err) {
+    console.warn(`[switchOrderServer] Failed to delete old Outline key ${oldKey.outline_key_id}:`, err.message);
+  }
+
+  try {
+    await supabase
+      .from("vpn_keys")
+      .update({ status: "deleted", deleted_at: new Date().toISOString() })
+      .eq("id", oldKey.id);
+    await decrementServerUsage(oldKey.server_id);
+  } catch (err) {
+    console.warn(`[switchOrderServer] Failed to retire old vpn_keys row ${oldKey.id}:`, err.message);
+  }
+
+  trackAppEvent({
+    event_name: "server_switched",
+    event_source: "backend",
+    actor_type: "reseller",
+    reseller_id: order.reseller_id,
+    customer_id: order.customer_id,
+    order_id: order.id,
+    server_id: newServer.id,
+    plan_id: order.plan_id || null,
+    status: "success",
+    metadata: {
+      from_server_id: oldKey.server_id,
+      to_server_id: newServer.id,
+      to_server_tier: newServer.server_tier || "premium",
+      to_server_region: newServer.region,
+    },
+  });
+
+  return migrated;
 }

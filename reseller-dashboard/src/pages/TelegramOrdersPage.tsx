@@ -43,6 +43,7 @@ export function TelegramOrdersPage() {
   const [sourceFilter, setSourceFilter] = useState("all");
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [rejectConfirmOrder, setRejectConfirmOrder] = useState<Order | null>(null);
+  const [confirmPaymentOrder, setConfirmPaymentOrder] = useState<Order | null>(null);
   const [actionError, setActionError] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
@@ -180,7 +181,7 @@ export function TelegramOrdersPage() {
         label: busy ? "Confirming..." : "Confirm payment",
         icon: <CheckCircle2 size={14} />,
         disabled: !canReview || busy,
-        onSelect: () => void handleConfirm(order.id),
+        onSelect: () => setConfirmPaymentOrder(order),
       },
       {
         label: "Reject payment",
@@ -202,7 +203,7 @@ export function TelegramOrdersPage() {
           <h1 className="font-display text-[18px] font-black tracking-tight text-foreground">
             Telegram Orders
           </h1>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
             Review instant-access purchases from Mini App and bot. Confirm valid payments or reject fake ones.
           </p>
         </div>
@@ -494,6 +495,40 @@ export function TelegramOrdersPage() {
           </>
         )}
       </Card>
+
+      {/* Confirm payment dialog */}
+      {confirmPaymentOrder && (
+        <Dialog open onClose={() => setConfirmPaymentOrder(null)} size="sm">
+          <DialogHeader>
+            <DialogTitle>Confirm Payment?</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <p className="text-sm text-muted-foreground">
+              This will approve the payment for{" "}
+              <span className="font-semibold text-foreground">
+                {confirmPaymentOrder.customer?.full_name ?? "this customer"}
+              </span>{" "}
+              and finalize their order. Only confirm after you've verified the payment screenshot
+              is genuine.
+            </p>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmPaymentOrder(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busyOrderId === confirmPaymentOrder.id}
+              onClick={() => {
+                const order = confirmPaymentOrder;
+                setConfirmPaymentOrder(null);
+                void handleConfirm(order.id);
+              }}
+            >
+              Confirm Payment
+            </Button>
+          </DialogFooter>
+        </Dialog>
+      )}
 
       {/* Reject confirm dialog */}
       {rejectConfirmOrder && (

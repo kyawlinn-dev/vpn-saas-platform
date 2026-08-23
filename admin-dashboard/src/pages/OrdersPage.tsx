@@ -4,6 +4,7 @@ import {
   Clipboard,
   Copy,
   Eye,
+  Loader2,
   PackagePlus,
   Play,
   Search,
@@ -22,6 +23,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { api } from '@/lib/api';
 import { formatBytes, formatDate, formatMMK } from '@/lib/format';
 import { usePaginatedTable } from '@/hooks/usePaginatedTable';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import type { Order, OrderPayment, Plan, Reseller, VpnKey } from '@/types/api';
 
 interface Props {
@@ -37,6 +39,18 @@ function sourceLabel(source?: string | null) {
 
 function getActiveKey(order: Order): VpnKey | null {
   return order.keys?.find((key) => key.status === 'active') ?? order.keys?.[0] ?? null;
+}
+
+// Lifetime usage across every key the order has ever had — a server switch
+// retires the old key and provisions a new one, so the current key's own
+// used_bytes alone understates true usage. Backend attaches this total to
+// both the order and each key (customerOrderEnrichmentService.js); prefer
+// whichever is present, falling back to the single-key value only if the
+// backend hasn't been redeployed with the total yet.
+function getOrderUsageBytes(order: Order, activeKey: VpnKey | null): number {
+  if (typeof order.total_used_bytes === 'number') return order.total_used_bytes;
+  if (typeof activeKey?.order_total_used_bytes === 'number') return activeKey.order_total_used_bytes;
+  return activeKey?.used_bytes ?? 0;
 }
 
 function getAccessUrl(order: Order) {
@@ -106,8 +120,10 @@ function useClipboard() {
 
 export function OrdersPage({ plans, resellers, onSuccess }: Props) {
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search, 300);
   const [statusFilter, setStatusFilter] = useState('all');
   const [resellerFilter, setResellerFilter] = useState('all');
+  const [orderTypeFilter, setOrderTypeFilter] = useState<'all' | 'trial' | 'purchase'>('all');
   const [loadingId, setLoadingId] = useState('');
   const [confirmStop, setConfirmStop] = useState<Order | null>(null);
   const [confirmReject, setConfirmReject] = useState<Order | null>(null);
@@ -122,30 +138,13 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
     const f: Record<string, string> = {};
     if (statusFilter !== 'all') f.status = statusFilter;
     if (resellerFilter !== 'all') f.reseller_id = resellerFilter;
+    if (orderTypeFilter !== 'all') f.order_type = orderTypeFilter;
+    if (debouncedSearch.trim()) f.search = debouncedSearch.trim();
     return f;
-  }, [statusFilter, resellerFilter]);
+  }, [statusFilter, resellerFilter, orderTypeFilter, debouncedSearch]);
 
   const { data: orders, total, page, totalPages, loading, setPage, refresh } =
     usePaginatedTable<Order>('/admin/orders', filters, 20);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return orders;
-    return orders.filter((order) =>
-      [
-        order.customer?.full_name,
-        order.customer?.telegram_username,
-        order.reseller?.name,
-        order.plan?.name,
-        order.status,
-        order.payment_status,
-        order.review_status,
-        order.source,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(q)),
-    );
-  }, [orders, search]);
 
   const runAction = async (order: Order, action: 'activate' | 'extend' | 'stop' | 'confirm-payment' | 'reject-payment', planId?: string) => {
     try {
@@ -243,17 +242,26 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
       <Card className="p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative min-w-48 flex-1">
-            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input className="pl-8" placeholder="Search customer, reseller, plan, source..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            {loading && orders.length > 0 ? (
+              <Loader2 size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />
+            ) : (
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            )}
+            <Input className="pl-8" placeholder="Search customer, reseller, plan..." value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <Select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSearch(''); }} className="w-full lg:w-40">
+          <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full lg:w-40">
             <option value="all">All statuses</option>
             <option value="pending">Pending</option>
             <option value="active">Active</option>
             <option value="expired">Expired</option>
             <option value="stopped">Stopped</option>
           </Select>
-          <Select value={resellerFilter} onChange={(e) => { setResellerFilter(e.target.value); setSearch(''); }} className="w-full lg:w-52">
+          <Select value={orderTypeFilter} onChange={(e) => setOrderTypeFilter(e.target.value as typeof orderTypeFilter)} className="w-full lg:w-36">
+            <option value="all">All plans</option>
+            <option value="purchase">Paid</option>
+            <option value="trial">Trial</option>
+          </Select>
+          <Select value={resellerFilter} onChange={(e) => setResellerFilter(e.target.value)} className="w-full lg:w-52">
             <option value="all">All resellers</option>
             {resellers.map((reseller) => <option key={reseller.id} value={reseller.id}>{reseller.name}</option>)}
           </Select>
@@ -276,17 +284,17 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {loading ? (
+          <TableBody className={loading && orders.length > 0 ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+            {loading && orders.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">Loading...</TableCell>
               </TableRow>
-            ) : filtered.length === 0 ? (
+            ) : orders.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">No orders found.</TableCell>
               </TableRow>
             ) : (
-              filtered.map((order) => {
+              orders.map((order) => {
                 const summary = summarizePayments(order);
                 const activeKey = getActiveKey(order);
                 const accessUrl = getAccessUrl(order);
@@ -323,7 +331,7 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
                       <div className="text-xs text-muted-foreground">{remainingDays(order.expiry_date)}</div>
                     </TableCell>
                     <TableCell>
-                      <div className="text-foreground">{formatBytes(activeKey?.used_bytes)}</div>
+                      <div className="text-foreground">{formatBytes(getOrderUsageBytes(order, activeKey))}</div>
                       <div className="text-xs text-muted-foreground">{activeKey?.status || '-'}</div>
                     </TableCell>
                     <TableCell>
@@ -489,7 +497,7 @@ function OrderDetailDialog({
               <Info label="Plan" value={order.plan?.name || '-'} />
               <Info label="Expiry" value={`${formatDate(order.expiry_date)} (${remainingDays(order.expiry_date)})`} />
               <Info label="Source" value={sourceLabel(order.source)} />
-              <Info label="Usage" value={formatBytes(activeKey?.used_bytes)} />
+              <Info label="Usage" value={formatBytes(getOrderUsageBytes(order, activeKey))} />
               <Info label="Key Status" value={activeKey?.status || '-'} />
             </div>
           </div>

@@ -5,6 +5,7 @@ import {
   ExternalLink,
   Eye,
   FileImage,
+  Loader2,
   RotateCcw,
   Search,
   Wallet,
@@ -23,6 +24,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { api } from '@/lib/api';
 import { formatDate, formatMMK } from '@/lib/format';
 import { usePaginatedTable } from '@/hooks/usePaginatedTable';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import type { MonthlySettlement, Reseller } from '@/types/api';
 
 interface Props {
@@ -66,32 +68,19 @@ export function SettlementsPage({ resellers }: Props) {
   const [message, setMessage] = useState('');
   const [actionError, setActionError] = useState('');
 
+  const debouncedSearch = useDebouncedValue(search, 300);
+
   const filters = useMemo(() => {
     const next: Record<string, string> = {};
     if (month) next.month = month;
     if (statusFilter !== 'all') next.status = statusFilter;
     if (resellerFilter !== 'all') next.reseller_id = resellerFilter;
+    if (debouncedSearch.trim()) next.search = debouncedSearch.trim();
     return next;
-  }, [month, statusFilter, resellerFilter]);
+  }, [month, statusFilter, resellerFilter, debouncedSearch]);
 
   const { data, total, page, totalPages, loading, error, setPage, refresh } =
     usePaginatedTable<MonthlySettlement>('/admin/settlements', filters, 20);
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return data;
-    return data.filter((settlement) =>
-      [
-        settlement.reseller?.name,
-        settlement.reseller?.email,
-        settlement.transfer_reference,
-        settlement.transfer_note,
-        settlement.status,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query)),
-    );
-  }, [data, search]);
 
   const totals = useMemo(
     () =>
@@ -215,7 +204,11 @@ export function SettlementsPage({ resellers }: Props) {
       <Card className="p-4">
         <div className="grid gap-3 xl:grid-cols-[1fr_0.75fr_0.75fr_0.9fr]">
           <label className="relative">
-            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            {loading && data.length > 0 ? (
+              <Loader2 size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />
+            ) : (
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            )}
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
@@ -261,17 +254,17 @@ export function SettlementsPage({ resellers }: Props) {
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {loading ? (
+          <TableBody className={loading && data.length > 0 ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+            {loading && data.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">Loading...</TableCell>
               </TableRow>
-            ) : filtered.length === 0 ? (
+            ) : data.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">No settlements found.</TableCell>
               </TableRow>
             ) : (
-              filtered.map((settlement) => (
+              data.map((settlement) => (
                 <TableRow key={settlement.id}>
                   <TableCell>
                     <div className="font-medium text-foreground">{settlement.reseller?.name || 'Unknown reseller'}</div>

@@ -102,6 +102,236 @@ export interface AdminAnalytics {
   pending_reviews: OrderPayment[];
 }
 
+export interface MonitoringEvent {
+  id: string;
+  event_name: string;
+  actor_type: string | null;
+  reseller_id: string | null;
+  customer_id: string | null;
+  telegram_user_id: number | string | null;
+  order_id: string | null;
+  payment_id: string | null;
+  session_id: string | null;
+  server_id: string | null;
+  plan_id: string | null;
+  page: string | null;
+  route: string | null;
+  status: 'info' | 'success' | 'blocked' | 'failed' | string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  reseller?: Pick<Reseller, 'id' | 'name'> | null;
+  customer?: Pick<Customer, 'id' | 'full_name' | 'telegram_username' | 'customer_type'> | null;
+  server?: Pick<Server, 'id' | 'name' | 'region' | 'server_tier'> | null;
+  plan?: Pick<Plan, 'id' | 'name'> | null;
+}
+
+export interface MonitoringSnapshot {
+  period: {
+    days: number;
+    start_iso: string;
+    end_iso: string;
+  };
+  missing_table: boolean;
+  summary: {
+    raw_events: number;
+    total_events: number;
+    unique_customers: number;
+    unique_telegram_users: number;
+    unique_miniapp_opens: number;
+    miniapp_opens: number;
+    miniapp_config_loads: number;
+    packages_viewed: number;
+    server_page_views: number;
+    server_selected: number;
+    server_blocked: number;
+    order_submitted: number;
+    screenshots_uploaded: number;
+    trials_created: number;
+    keys_provisioned: number;
+    failures: number;
+  };
+  funnel: Array<{ event_name: string; count: number }>;
+  daily: Array<{
+    date: string;
+    total: number;
+    raw_events: number;
+    miniapp_config_loads: number;
+    unique_miniapp_opens: number;
+    packages_viewed: number;
+    order_submitted: number;
+    server_selected: number;
+    failures: number;
+  }>;
+  server_events: Array<{
+    server_id: string;
+    server_name: string;
+    region: string | null;
+    server_tier: string | null;
+    selected: number;
+    key_provisioned: number;
+    blocked: number;
+    failed: number;
+  }>;
+  server_health: Array<{
+    id: string;
+    name: string;
+    region: string;
+    status: string;
+    server_tier: string;
+    current_active_keys: number;
+    max_active_keys: number;
+    remaining_capacity: number;
+    last_error: string | null;
+    health?: {
+      outline_api_status: string;
+      last_checked_at: string | null;
+      last_success_at: string | null;
+      last_usage_sync_at: string | null;
+      response_ms: number | null;
+      consecutive_failures: number;
+      last_error: string | null;
+    } | null;
+  }>;
+  recent_events: MonitoringEvent[];
+  kpis?: {
+    new_customers_today: number;
+    orders_submitted_today: number;
+    keys_provisioned_today: number;
+    failure_rate_24h_pct: number;
+    median_provision_ms_24h: number | null;
+    provisioning_sample_size_24h: number;
+    unhealthy_server_count: number | null;
+  } | null;
+}
+
+export interface ScreenshotBacklogRow {
+  screenshot_event_id: string;
+  order_id: string;
+  reseller_id: string | null;
+  reseller_name: string | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  customer_telegram: string | null;
+  uploaded_at: string;
+  minutes_waiting: number;
+}
+
+export interface ScreenshotBacklogResponse {
+  data: ScreenshotBacklogRow[];
+  total: number;
+  missing_table?: boolean;
+}
+
+export interface MonitoringEventsResponse {
+  data: MonitoringEvent[];
+  total: number;
+  page: number;
+  limit: number;
+  period: {
+    days: number;
+    start_iso: string;
+    end_iso: string;
+  };
+  missing_table: boolean;
+}
+
+export interface MonitoringJourneyResponse {
+  data: MonitoringEvent[];
+  total: number;
+  period: {
+    days: number;
+    start_iso: string;
+    end_iso: string;
+  };
+  missing_table: boolean;
+}
+
+export interface BackendHealthSnapshot {
+  missing_table: boolean;
+  runtime: {
+    status: string;
+    pid: number;
+    node_env: string | null;
+    app_env: string | null;
+    node_version: string;
+    uptime_seconds: number;
+    started_at: string;
+    memory: {
+      rss_bytes: number;
+      heap_used_bytes: number;
+      heap_total_bytes: number;
+      external_bytes: number;
+    };
+  };
+  pm2: {
+    available: boolean;
+    reason?: string;
+    current?: {
+      name: string;
+      pm_id: number;
+      status: string;
+      restart_time: number | null;
+      unstable_restarts: number | null;
+      uptime: number | null;
+      memory_bytes: number | null;
+      cpu_percent: number | null;
+    } | null;
+    processes?: Array<{
+      name: string;
+      pm_id: number;
+      status: string;
+      restart_time: number | null;
+      memory_bytes: number | null;
+      cpu_percent: number | null;
+    }>;
+  };
+  jobs: Array<{
+    job_name: string;
+    status: string;
+    last_started_at: string | null;
+    last_finished_at: string | null;
+    last_success_at: string | null;
+    last_error: string | null;
+    consecutive_failures: number;
+    run_count: number;
+    updated_at: string;
+    stale: boolean;
+  }>;
+  servers: Array<{
+    id: string;
+    name: string;
+    region: string;
+    server_tier: string;
+    status: string;
+    current_active_keys: number;
+    max_active_keys: number;
+    last_error: string | null;
+    health: {
+      outline_api_status: string;
+      last_checked_at: string | null;
+      last_success_at: string | null;
+      last_usage_sync_at: string | null;
+      last_error: string | null;
+      response_ms: number | null;
+      active_key_count_seen: number | null;
+      consecutive_failures: number;
+      usage_sync_stale: boolean;
+      health_check_stale: boolean;
+    };
+  }>;
+  alerts: Array<{
+    severity: 'warning' | 'destructive' | 'info' | 'success' | string;
+    code: string;
+    title: string;
+    detail: string;
+    server_id?: string;
+  }>;
+  thresholds_ms: {
+    usageSyncStaleMs: number;
+    healthCheckStaleMs: number;
+  };
+}
+
 export interface Reseller {
   id: string;
   name: string;
@@ -252,6 +482,12 @@ export interface Order {
   plan?: Plan;
   payments?: OrderPayment[];
   keys?: VpnKey[];
+  // Lifetime usage across every key this order has ever had (survives
+  // server switches) — see customerOrderEnrichmentService.js enrichOrderAccess.
+  total_used_bytes?: number;
+  total_used_gb?: number;
+  total_remaining_gb?: Nullable<number>;
+  is_unlimited?: boolean;
 }
 
 export interface VpnKey {
@@ -272,6 +508,9 @@ export interface VpnKey {
   created_at?: string;
   deleted_at?: Nullable<string>;
   order?: Pick<Order, 'id' | 'status' | 'payment_status'>;
+  order_total_used_bytes?: number;
+  order_total_used_gb?: number;
+  order_total_remaining_gb?: Nullable<number>;
 }
 
 export interface MonthlySettlement {

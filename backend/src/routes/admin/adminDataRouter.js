@@ -1,7 +1,7 @@
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { stopOrderAccess } from "../../services/orderLifecycleService.js";
-import { parsePagination } from "../../utils/pagination.js";
+import { parsePagination, sanitizeSearchTerm } from "../../utils/pagination.js";
 import {
   toNumber,
   isConfirmedAppliedPayment,
@@ -716,6 +716,19 @@ router.get("/customers", async (req, res) => {
       query = query.eq("reseller_id", resellerId);
     }
 
+    const customerType = req.query.customer_type;
+    if (customerType === "normal" || customerType === "telegram") {
+      query = query.eq("customer_type", customerType);
+    }
+
+    const searchTerm = sanitizeSearchTerm(req.query.search);
+    if (searchTerm) {
+      const pattern = `%${searchTerm}%`;
+      query = query.or(
+        `full_name.ilike.${pattern},telegram_username.ilike.${pattern},phone.ilike.${pattern}`
+      );
+    }
+
     const { data, count, error } = await query;
 
     if (error) {
@@ -816,6 +829,7 @@ router.get("/orders", async (req, res) => {
     const { page, limit, offset } = parsePagination(req.query);
     const status = req.query.status;
     const resellerId = req.query.reseller_id;
+    const orderType = req.query.order_type;
 
     let query = supabase
       .from("vpn_orders")
@@ -845,6 +859,56 @@ router.get("/orders", async (req, res) => {
     }
     if (resellerId && resellerId !== "all") {
       query = query.eq("reseller_id", resellerId);
+    }
+    if (orderType && orderType !== "all") {
+      query = query.eq("order_type", String(orderType).trim());
+    }
+
+    // Same base-table-only pattern as /reseller/orders (search can't reach
+    // through customer.*/plan.* embeds directly in PostgREST) — resolve
+    // matching customer/plan/reseller ids first, then OR plain columns on
+    // vpn_orders itself.
+    const searchTerm = sanitizeSearchTerm(req.query.search);
+    if (searchTerm) {
+      const pattern = `%${searchTerm}%`;
+      const [
+        { data: matchedCustomers, error: customerSearchError },
+        { data: matchedPlans, error: planSearchError },
+        { data: matchedResellers, error: resellerSearchError },
+      ] = await Promise.all([
+        supabase
+          .from("vpn_customers")
+          .select("id")
+          .or(`full_name.ilike.${pattern},telegram_username.ilike.${pattern},phone.ilike.${pattern}`)
+          .limit(200),
+        supabase.from("vpn_plans").select("id").ilike("name", pattern).limit(200),
+        supabase.from("resellers").select("id").ilike("name", pattern).limit(200),
+      ]);
+
+      if (customerSearchError || planSearchError || resellerSearchError) {
+        console.error(
+          "admin GET orders search error:",
+          customerSearchError || planSearchError || resellerSearchError
+        );
+        return res.status(500).json({ error: "Failed to search orders" });
+      }
+
+      const orParts = [];
+      if (matchedCustomers?.length) {
+        orParts.push(`customer_id.in.(${matchedCustomers.map((c) => c.id).join(",")})`);
+      }
+      if (matchedPlans?.length) {
+        orParts.push(`plan_id.in.(${matchedPlans.map((p) => p.id).join(",")})`);
+      }
+      if (matchedResellers?.length) {
+        orParts.push(`reseller_id.in.(${matchedResellers.map((r) => r.id).join(",")})`);
+      }
+
+      if (orParts.length === 0) {
+        return res.json({ data: [], total: 0, page, limit });
+      }
+
+      query = query.or(orParts.join(","));
     }
 
     const { data, count, error } = await query;
@@ -902,6 +966,12 @@ router.get("/keys", async (req, res) => {
     }
     if (resellerId && resellerId !== "all") {
       query = query.eq("reseller_id", resellerId);
+    }
+
+    const searchTerm = sanitizeSearchTerm(req.query.search);
+    if (searchTerm) {
+      const pattern = `%${searchTerm}%`;
+      query = query.or(`key_name.ilike.${pattern},outline_key_id.ilike.${pattern}`);
     }
 
     const { data, count, error } = await query;

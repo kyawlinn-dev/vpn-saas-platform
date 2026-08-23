@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Search, Plus, Copy, Info,
-  RefreshCw, Ban, KeyRound, Lightbulb, Send, UserRound,
+  Search, Plus, Copy, Info, Loader2, Crown, Gift,
+  RefreshCw, Ban, KeyRound, Lightbulb, Send, UserRound, Server as ServerIcon,
 } from "lucide-react";
+import { ServerSwitchDialog } from "./ServerSwitchDialog";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -22,6 +23,7 @@ import {
 import { FormField } from "@/components/ui/form-field";
 import { TablePagination } from "@/components/ui/table-pagination";
 import { cn } from "@/lib/utils";
+import { FlagIcon } from "@/lib/flag";
 import { api } from "../lib/api";
 import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import {
@@ -60,6 +62,8 @@ type OrderFilter =
   | "stopped";
 
 type CustomerTypeFilter = "all" | "normal" | "telegram";
+
+type PlanTypeFilter = "all" | "trial" | "paid";
 
 type RenewDialogState = {
   open: boolean;
@@ -246,6 +250,7 @@ export function OrdersTable({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filter, setFilter] = useState<OrderFilter>("all");
   const [customerTypeFilter, setCustomerTypeFilter] = useState<CustomerTypeFilter>("all");
+  const [planTypeFilter, setPlanTypeFilter] = useState<PlanTypeFilter>("all");
   const [rowsPerPage, setRowsPerPage] = useState(initialRowsPerPage);
   const [filterCounts, setFilterCounts] = useState({
     all: 0,
@@ -269,10 +274,13 @@ export function OrdersTable({
     const params: Record<string, string> = { ...scopeFilters };
     if (filter !== "all") params.status = filter;
     if (customerTypeFilter !== "all") params.customer_type = customerTypeFilter;
+    // Backend order_type column is "trial" | "purchase" — "paid" here is a
+    // dashboard-only label for "purchase" (anything that isn't a trial).
+    if (planTypeFilter !== "all") params.order_type = planTypeFilter === "paid" ? "purchase" : "trial";
     if (debouncedSearch.trim()) params.search = debouncedSearch.trim();
     return params;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeFiltersKey, filter, customerTypeFilter, debouncedSearch]);
+  }, [scopeFiltersKey, filter, customerTypeFilter, planTypeFilter, debouncedSearch]);
 
   const {
     data: pagedOrders,
@@ -297,9 +305,22 @@ export function OrdersTable({
     idempotencyKey: "",
   });
   const [stopDialog, setStopDialog] = useState<StopDialogState>({ open: false, order: null });
+  const [serverSwitchDialog, setServerSwitchDialog] = useState<{ open: boolean; order: Order | null }>({
+    open: false,
+    order: null,
+  });
   const [renewError, setRenewError] = useState("");
   const [stopError, setStopError] = useState("");
   const [detailsDialog, setDetailsDialog] = useState<DetailsDialogState>({ open: false, order: null });
+  // The details dialog captures `order` once when opened. If the underlying
+  // order changes afterward (e.g. a server switch retires the old key and
+  // provisions a new one), that snapshot goes stale — the dialog would keep
+  // showing the pre-switch key. Always re-resolve against the freshest
+  // fetched data so the dialog can never show outdated key/server info.
+  const liveDetailsOrder = useMemo(() => {
+    if (!detailsDialog.order) return null;
+    return pagedOrders.find((o) => o.id === detailsDialog.order!.id) ?? detailsDialog.order;
+  }, [detailsDialog.order, pagedOrders]);
   const [accessKeyDialog, setAccessKeyDialog] = useState<AccessKeyDialogState>({
     open: false,
     customerName: "",
@@ -538,9 +559,6 @@ export function OrdersTable({
             value: dynamicUrl,
           }
         : null,
-      key?.ssconf_url && key.ssconf_url !== dynamicUrl
-        ? { label: "JSON endpoint", value: key.ssconf_url }
-        : null,
       key?.access_url && key.access_url !== dynamicUrl
         ? { label: "Original Outline key", value: key.access_url }
         : null,
@@ -670,6 +688,20 @@ export function OrdersTable({
       }
     }
 
+    // Server switching is a reseller-initiated emergency action, independent
+    // of whether the order is self-service (miniapp/bot) or manually
+    // managed — only paid, currently-active orders are eligible. Trial
+    // customers stay on trial-tier servers via the normal miniapp flow.
+    // Backend enforces this too; the button is just hidden here to avoid a
+    // guaranteed-to-fail click.
+    if (order.status === "active" && order.order_type !== "trial" && !order.plan?.is_trial) {
+      actions.push({
+        label: "Switch Server",
+        icon: <ServerIcon size={14} />,
+        onSelect: () => setServerSwitchDialog({ open: true, order }),
+      });
+    }
+
     return (
       <div className="flex items-center justify-end">
         <ActionMenu items={actions} className={compact ? "h-6 w-6" : "h-7 w-7"} />
@@ -747,7 +779,13 @@ export function OrdersTable({
     );
   };
 
-  if (loading) return <LoadingView />;
+  // Full skeleton only on the true first load (no rows yet at all) — matching
+  // CustomersPage's pattern. A later refetch (debounced search, filter tab,
+  // pagination) keeps the existing rows and the search input mounted instead
+  // of unmounting the whole card, which was making every search keystroke
+  // (after the debounce settled) look like the page reloaded and dropping
+  // focus out of the search box mid-type.
+  if (loading && pagedOrders.length === 0) return <LoadingView />;
 
   return (
     <>
@@ -766,6 +804,48 @@ export function OrdersTable({
             ) : null}
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {showFilters ? (
+              <div className="inline-flex rounded-md border border-border bg-muted/55 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setPlanTypeFilter("all")}
+                  className={cn(
+                    "h-7 rounded px-2 text-[11px] font-semibold transition-colors",
+                    planTypeFilter === "all"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  All plans
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlanTypeFilter("paid")}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1 rounded px-2 text-[11px] font-semibold transition-colors",
+                    planTypeFilter === "paid"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Crown size={12} />
+                  Paid
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlanTypeFilter("trial")}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1 rounded px-2 text-[11px] font-semibold transition-colors",
+                    planTypeFilter === "trial"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Gift size={12} />
+                  Trial
+                </button>
+              </div>
+            ) : null}
             {showCustomerTypeFilter ? (
               <div className="inline-flex rounded-md border border-border bg-muted/55 p-0.5">
                 <button
@@ -825,10 +905,17 @@ export function OrdersTable({
         {/* Search */}
         {showSearch ? (
           <div className="relative">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
+            {loading && pagedOrders.length > 0 ? (
+              <Loader2
+                size={14}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground"
+              />
+            ) : (
+              <Search
+                size={14}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+              />
+            )}
             <Input
               className="h-8 pl-8 text-xs"
               placeholder="Search customer, plan, phone, Telegram…"
@@ -857,7 +944,7 @@ export function OrdersTable({
 
         {/* Mobile cards / Desktop table */}
         {mobile ? (
-          <div className="space-y-2">
+          <div className={cn("space-y-2 transition-opacity", loading && pagedOrders.length > 0 && "opacity-60")}>
             {pagedOrders.length === 0 ? (
               <div className="rounded-md border border-border bg-secondary/40 px-4 py-6 text-center text-sm text-muted-foreground">
                 No matching orders found.
@@ -910,7 +997,7 @@ export function OrdersTable({
             )}
           </div>
         ) : (
-          <Table className="table-fixed text-xs">
+          <Table className={cn("table-fixed text-xs transition-opacity", loading && pagedOrders.length > 0 && "opacity-60")}>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="h-8 px-2 text-[10px]" style={{ width: "20%" }}>Customer</TableHead>
@@ -1142,6 +1229,19 @@ export function OrdersTable({
         </DialogFooter>
       </Dialog>
 
+      {/* ── Switch server dialog ── */}
+      <ServerSwitchDialog
+        order={serverSwitchDialog.order}
+        open={serverSwitchDialog.open}
+        onClose={() => setServerSwitchDialog({ open: false, order: null })}
+        onSwitched={(order, server) => {
+          setMessage(
+            `Switched ${order.customer?.full_name || "customer"} to ${server.display_city || server.name}.`
+          );
+          void refreshAll();
+        }}
+      />
+
       {/* ── Details dialog ── */}
       <Dialog
         open={detailsDialog.open}
@@ -1153,48 +1253,65 @@ export function OrdersTable({
           <DialogClose className="right-3 top-3" />
         </DialogHeader>
         <DialogBody className="max-h-none overflow-visible px-4 py-2">
-          {detailsDialog.open && detailsDialog.order ? (
+          {detailsDialog.open && liveDetailsOrder ? (
             <div className="rounded-lg border border-border bg-muted/35 p-3 shadow-[0_10px_28px_rgba(16,24,40,0.08)]">
               <div className="mb-2.5 flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2.5">
                   <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary text-sm font-black text-primary-foreground">
-                    {(detailsDialog.order.customer?.full_name || "C").slice(0, 1).toUpperCase()}
+                    {(liveDetailsOrder.customer?.full_name || "C").slice(0, 1).toUpperCase()}
                   </div>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-bold">
-                      {detailsDialog.order.customer?.full_name || "-"}
+                      {liveDetailsOrder.customer?.full_name || "-"}
                     </div>
                     <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                      {detailsDialog.order.customer?.phone ||
-                        detailsDialog.order.customer?.telegram_username ||
+                      {liveDetailsOrder.customer?.phone ||
+                        liveDetailsOrder.customer?.telegram_username ||
                         "No contact info"}
                     </div>
                   </div>
                 </div>
-                <StatusBadge status={detailsDialog.order.status} />
+                <StatusBadge status={liveDetailsOrder.status} />
               </div>
 
               <div className="grid gap-2 lg:grid-cols-[0.82fr_1.18fr]">
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
-                    <DetailItem label="Plan" value={detailsDialog.order.plan?.name || "-"} />
+                    <DetailItem label="Plan" value={liveDetailsOrder.plan?.name || "-"} />
                     <DetailItem
                       label="Payment"
-                      value={<StatusBadge status={getPaymentDisplayStatus(detailsDialog.order)} />}
+                      value={<StatusBadge status={getPaymentDisplayStatus(liveDetailsOrder)} />}
                     />
-                    <DetailItem label="Price" value={formatMMK(detailsDialog.order.price_mmk)} />
-                    <DetailItem label="Expiry" value={formatDate(detailsDialog.order.expiry_date)} />
+                    <DetailItem label="Price" value={formatMMK(liveDetailsOrder.price_mmk)} />
+                    <DetailItem label="Expiry" value={formatDate(liveDetailsOrder.expiry_date)} />
+                    <DetailItem
+                      label="Server"
+                      value={
+                        (() => {
+                          const server = getActiveKeyForOrder(liveDetailsOrder)?.server;
+                          if (!server) return "-";
+                          return (
+                            <span className="inline-flex items-center gap-1.5">
+                              <FlagIcon flagEmoji={server.flag_emoji} size={16} />
+                              <span className="truncate">
+                                {server.display_city || server.display_country || server.name}
+                              </span>
+                            </span>
+                          );
+                        })()
+                      }
+                    />
                     <div className="col-span-2">
                       <DetailItem
                         label="Remaining"
-                        value={formatDaysLeft(detailsDialog.order.expiry_date)}
+                        value={formatDaysLeft(liveDetailsOrder.expiry_date)}
                       />
                     </div>
                   </div>
 
                   <div className="rounded-md border border-border bg-card p-2.5">
                     <div className="mb-1.5 text-xs font-bold">Usage</div>
-                    {renderUsageCompact(getActiveKeyForOrder(detailsDialog.order))}
+                    {renderUsageCompact(getActiveKeyForOrder(liveDetailsOrder))}
                   </div>
                 </div>
 
@@ -1203,11 +1320,26 @@ export function OrdersTable({
                     <KeyRound size={13} />
                     Dynamic Access
                   </div>
-                  {renderAccessDetails(detailsDialog.order)}
+                  {renderAccessDetails(liveDetailsOrder)}
                 </div>
               </div>
 
-              <div className="mt-2 flex justify-end">
+              <div className="mt-2 flex items-center justify-end gap-2">
+                {liveDetailsOrder.status === "active" &&
+                liveDetailsOrder.order_type !== "trial" &&
+                !liveDetailsOrder.plan?.is_trial ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDetailsDialog({ open: false, order: null });
+                      setServerSwitchDialog({ open: true, order: liveDetailsOrder });
+                    }}
+                  >
+                    <ServerIcon size={14} className="mr-1.5" />
+                    Switch Server
+                  </Button>
+                ) : null}
                 <Button
                   variant="outline"
                   size="sm"

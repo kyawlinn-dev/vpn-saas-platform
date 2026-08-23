@@ -105,6 +105,33 @@ export const BALANCE_TEXT =
   "လက်ကျန် data နှင့် သက်တမ်း အချက်အလက်များကို VPN app တွင် ကြည့်ရှုနိုင်ပါသည်။\n\n" +
   "အောက်ပါ <b>Open VPN</b> ကို နှိပ်ပါ 👇";
 
+/**
+ * Balance text with real usage numbers — shown when the customer has an
+ * active order with a resolvable quota snapshot (buildOrderQuotaSnapshot()).
+ * Falls back to the generic BALANCE_TEXT above when there's no active order.
+ *
+ * @param {object} params
+ * @param {number} params.usedGb          total lifetime usage across all keys on this order
+ * @param {number|null} params.remainingGb  null when unlimited or no data limit set
+ * @param {boolean} params.isUnlimited
+ * @param {string|null} params.expiryDate  vpn_orders.expiry_date (YYYY-MM-DD)
+ */
+export function balanceText({ usedGb, remainingGb, isUnlimited, expiryDate, formatBurmeseDate }) {
+  const remainingLine = isUnlimited
+    ? "🔓 အကန့်အသတ်မရှိ (Unlimited)"
+    : remainingGb != null
+      ? `${remainingGb} GB`
+      : "-";
+
+  return (
+    "📊 <b>လက်ကျန် GB စစ်ဆေးရန်:</b>\n\n" +
+    `📈 အသုံးပြုပြီး: <b>${usedGb} GB</b>\n` +
+    `📉 လက်ကျန်: <b>${remainingLine}</b>\n` +
+    (expiryDate ? `📅 သက်တမ်းကုန်ရက်: ${formatBurmeseDate(expiryDate)}\n` : "") +
+    "\nအသေးစိတ်ကို VPN app တွင် ဆက်လက်ကြည့်ရှုနိုင်ပါသည်။ အောက်ပါ <b>Open VPN</b> ကို နှိပ်ပါ 👇"
+  );
+}
+
 export const BALANCE_BTN_OPEN = "📊 Open VPN";
 
 // ── Change Server (🌐) handler ─────────────────────────────────────────────────

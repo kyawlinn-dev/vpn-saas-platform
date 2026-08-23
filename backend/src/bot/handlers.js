@@ -18,6 +18,7 @@ import {
   KEY_NO_ACTIVE,
   KEY_ERROR,
   BALANCE_TEXT,
+  balanceText,
   BALANCE_BTN_OPEN,
   SERVER_TEXT,
   SERVER_BTN_OPEN,
@@ -40,6 +41,13 @@ import {
   getPublicSubscriptionBaseUrl,
 } from "../services/publicAccessUrlService.js";
 import { buildWebAppUrl } from "./webAppUrl.js";
+import { getOrderQuotaSnapshot } from "../services/subscriptionProvisionService.js";
+import { formatBurmeseDate } from "./notificationTemplates.js";
+
+function bytesToGb(bytes) {
+  const value = Number(bytes || 0);
+  return value > 0 ? Number((value / 1024 / 1024 / 1024).toFixed(2)) : 0;
+}
 
 function miniAppButton(text, url) {
   return Markup.button.webApp(text, url);
@@ -335,12 +343,34 @@ export function setupHandlers(bot, {
         ? Markup.inlineKeyboard([[miniAppButton(BALANCE_BTN_OPEN, homeUrl)]])
         : {};
       logInlineButtonPayload(resellerId, "balance", markup);
-      await ctx.replyWithHTML(
-        BALANCE_TEXT,
-        markup
-      );
+
+      // Try to show real usage numbers — falls back to the generic text
+      // when there's no resolvable active order (mirrors sendActiveKey's
+      // lookup chain: telegram user -> customer -> best active order).
+      let text = BALANCE_TEXT;
+      const telegramUserId = ctx.from?.id;
+      if (telegramUserId) {
+        const customer = await resolveCustomerByTelegram(telegramUserId, resellerId);
+        const order = customer?.customerId
+          ? await getBestActiveOrder(customer.customerId, resellerId)
+          : null;
+        if (order) {
+          const quota = await getOrderQuotaSnapshot(order.id);
+          text = balanceText({
+            usedGb: bytesToGb(quota.totalUsedBytes),
+            remainingGb:
+              typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
+            isUnlimited: quota.isUnlimited,
+            expiryDate: order.expiry_date,
+            formatBurmeseDate,
+          });
+        }
+      }
+
+      await ctx.replyWithHTML(text, markup);
     } catch (err) {
       console.error(`[bot:${resellerId}] BALANCE handler error:`, err.message);
+      await ctx.replyWithHTML(BALANCE_TEXT, homeUrl ? Markup.inlineKeyboard([[miniAppButton(BALANCE_BTN_OPEN, homeUrl)]]) : {}).catch(() => {});
     }
   });
 

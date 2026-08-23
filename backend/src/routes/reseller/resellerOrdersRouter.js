@@ -33,7 +33,8 @@ const ORDER_SELECT = `
     duration_days,
     data_limit_gb,
     max_devices,
-    allowed_regions
+    allowed_regions,
+    is_trial
   ),
   payments:order_payments (
     id,
@@ -48,7 +49,8 @@ const ORDER_SELECT = `
   keys:vpn_keys!vpn_keys_order_tenant_fk (
     id, order_id, customer_id, reseller_id, server_id, outline_key_id,
     key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
-    deleted_at
+    deleted_at,
+    server:vpn_servers (id, name, region, region_code, display_country, display_city, flag_emoji, server_tier)
   )
 `;
 
@@ -507,7 +509,8 @@ router.post("/", async (req, res) => {
           duration_days,
           data_limit_gb,
           max_devices,
-          allowed_regions
+          allowed_regions,
+          is_trial
         )
       `)
       .single();

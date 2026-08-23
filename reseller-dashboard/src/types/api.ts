@@ -37,6 +37,7 @@ export interface Plan {
   max_devices: Nullable<number>;
   allowed_regions?: string[];
   is_active?: boolean;
+  is_trial?: boolean;
 }
 
 export interface Order {
@@ -139,7 +140,31 @@ export interface VpnKey {
     name?: string;
     status?: string;
     host_ip?: Nullable<string>;
+    region?: string;
+    region_code?: Nullable<string>;
+    display_country?: Nullable<string>;
+    display_city?: Nullable<string>;
+    flag_emoji?: Nullable<string>;
+    server_tier?: string;
   } | null;
+}
+
+export interface EligibleServer {
+  id: string;
+  name: string;
+  region: string;
+  region_code: Nullable<string>;
+  display_country: Nullable<string>;
+  display_city: Nullable<string>;
+  flag_emoji: Nullable<string>;
+  server_tier: "premium" | "trial" | string;
+  remaining_capacity: number;
+}
+
+export interface EligibleServersResponse {
+  current_server_id: Nullable<string>;
+  current_server: Omit<EligibleServer, "remaining_capacity"> | null;
+  servers: EligibleServer[];
 }
 
 export type VpnServerStatus =
@@ -186,6 +211,25 @@ export interface WorkspaceSettings {
   // Mini App panel). This just tells the reseller whether to ping the admin.
   bot_connected: boolean;
   bot_status?: BotStatus;
+}
+
+export type NotificationEventType =
+  | "trial_ending_24h"
+  | "trial_expired"
+  | "subscription_expiring_3d"
+  | "subscription_expired"
+  | "payment_confirmed"
+  | "payment_rejected";
+
+export interface NotificationTemplate {
+  event_type: NotificationEventType;
+  label: string;
+  description: string;
+  placeholders: string[];
+  is_custom: boolean;
+  text: string;
+  default_text: string;
+  updated_at: Nullable<string>;
 }
 
 export interface ServerInventoryCounts {

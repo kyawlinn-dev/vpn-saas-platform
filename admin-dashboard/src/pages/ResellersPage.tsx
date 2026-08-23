@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Bot, Check, Copy, Eye, Plus, Search, Store, ToggleLeft, ToggleRight, Wallet } from 'lucide-react';
+import { Bot, Check, Copy, Eye, Loader2, Plus, Search, Store, ToggleLeft, ToggleRight, Wallet } from 'lucide-react';
 import { Badge, StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { api } from '@/lib/api';
 import { formatDate, formatMMK } from '@/lib/format';
 import { usePaginatedTable } from '@/hooks/usePaginatedTable';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { ResellerWorkspaceDialog } from '@/components/ResellerWorkspaceDialog';
 import type { AdminAnalytics, AdminResellerBreakdown, OrderPayment, Reseller } from '@/types/api';
 
@@ -76,8 +77,15 @@ export function ResellersPage({ onSuccess }: Props) {
   const [selectedReseller, setSelectedReseller] = useState<Reseller | null>(null);
   const [configuringReseller, setConfiguringReseller] = useState<Reseller | null>(null);
 
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const resellerFilters = useMemo(() => {
+    const f: Record<string, string> = {};
+    if (debouncedSearch.trim()) f.search = debouncedSearch.trim();
+    return f;
+  }, [debouncedSearch]);
+
   const { data: resellers, total, page, totalPages, loading, error, setPage, refresh } =
-    usePaginatedTable<Reseller>('/admin/resellers', {}, 20);
+    usePaginatedTable<Reseller>('/admin/resellers', resellerFilters, 20);
 
   useEffect(() => {
     setAnalyticsError('');
@@ -106,16 +114,6 @@ export function ResellersPage({ onSuccess }: Props) {
     }
     return next;
   }, [analytics]);
-
-  const filteredResellers = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return resellers;
-    return resellers.filter((reseller) =>
-      [reseller.name, reseller.email, reseller.miniapp_slug]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query)),
-    );
-  }, [resellers, search]);
 
   const pageTotals = useMemo(
     () =>
@@ -201,11 +199,15 @@ export function ResellersPage({ onSuccess }: Props) {
       <Card className="p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative w-full lg:max-w-md">
-            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            {loading && resellers.length > 0 ? (
+              <Loader2 size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />
+            ) : (
+              <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            )}
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search reseller, email, or mini app slug..."
+              placeholder="Search reseller or email..."
               className="pl-9"
             />
           </div>
@@ -229,19 +231,19 @@ export function ResellersPage({ onSuccess }: Props) {
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {loading ? (
+          <TableBody className={loading && resellers.length > 0 ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+            {loading && resellers.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">Loading...</TableCell>
               </TableRow>
-            ) : filteredResellers.length === 0 ? (
+            ) : resellers.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
                   No resellers match this view.
                 </TableCell>
               </TableRow>
             ) : (
-              filteredResellers.map((reseller) => {
+              resellers.map((reseller) => {
                 const metric = findMetric(metricsByReseller, reseller.id);
                 return (
                   <TableRow key={reseller.id}>

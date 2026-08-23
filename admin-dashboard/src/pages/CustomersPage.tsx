@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, Clipboard, Copy, Eye, Search, Trash2, UserCheck, Users, Wallet } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clipboard, Copy, Eye, Loader2, Search, Trash2, UserCheck, Users, Wallet } from 'lucide-react';
 import { ActionMenu, type ActionMenuItem } from '@/components/ui/action-menu';
 import { Badge, StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { formatBytes, formatDate, formatMMK } from '@/lib/format';
 import { api } from '@/lib/api';
 import { usePaginatedTable } from '@/hooks/usePaginatedTable';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import type { Customer, Order, OrderPayment, Reseller, VpnKey } from '@/types/api';
 
 interface Props {
@@ -63,6 +64,12 @@ function getActiveKey(customer: Customer): VpnKey | null {
     customer.keys?.[0] ||
     null
   );
+}
+
+function getCustomerUsageBytes(customer: Customer, activeOrder: Order | null, activeKey: VpnKey | null): number {
+  if (typeof activeOrder?.total_used_bytes === 'number') return activeOrder.total_used_bytes;
+  if (typeof activeKey?.order_total_used_bytes === 'number') return activeKey.order_total_used_bytes;
+  return activeKey?.used_bytes ?? 0;
 }
 
 function getAccessUrl(customer: Customer) {
@@ -145,11 +152,15 @@ export function CustomersPage({ resellers }: Props) {
   const [allowPaidCleanup, setAllowPaidCleanup] = useState(false);
   const { copiedId, copy } = useClipboard();
 
+  const debouncedSearch = useDebouncedValue(search, 300);
+
   const filters = useMemo(() => {
     const next: Record<string, string> = {};
     if (resellerFilter !== 'all') next.reseller_id = resellerFilter;
+    if (typeFilter !== 'all') next.customer_type = typeFilter;
+    if (debouncedSearch.trim()) next.search = debouncedSearch.trim();
     return next;
-  }, [resellerFilter]);
+  }, [resellerFilter, typeFilter, debouncedSearch]);
 
   const { data: customers, total, page, totalPages, loading, error, setPage, refresh } =
     usePaginatedTable<Customer>('/admin/customers', filters, 100);
@@ -159,24 +170,6 @@ export function CustomersPage({ resellers }: Props) {
     setCleanupPreview(null);
     setCleanupError('');
   }, [resellerFilter]);
-
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return customers.filter((customer) => {
-      if (typeFilter !== 'all' && customer.customer_type !== typeFilter) return false;
-      if (!query) return true;
-      return [
-        customer.full_name,
-        customer.telegram_username,
-        customer.telegram_link?.telegram_username,
-        customer.phone,
-        customer.reseller?.name,
-        getActiveOrder(customer)?.plan?.name,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query));
-    });
-  }, [customers, search, typeFilter]);
 
   const pageTotals = useMemo(
     () =>
@@ -202,7 +195,7 @@ export function CustomersPage({ resellers }: Props) {
     [cleanupCandidateIds, selectedIds],
   );
   const selectionEnabled = resellerFilter !== 'all' && !loading;
-  const visibleSelectableIds = filtered
+  const visibleSelectableIds = customers
     .filter((customer) => customer.reseller_id === resellerFilter)
     .map((customer) => customer.id);
   const allVisibleSelected = visibleSelectableIds.length > 0 && visibleSelectableIds.every((id) => selectedIds.has(id));
@@ -343,10 +336,14 @@ export function CustomersPage({ resellers }: Props) {
       <Card className="p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="relative min-w-48 flex-1">
-            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            {loading && customers.length > 0 ? (
+              <Loader2 size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />
+            ) : (
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            )}
             <Input
               className="pl-8"
-              placeholder="Search name, Telegram, phone, reseller, package..."
+              placeholder="Search name, Telegram, phone..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -415,7 +412,7 @@ export function CustomersPage({ resellers }: Props) {
                 <input
                   type="checkbox"
                   className="h-4 w-4 rounded border-border"
-                  disabled={!selectionEnabled || filtered.length === 0}
+                  disabled={!selectionEnabled || customers.length === 0}
                   checked={selectionEnabled && allVisibleSelected}
                   onChange={toggleVisibleSelection}
                   aria-label="Select visible customers"
@@ -433,17 +430,17 @@ export function CustomersPage({ resellers }: Props) {
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {loading ? (
+          <TableBody className={loading && customers.length > 0 ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+            {loading && customers.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">Loading...</TableCell>
               </TableRow>
-            ) : filtered.length === 0 ? (
+            ) : customers.length === 0 ? (
               <TableRow className="hover:bg-transparent">
                 <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">No customers found.</TableCell>
               </TableRow>
             ) : (
-              filtered.map((customer) => {
+              customers.map((customer) => {
                 const activeOrder = getActiveOrder(customer);
                 const activeKey = getActiveKey(customer);
                 const accessUrl = getAccessUrl(customer);
@@ -481,7 +478,7 @@ export function CustomersPage({ resellers }: Props) {
                       <div className="text-xs text-muted-foreground">{remainingDays(activeOrder?.expiry_date)}</div>
                     </TableCell>
                     <TableCell>
-                      <div>{formatBytes(activeKey?.used_bytes)}</div>
+                      <div>{formatBytes(getCustomerUsageBytes(customer, activeOrder, activeKey))}</div>
                       <div className="text-xs text-muted-foreground">{activeKey?.status || '-'}</div>
                     </TableCell>
                     <TableCell>
@@ -768,7 +765,7 @@ function CustomerDetailDialog({
             <div className="mt-2 text-lg font-semibold text-foreground">{activeOrder?.plan?.name || '-'}</div>
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <Info label="Expiry" value={`${formatDate(activeOrder?.expiry_date)} (${remainingDays(activeOrder?.expiry_date)})`} />
-              <Info label="Usage" value={formatBytes(activeKey?.used_bytes)} />
+              <Info label="Usage" value={formatBytes(getCustomerUsageBytes(customer, activeOrder, activeKey))} />
               <Info label="Key Status" value={activeKey?.status || '-'} />
               <Info label="Orders" value={String(orders.length)} />
             </div>

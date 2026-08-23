@@ -33,6 +33,11 @@ export function ActionMenu({
   const enabledItems = items.filter((item) => !item.disabled);
   const hasEnabledItems = enabledItems.length > 0;
 
+  // Flip the menu above the trigger when there isn't room to open below —
+  // without this, a menu button on the last/bottom row (e.g. the pending
+  // orders list in a short mobile viewport) always opened downward and got
+  // clipped by the screen edge, making the lower items (Reject, etc.)
+  // impossible to reach.
   const updatePosition = React.useCallback(() => {
     const rect = buttonRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -42,9 +47,32 @@ export function ActionMenu({
       align === "right"
         ? Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width))
         : Math.max(8, Math.min(window.innerWidth - width - 8, rect.left));
-    const top = Math.min(window.innerHeight - 12, rect.bottom + 6);
+
+    // menuRef isn't mounted yet on the very first call that opens the menu
+    // (this runs before the portal commits) — falls back to opening below,
+    // then the layout effect below re-measures the real height and flips
+    // it upward before paint if it doesn't actually fit, so there's no
+    // visible jump.
+    const menuHeight = menuRef.current?.getBoundingClientRect().height ?? 0;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const margin = 8;
+
+    const top =
+      menuHeight > 0 && spaceBelow < menuHeight + margin && spaceAbove > spaceBelow
+        ? Math.max(margin, rect.top - menuHeight - 6)
+        : Math.min(window.innerHeight - margin, rect.bottom + 6);
+
     setPosition({ top, left });
   }, [align]);
+
+  // Re-measure with the layout effect (runs synchronously before the
+  // browser paints) once the menu is actually in the DOM, so the flip
+  // decision above uses the real rendered height instead of the 0 fallback.
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    updatePosition();
+  }, [open, updatePosition]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -90,7 +118,7 @@ export function ActionMenu({
                 item.onSelect();
               }}
               className={cn(
-                "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-medium transition-colors",
+                "flex h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs font-medium transition-colors",
                 item.destructive
                   ? "text-destructive hover:bg-destructive/10"
                   : "text-foreground hover:bg-secondary",
@@ -115,7 +143,10 @@ export function ActionMenu({
         ref={buttonRef}
         variant="ghost"
         size="icon"
-        className={cn("h-7 w-7", className)}
+        className={cn(
+          "relative h-7 w-7 before:absolute before:-inset-1.5 before:content-['']",
+          className
+        )}
         aria-label={label}
         title={label}
         aria-haspopup="menu"

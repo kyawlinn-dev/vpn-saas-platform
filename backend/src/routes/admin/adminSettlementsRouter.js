@@ -6,6 +6,7 @@ import {
   serializeSettlement,
   settlementMonthDate,
 } from "../../services/resellerAccountingService.js";
+import { sanitizeSearchTerm } from "../../utils/pagination.js";
 
 const router = express.Router();
 const SCREENSHOT_BUCKET = "payment-screenshots";
@@ -52,6 +53,27 @@ router.get("/", async (req, res) => {
 
     if (resellerId && resellerId !== "all") {
       query = query.eq("reseller_id", resellerId);
+    }
+
+    const searchTerm = sanitizeSearchTerm(req.query.search);
+    if (searchTerm) {
+      const pattern = `%${searchTerm}%`;
+      const { data: matchedResellers, error: resellerSearchError } = await supabase
+        .from("resellers")
+        .select("id")
+        .or(`name.ilike.${pattern},email.ilike.${pattern}`)
+        .limit(200);
+
+      if (resellerSearchError) {
+        console.error("GET /api/admin/settlements search error:", resellerSearchError);
+        return res.status(500).json({ error: "Failed to search settlements" });
+      }
+
+      const orParts = [`transfer_reference.ilike.${pattern}`, `transfer_note.ilike.${pattern}`];
+      if (matchedResellers?.length) {
+        orParts.push(`reseller_id.in.(${matchedResellers.map((r) => r.id).join(",")})`);
+      }
+      query = query.or(orParts.join(","));
     }
 
     const { data, count, error } = await query;

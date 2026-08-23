@@ -119,6 +119,34 @@ commission history.
 This prevents trial users from consuming premium server slots. Existing servers
 default to `premium` until an admin explicitly marks one as `trial`.
 
+**Exception (2026-08-16):** the restriction is one-directional. A trial order
+can never use a `premium` server, but a paid order MAY be manually moved onto
+a `trial` server — both via the Mini App's server list (customer self-service)
+and via the reseller-initiated switch feature below. Trial servers are
+lightly loaded, so this gives paid customers emergency overflow capacity
+without an admin having to relabel a server's tier. New paid provisioning
+(purchase/renew/premium migration) still defaults to `premium` servers only —
+this exception applies to manual switching, not default provisioning.
+
+### Reseller-Initiated Server Switching (2026-08-23)
+
+Resellers can view which server each active paid order is connected to and
+manually move it to a different one from the dashboard — e.g. when a customer
+reports their current server is unreachable. Scope:
+
+- Paid orders only (`order_type != trial`); trial customers stay on trial
+  servers via the normal Mini App flow, not this feature.
+- Any active, healthy server with spare capacity is eligible — any tier
+  (including trial, per the exception above), any region. No rate limit, no
+  automatic customer notification; the reseller handles communication.
+- The switch provisions a new key first, then retires the old one — the
+  customer's `ssconf_token`/dynamic access URL never changes, so nothing
+  needs to be resent to the customer.
+
+See `SKILL_API_CONTRACTS.md` for the endpoint contract
+(`GET/POST /api/reseller/orders/:orderId/eligible-servers` /
+`/switch-server`).
+
 ### Runtime Mini App Slug
 
 Production must resolve the workspace slug from Telegram WebApp
@@ -147,7 +175,9 @@ Built:
 - Mini App auth, workspace config, plans, servers, buy/payment flow
 - Immediate paid/trial key delivery
 - Customer ssconf endpoint at `/k/:ssconf_token.json`
-- Server switch flow
+- Server switch flow — customer self-service (Mini App server list/link) AND
+  reseller-initiated (dashboard, paid orders only, any tier/region — see
+  "Reseller-Initiated Server Switching" above)
 - Reseller workspace settings
 - Multi-tenant backend bot manager
 - Admin dashboard control layer for resellers, plans, servers, orders

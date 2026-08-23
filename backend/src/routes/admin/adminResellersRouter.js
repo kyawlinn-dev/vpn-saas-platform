@@ -2,6 +2,7 @@ import express from "express";
 import crypto from "node:crypto";
 import { supabase } from "../../lib/supabase.js";
 import { encrypt } from "../../lib/tokenEncryption.js";
+import { sanitizeSearchTerm } from "../../utils/pagination.js";
 import {
   buildBotStatus,
   applyWorkspacePostUpdateEffects,
@@ -77,11 +78,19 @@ router.get("/", async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
     const offset = (page - 1) * limit;
 
-    const { data: resellers, error, count } = await supabase
+    let listQuery = supabase
       .from("resellers")
       .select("id, name, email, status, commission_percent, created_at", { count: "exact" })
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
+
+    const searchTerm = sanitizeSearchTerm(req.query.search);
+    if (searchTerm) {
+      const pattern = `%${searchTerm}%`;
+      listQuery = listQuery.or(`name.ilike.${pattern},email.ilike.${pattern}`);
+    }
+
+    const { data: resellers, error, count } = await listQuery;
 
     if (error) {
       console.error("admin GET resellers error:", error);

@@ -2,6 +2,12 @@ import {
   buildDynamicAccessUrl,
   buildSsconfHttpUrl,
 } from "./publicAccessUrlService.js";
+import { buildOrderQuotaSnapshot } from "./subscriptionProvisionService.js";
+
+function bytesToGb(bytes) {
+  const value = Number(bytes || 0);
+  return value > 0 ? Number((value / 1024 / 1024 / 1024).toFixed(2)) : 0;
+}
 
 export function toNumber(value) {
   const numberValue = Number(value);
@@ -24,11 +30,25 @@ export function enrichOrderAccess(order, req) {
   const label = order?.reseller?.name || "NovaNet MM";
   const ssconfUrl = buildSsconfHttpUrl(customerToken, { req });
   const dynamicAccessUrl = buildDynamicAccessUrl(customerToken, label, { req });
+
+  // Usage shown to resellers/admins must reflect the order's LIFETIME total
+  // across every key it has ever had — not just whatever key happens to be
+  // active right now. A server switch (see resellerServerSwitchRouter.js)
+  // retires the old key and provisions a new one; without this, the
+  // dashboard would silently "forget" all usage accrued before the switch.
+  // order.keys already contains every key for this order (active + deleted,
+  // no status filter in the callers' select), so no extra query needed.
+  const quota = buildOrderQuotaSnapshot(order?.keys ?? []);
+
   const keys = (order?.keys ?? []).map((key) => ({
     ...key,
     ssconf_url: ssconfUrl,
     dynamic_access_url: dynamicAccessUrl,
     preferred_access_url: dynamicAccessUrl || ssconfUrl || key.access_url || null,
+    order_total_used_bytes: quota.totalUsedBytes,
+    order_total_used_gb: bytesToGb(quota.totalUsedBytes),
+    order_total_remaining_gb:
+      typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
   }));
 
   return {
@@ -37,6 +57,13 @@ export function enrichOrderAccess(order, req) {
     dynamic_access_url: dynamicAccessUrl,
     preferred_access_url: dynamicAccessUrl || ssconfUrl || keys[0]?.access_url || null,
     keys,
+    // Also surface at the order level — some UIs (e.g. admin OrdersPage)
+    // read usage off the order directly rather than digging into .keys[].
+    total_used_gb: bytesToGb(quota.totalUsedBytes),
+    total_used_bytes: quota.totalUsedBytes,
+    total_remaining_gb:
+      typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
+    is_unlimited: quota.isUnlimited,
   };
 }
 

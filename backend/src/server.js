@@ -1,5 +1,9 @@
-import express from "express";
 import "./lib/loadEnv.js";
+import "./lib/sentry.js"; // MUST be imported before express so Sentry can instrument it
+import * as Sentry from "@sentry/node";
+import express from "express";
+import pinoHttp from "pino-http";
+import { logger } from "./lib/logger.js";
 import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -11,7 +15,10 @@ import { requireActiveReseller } from "./middleware/requireActiveReseller.js";
 import { requireTrustedOrigin } from "./middleware/requireTrustedOrigin.js";
 import { startAutoStopJob } from "./jobs/autoStopJob.js";
 import { startSyncUsageJob } from "./jobs/syncUsageJob.js";
+import { startServerHealthJob } from "./jobs/serverHealthJob.js";
 import { startCleanupScreenshotsJob } from "./jobs/cleanupScreenshotsJob.js";
+import { startCleanupAppEventsJob } from "./jobs/cleanupAppEventsJob.js";
+import { startCustomerNotificationsJob } from "./jobs/customerNotificationsJob.js";
 import { validateEncryptionKey } from "./lib/tokenEncryption.js";
 
 import resellerSessionRouter from "./routes/auth/resellerSessionRouter.js";
@@ -24,11 +31,14 @@ import adminSettlementsRouter from "./routes/admin/adminSettlementsRouter.js";
 import adminOrderActionsRouter from "./routes/admin/adminOrderActionsRouter.js";
 import adminDataRouter from "./routes/admin/adminDataRouter.js";
 import adminLaunchReadinessRouter from "./routes/admin/launchReadinessRouter.js";
+import adminMonitoringRouter from "./routes/admin/adminMonitoringRouter.js";
 import resellerMeRouter from "./routes/reseller/resellerMeRouter.js";
 import resellerWorkspaceRouter from "./routes/reseller/resellerWorkspaceRouter.js";
+import resellerNotificationTemplatesRouter from "./routes/reseller/resellerNotificationTemplatesRouter.js";
 import resellerLaunchReadinessRouter from "./routes/reseller/launchReadinessRouter.js";
 
 import resellerOrdersRouter from "./routes/reseller/resellerOrdersRouter.js";
+import resellerServerSwitchRouter from "./routes/reseller/resellerServerSwitchRouter.js";
 import resellerCustomersRouter from "./routes/reseller/resellerCustomersRouter.js";
 import resellerStatsRouter from "./routes/reseller/resellerStatsRouter.js";
 import resellerKeysRouter from "./routes/reseller/resellerKeysRouter.js";
@@ -48,12 +58,38 @@ const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === "production";
 
 if (process.env.NODE_ENV === "development") {
-  console.warn(
-    "[WARN] NODE_ENV=development — Telegram HMAC dev bypass is active in resellerMiniappRoutes. Never deploy with this setting."
+  logger.warn(
+    "NODE_ENV=development — Telegram HMAC dev bypass is active in resellerMiniappRoutes. Never deploy with this setting."
   );
 }
 
 app.set("trust proxy", 1);
+
+// Structured HTTP request/response logging.
+// - Attaches req.log for handler-level logging with the request id already bound.
+// - Skips /api/health so uptime probes don't drown out the real signal.
+app.use(
+  pinoHttp({
+    logger,
+    autoLogging: {
+      ignore: (req) => req.url === "/api/health",
+    },
+    customLogLevel: (_req, res, err) => {
+      if (err || res.statusCode >= 500) return "error";
+      if (res.statusCode >= 400) return "warn";
+      return "info";
+    },
+    // Trim the noisy default serializers — we only want method/url/status/duration.
+    serializers: {
+      req(req) {
+        return { id: req.id, method: req.method, url: req.url };
+      },
+      res(res) {
+        return { statusCode: res.statusCode };
+      },
+    },
+  })
+);
 
 function parseOriginList(value) {
   return String(value || "")
@@ -281,6 +317,14 @@ app.use(
 );
 
 app.use(
+  "/api/reseller/notification-templates",
+  requireTrustedOrigin,
+  requireAuth,
+  requireActiveReseller,
+  resellerNotificationTemplatesRouter
+);
+
+app.use(
   "/api/reseller/launch-readiness",
   requireTrustedOrigin,
   requireAuth,
@@ -294,6 +338,14 @@ app.use(
   requireAuth,
   requireActiveReseller,
   resellerOrdersRouter
+);
+
+app.use(
+  "/api/reseller/orders",
+  requireTrustedOrigin,
+  requireAuth,
+  requireActiveReseller,
+  resellerServerSwitchRouter
 );
 
 app.use(
@@ -408,6 +460,14 @@ app.use(
   adminLaunchReadinessRouter
 );
 
+app.use(
+  "/api/admin/monitoring",
+  requireTrustedOrigin,
+  requireAdminAuth,
+  requireAdmin,
+  adminMonitoringRouter
+);
+
 // Generic data endpoints: /api/admin/customers, /orders, /plans, /keys
 app.use(
   "/api/admin",
@@ -418,6 +478,11 @@ app.use(
 );
 
 app.use(createDevMiniappProxy());
+
+// Sentry Express error handler — must come after all routes/middleware that
+// might throw, and before our own JSON error responder below. No-op when
+// SENTRY_DSN is unset. See src/lib/sentry.js.
+Sentry.setupExpressErrorHandler(app);
 
 app.use((err, req, res, next) => {
   console.error("Unhandled server error:", err);
@@ -430,9 +495,12 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  logger.info({ port: PORT }, `server listening on http://localhost:${PORT}`);
   startAutoStopJob();
   startSyncUsageJob();
+  startServerHealthJob();
   startCleanupScreenshotsJob();
+  startCleanupAppEventsJob();
+  startCustomerNotificationsJob();
   void botManager.start(); // registers webhooks for all configured reseller bots
 });
