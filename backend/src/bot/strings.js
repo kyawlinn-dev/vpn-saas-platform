@@ -29,26 +29,25 @@ export function startWelcome(brandName) {
   return [
     `🌐 ${b(brandName)} မှ ကြိုဆိုပါသည်! 🎉`,
     "",
-    `${b(brandName)} VPN ဖြင့် လုံခြုံစွာ၊ မြန်ဆန်စွာ internet ကို ကမ္ဘာ့မည်သည့်နေရာမှမဆို ချိတ်ဆက်နိုင်ပါသည်။`,
+    `${b(brandName)} မှ Outline VPN ဖြင့် လုံခြုံ၊မြန်ဆန်စွာ internet ကို ကမ္ဘာ့မည်သည့်နေရာမှမဆို ချိတ်ဆက်နိုင်ပါပြီ။`,
     "",
-    `✅ Account အသစ် ဖွင့်ပြီးသောအခါ <b>5GB trial</b> ကို အလိုအလျောက် ရရှိမည်ဖြစ်သည်။`,
+    `✅ User အသစ်များ /start နှိပ်ပြီးပါက <b>5GB trial</b> ကို အလိုအလျောက် ရရှိမည်ဖြစ်သည်။`,
     "",
     `📌 Menu ကို အသုံးပြု၍ —`,
     `   • 🔑 Outline Key ရယူနိုင်သည်`,
-    `   • 📊 လက်ကျန် GB စစ်နိုင်သည်`,
-    `   • 🌐 Server နိုင်ငံ ပြောင်းနိုင်သည်`,
+    `   • 📊 လက်ကျန်ဒေတာ စစ်ဆေးနိုင်သည်`,
+    `   • 🌐 Server ပြောင်းလဲနိုင်သည်`,
     "",
     `အောက်ပါ menu မှ ရွေးချယ်ပါ 👇`,
   ].join("\n");
 }
 
 /** Short prompt sent alongside the Buy/Admin inline buttons (second message on /start). */
-export const START_CTA_TEXT = "📲 ဘာများ ကူညီပေးရမည်လဲ?";
+export const START_CTA_TEXT = "📲 ဘာများ ကူညီပေးရမလဲ?";
 
 /** Inline button labels on /start */
-export const START_BTN_BUY          = "🛒 ဝယ်ယူရန် / သက်တမ်းတိုးရန်";
 export const START_BTN_ADMIN        = "👤 Admin / Support";
-export const START_BTN_TRIAL_KEY    = "🎁 Trial Key ရယူရန်";
+export const START_BTN_TRIAL_KEY    = "🎁 အစမ်းသုံး 5GB ရယူရန်";
 export const START_BTN_GET_KEY      = "🔑 Outline Key ရယူရန်";
 export const START_BTN_BUY_PACKAGE  = "🛒 Package ဝယ်ရန်";
 
@@ -78,21 +77,35 @@ export function keyFoundHeader(customerName) {
 
 /**
  * Server line shown below the key.
- * @param {string} flag        vpn_servers.flag_emoji
- * @param {string} serverName  vpn_servers.name
+ * @param {string} flag        Real flag emoji (falls back to 🌐 — see
+ *                              resolveServerDisplay() in handlers.js)
+ * @param {string} serverName  Real city/country name, not the raw internal
+ *                              server slug — same fallback the dashboards use
  */
 export function keyServerLine(flag, serverName) {
   return `🌐 Linked Server: ${flag} ${serverName}`;
 }
 
-/** Inline button label on the key message */
+/**
+ * Copy/download instructions shown between the key and the server line.
+ * The key itself is already wrapped in <code> tags by the caller, which
+ * Telegram renders as tap-to-copy on every client — no separate "Copy"
+ * button needed for that part.
+ */
+export const KEY_COPY_INSTRUCTIONS = [
+  "အထက်ပါ Key အား copyကူး၍ Outline app တွင်ထည့်သုံးရန်။",
+  "App မရှိသေးပါက Play Store သို့မဟုတ် အောက်ပါ \"Download Outline\" ခလုတ်ကိုနှိပ်၍ download ဆွဲနိုင်သည်။",
+].join("\n");
+
+/** Inline button labels on the key message */
 export const KEY_BTN_ADD = "➕ Add Key To Outline";
+export const KEY_BTN_DOWNLOAD = "📥 Download Outline";
 
 /** Shown when the customer has no active order or no provisioned key */
 export const KEY_NO_ACTIVE =
   "❌ လက်ရှိ active package မရှိပါ။\n\n" +
   "• Trial စမ်းသုံးရန် /start နှိပ်ပါ\n" +
-  "• Package ဝယ်ယူရန် 🛒 ဝယ်ယူရန် / သက်တမ်းတိုးရန် ကို နှိပ်ပါ";
+  "• Package ဝယ်ယူရန် 🛒 Package ဝယ်ရန် ကို နှိပ်ပါ";
 
 /** Generic error shown when the DB/network lookup fails */
 export const KEY_ERROR =
@@ -138,8 +151,9 @@ export const BALANCE_BTN_OPEN = "📊 Open VPN";
 
 export const SERVER_TEXT =
   "🌐 <b>Server ပြောင်းရန်:</b>\n\n" +
-  "သင်၏ Outline Key သည် server အားလုံးအတွက် တူညီသော key တစ်ချောင်းကိုသာ အသုံးပြုသည်။ " +
-  "Server ပြောင်းလဲသောအခါ key ကို ပြန်လည် ထည့်သွင်းရန် မလိုပါ — အလိုအလျောက် ချိတ်ဆက်မည်ဖြစ်သည်။\n\n" +
+  "သင်၏ Outline Key သည် server အားလုံးအတွက် တူညီသော key တစ်ခုကိုသာ အသုံးပြုသည်။ " +
+  "Server ပြောင်းလဲသောအခါ key ကို ပြန်လည် ထည့်သွင်းရန် မလိုပါ — အလိုအလျောက် ချိတ်ဆက်မည်ဖြစ်သည်။\n" +
+  "မှတ်ချက် - VPN ချိတ်ထားစဉ် server ပြောင်းလျှင် VPN ကိုဖြုတ်ပြီးပြန်ချိတ်ပေးရန်လိုအပ်\n\n" +
   "App ဖွင့်ပြီး <b>Servers</b> tab ကို နှိပ်ကာ နိုင်ငံ ရွေးချယ်ပါ 👇";
 
 export const SERVER_BTN_OPEN = "🌐 Change Server";
@@ -203,37 +217,16 @@ export function howToUse(supportUsername) {
   return [
     "📖 <b>Outline VPN အသုံးပြုနည်း</b>",
     "",
-    "① Outline VPN app ကို download ဆွဲပါ",
-    "   (📥 <b>Download Outline</b> → device ရွေးချယ်ပါ)",
+    "1️⃣ Outline VPN app ကို download ဆွဲပါ",
+    "   (📥 <b>Download Outline</b> → device ရွေးချယ်ပါ သို့မဟုတ် သက်ဆိုင်ရာ App Store မှ ဒေါင်းပါ)",
     "",
-    "② Bot မှ 🔑 <b>Outline Key ရယူရန်</b> ကို နှိပ်ပါ",
+    "2️⃣ Bot မှ 🔑 <b>Outline Key ရယူရန်</b> ကို နှိပ်ပါ",
     "",
-    "③ Key ကို <b>copy ကူး</b>ပြီး Outline app ထဲ ထည့်ပါ",
-    "   (သို့မဟုတ်) <b>Add Key To Outline</b> ကို နှိပ်ပါ",
+    "3️⃣ Key ကို <b>copy ကူး</b>ပြီး Outline app ထဲ ထည့်ပါ",
+    "   (သို့မဟုတ်) <b>Add Key To Outline</b> ကိုနှိပ်၍ Outline app ထဲကို key ထည့်ပါ",
     "",
-    "④ Outline app မှ <b>Connect</b> ကို နှိပ်ပါ — VPN ချိတ်ဆက်မည်ဖြစ်သည်",
+    "4️⃣ Outline app မှ <b>Connect</b> ကို နှိပ်ပြီး VPN စတင်အသုံးပြုနိုင်ပါပြီ",
     "",
-    `⚠️ ပြဿနာ ဖြစ်ပါက ${support} ကို ဆက်သွယ်ပါ`,
+    `⚠️ အကူညီလိုအပ်ပါက ${support} ကို ဆက်သွယ်ပါ`,
   ].join("\n");
 }
-
-// ── Stage-1 placeholder replies ────────────────────────────────────────────────
-// Each will be replaced with real logic in later stages (Stage 2+).
-
-export const PLACEHOLDER = {
-  KEY:
-    "🔑 Outline Key ရယူနိုင်သော feature ကို မကြာမီ ထည့်သွင်းမည်ဖြစ်သည်။\n\n" +
-    "ခဏလေး စောင့်ပါ ✨",
-  BALANCE:
-    "📊 လက်ကျန် GB စစ်ဆေးနိုင်သော feature ကို မကြာမီ ထည့်သွင်းမည်ဖြစ်သည်။\n\n" +
-    "ခဏလေး စောင့်ပါ ✨",
-  SERVER:
-    "🌐 Server ပြောင်းနိုင်သော feature ကို မကြာမီ ထည့်သွင်းမည်ဖြစ်သည်။\n\n" +
-    "ခဏလေး စောင့်ပါ ✨",
-  DOWNLOAD:
-    "📥 Outline download လင့်များကို မကြာမီ ထည့်သွင်းမည်ဖြစ်သည်။\n\n" +
-    "ခဏလေး စောင့်ပါ ✨",
-  HOWTO:
-    "📖 အသုံးပြုနည်း လမ်းညွှန်ချက်ကို မကြာမီ ထည့်သွင်းမည်ဖြစ်သည်။\n\n" +
-    "ခဏလေး စောင့်ပါ ✨",
-};

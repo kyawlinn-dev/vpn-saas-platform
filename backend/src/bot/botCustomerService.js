@@ -98,6 +98,9 @@ export async function resolveActiveKey(customerId, resellerId, orderId) {
       id,
       vpn_servers (
         name,
+        region,
+        display_country,
+        display_city,
         flag_emoji
       )
     `)

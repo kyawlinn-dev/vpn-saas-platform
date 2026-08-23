@@ -3,7 +3,6 @@ import {
   BTN,
   startWelcome,
   START_CTA_TEXT,
-  START_BTN_BUY,
   START_BTN_ADMIN,
   START_BTN_TRIAL_KEY,
   START_BTN_GET_KEY,
@@ -11,10 +10,11 @@ import {
   START_CB_GET_KEY,
   APP_BTN_OPEN,
   appOpenText,
-  PLACEHOLDER,
   keyFoundHeader,
   keyServerLine,
+  KEY_COPY_INSTRUCTIONS,
   KEY_BTN_ADD,
+  KEY_BTN_DOWNLOAD,
   KEY_NO_ACTIVE,
   KEY_ERROR,
   BALANCE_TEXT,
@@ -43,6 +43,21 @@ import {
 import { buildWebAppUrl } from "./webAppUrl.js";
 import { getOrderQuotaSnapshot } from "../services/subscriptionProvisionService.js";
 import { formatBurmeseDate } from "./notificationTemplates.js";
+import { getRegionLocation } from "../constants/doRegions.js";
+
+// Same fallback the dashboards use (mapServerForMiniApp in
+// resellerMiniappRoutes.js, toDisplayServer in resellerServerSwitchRouter.js)
+// — a server inserted without display_country/display_city/flag_emoji set
+// directly still gets a real city/flag via its DigitalOcean region instead
+// of showing the raw internal slug (e.g. "sgp1-3111") to the customer.
+function resolveServerDisplay(server) {
+  if (!server) return { flag: "🌐", name: "Server" };
+  const loc = getRegionLocation(server.region);
+  return {
+    flag: server.flag_emoji || loc?.flag || "🌐",
+    name: server.display_city || loc?.city || server.name || "Server",
+  };
+}
 
 function bytesToGb(bytes) {
   const value = Number(bytes || 0);
@@ -309,19 +324,27 @@ export function setupHandlers(bot, {
       // 5. Bridge URL — backend /open-key renders the "Add to Outline" interstitial
       const bridgeUrl = `${backendBase}/open-key?url=${encodeURIComponent(dynamicUrl)}`;
 
-      // 6. Server display info
-      const flag       = keyRow.vpn_servers?.flag_emoji || "🌐";
-      const serverName = keyRow.vpn_servers?.name || "Server";
+      // 6. Server display info — real flag/city name, not the raw slug
+      const { flag, name: serverName } = resolveServerDisplay(keyRow.vpn_servers);
 
-      // 7. Reply: header + copyable key in code block + server line + inline button
+      // 7. Reply: header + copyable key + copy/download instructions +
+      // server line + inline buttons.
+      // <pre> (not <code>) — Telegram renders block-level pre/code with a
+      // native "Copy" affordance (label + icon) built into the client itself,
+      // no custom button needed. <code> is only the inline span variant and
+      // doesn't get that treatment.
       const text =
         `${keyFoundHeader(customer.fullName || "Customer")}\n\n` +
-        `<code>${dynamicUrl}</code>\n\n` +
+        `<pre>${dynamicUrl}</pre>\n\n` +
+        `${KEY_COPY_INSTRUCTIONS}\n\n` +
         `${keyServerLine(flag, serverName)}`;
 
       await ctx.replyWithHTML(
         text,
-        Markup.inlineKeyboard([[Markup.button.url(KEY_BTN_ADD, bridgeUrl)]])
+        Markup.inlineKeyboard([
+          [Markup.button.url(KEY_BTN_ADD, bridgeUrl)],
+          [Markup.button.callback(KEY_BTN_DOWNLOAD, "key:download")],
+        ])
       );
     } catch (err) {
       console.error(`[bot:${resellerId}] KEY handler error:`, err.message);
@@ -335,6 +358,18 @@ export function setupHandlers(bot, {
   bot.action(START_CB_GET_KEY, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {}); // ack the tap so Telegram stops spinning
     await sendActiveKey(ctx);
+  });
+
+  // "Download Outline" button on the key message — same device picker the
+  // persistent-keyboard Download button shows (downloadPickerKeyboard() is
+  // defined further below; function declarations hoist, so this is fine).
+  bot.action("key:download", async (ctx) => {
+    try {
+      await ctx.answerCbQuery().catch(() => {});
+      await ctx.replyWithHTML(DOWNLOAD_PICKER_TEXT, downloadPickerKeyboard());
+    } catch (err) {
+      console.error(`[bot:${resellerId}] KEY download button error:`, err.message);
+    }
   });
 
   bot.hears(BTN.BALANCE, async (ctx) => {

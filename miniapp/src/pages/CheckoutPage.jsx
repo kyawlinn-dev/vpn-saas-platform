@@ -161,6 +161,12 @@ function AccountCard({ method, brand, onCopy }) {
           })}
         </p>
       </div>
+
+      <div className="mt-2 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2">
+        <p className="text-[12px] font-semibold text-red-400">
+          {t("payment.noVpnInTransferNote")}
+        </p>
+      </div>
     </GlassCard>
   );
 }

@@ -86,13 +86,9 @@ function getBlockedServerCopy(server, t) {
         primary: t("payment.buyPackage"),
         goPackages: true,
       };
-    case "PREMIUM_CANNOT_USE_TRIAL":
-      return {
-        title: t("servers.restrictedTrialTitle"),
-        description: t("servers.restrictedTrialDescription"),
-        primary: t("common.cancel"),
-        goPackages: false,
-      };
+    // PREMIUM_CANNOT_USE_TRIAL removed 2026-08-23 — paid orders can now
+    // access trial-tier servers too (2026-08-16 decision), so the backend
+    // never returns this reason anymore; this case could never trigger.
     case "REGION_NOT_ALLOWED":
       return {
         title: t("servers.regionRestrictedTitle"),
