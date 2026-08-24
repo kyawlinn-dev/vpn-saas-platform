@@ -7,13 +7,15 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev": "nodemon src/server.js",
-    "start": "node src/server.js"
+    "dev": "nodemon --import ./src/lib/sentry.js src/server.js",
+    "start": "node --import ./src/lib/sentry.js src/server.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@axiomhq/pino": "^2.0.0",
+    "@sentry/node": "^10.70.0",
     "@supabase/supabase-js": "^2.100.0",
     "axios": "^1.18.1",
     "cookie-parser": "^1.4.7",
@@ -23,6 +25,8 @@
     "express-rate-limit": "^8.6.0",
     "helmet": "^8.1.0",
     "multer": "^2.2.0",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
     "ssh2": "^1.16.0",
     "telegraf": "^4.16.3"
   },
