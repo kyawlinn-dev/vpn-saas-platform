@@ -240,6 +240,38 @@ function buildOutlineInstallCommand() {
   ].join(" ");
 }
 
+// OS-level tuning every VPN server needs, independent of the Outline install
+// itself. Discovered 2026-08-23: DigitalOcean-provisioned servers were
+// shipping with plain `cubic` congestion control and zero swap — on a
+// customers-over-imperfect-mobile-networks workload this produces exactly
+// the "sometimes can't connect, video stutters" pattern reported for
+// sgp1-3111, while a manually-tuned box (Japan, BBR + swap already set) had
+// no such complaints on the same key count. BBR handles lossy/high-latency
+// paths far better than cubic; swap is a safety net against the OOM killer
+// taking down the Outline process under a memory spike on a 1GB droplet.
+// Idempotent — safe to re-run against an already-tuned server.
+function buildOsTuningCommand() {
+  return [
+    "bash -lc",
+    [
+      "set -e",
+      // BBR congestion control
+      "modprobe tcp_bbr",
+      "echo tcp_bbr > /etc/modules-load.d/tcp_bbr.conf",
+      "printf 'net.core.default_qdisc=fq_codel\\nnet.ipv4.tcp_congestion_control=bbr\\n' > /etc/sysctl.d/99-bbr.conf",
+      "sysctl -p /etc/sysctl.d/99-bbr.conf",
+      // 2.4GB swap, matching the known-good Japan server's configuration
+      "if ! swapon --show | grep -q swapfile; then " +
+        "fallocate -l 2400M /swapfile && " +
+        "chmod 600 /swapfile && " +
+        "mkswap /swapfile && " +
+        "swapon /swapfile && " +
+        "echo '/swapfile swap swap defaults 0 0' >> /etc/fstab; " +
+        "fi",
+    ].join(" && "),
+  ].join(" ");
+}
+
 export async function installOutlineOnServer(host) {
   if (!host) {
     throw new Error("Host is required for Outline installation");
@@ -255,6 +287,19 @@ export async function installOutlineOnServer(host) {
     const stderr = String(error?.stderr || "").trim();
     throw new Error(
       `Docker pre-installation failed on ${host}: ${stderr || error.message}`
+    );
+  }
+
+  // Step 1.5: OS tuning (BBR + swap) — best-effort. A server that fails this
+  // step still works, just without the hardening, so it doesn't abort
+  // provisioning — log and move on rather than losing an otherwise-good
+  // server over a sysctl hiccup.
+  try {
+    await runSshCommand(host, buildOsTuningCommand(), 2 * 60 * 1000);
+  } catch (error) {
+    const stderr = String(error?.stderr || "").trim();
+    console.error(
+      `[outlineInstaller] OS tuning (BBR/swap) failed on ${host}, continuing anyway: ${stderr || error.message}`
     );
   }
 
