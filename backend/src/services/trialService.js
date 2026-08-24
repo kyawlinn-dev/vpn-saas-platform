@@ -21,6 +21,7 @@ import {
   incrementServerUsage,
   setServerError,
 } from "./serverService.js";
+import { trackAppEvent } from "./appEventService.js";
 import { addDaysToDateOnly, businessDateOnly } from "../utils/businessTime.js";
 
 function gbToBytes(gb) {
@@ -188,6 +189,23 @@ export async function createTrialOrder({
       throw new Error(`Failed to set trial_order_id: ${linkUpdateError.message}`);
     }
 
+    trackAppEvent({
+      event_name: "trial_created",
+      event_source: "backend",
+      actor_type: "customer",
+      reseller_id: resellerId,
+      customer_id: customerId,
+      order_id: createdOrder.id,
+      plan_id: trialPlan.id,
+      status: "success",
+      metadata: {
+        source: "miniapp",
+        duration_days: trialPlan.duration_days,
+        data_limit_gb: trialPlan.data_limit_gb,
+        order_type: "trial",
+      },
+    });
+
     return { order: createdOrder, plan: trialPlan, created: true };
   } catch (err) {
     // Roll back the claim so this user can try again later
@@ -276,7 +294,7 @@ export async function provisionTrialKey({
       });
 
       // Persist the key in vpn_keys
-      const { error: insertErr } = await supabase
+      const { data: insertedKey, error: insertErr } = await supabase
         .from("vpn_keys")
         .insert({
           order_id: orderId,
@@ -291,15 +309,35 @@ export async function provisionTrialKey({
           status: "active",
           is_used: true,
           used_at: new Date().toISOString(),
-        });
+        })
+        .select("id")
+        .single();
 
-      if (insertErr) {
-        throw new Error(`vpn_keys insert failed: ${insertErr.message}`);
+      if (insertErr || !insertedKey) {
+        throw new Error(`vpn_keys insert failed: ${insertErr?.message || "No key row returned"}`);
       }
 
       try {
         await clearServerError(server.id);
       } catch {}
+
+      trackAppEvent({
+        event_name: "key_provisioned",
+        event_source: "backend",
+        actor_type: "customer",
+        reseller_id: resellerId,
+        customer_id: customerId,
+        order_id: orderId,
+        server_id: server.id,
+        plan_id: plan?.id || null,
+        status: "success",
+        metadata: {
+          server_tier: "trial",
+          region: server.region,
+          order_type: "trial",
+        },
+      });
+
       return;
     } catch (err) {
       if (outlineKey?.outline_key_id) {
@@ -326,6 +364,29 @@ export async function provisionTrialKey({
       try {
         await setServerError(server.id, err.message);
       } catch {}
+
+      // Emit a failure event so trial provisioning breakage is visible in
+      // the monitoring dashboard alongside successful trials.
+      try {
+        trackAppEvent({
+          event_name: "key_provisioned",
+          event_source: "backend",
+          actor_type: "customer",
+          reseller_id: resellerId,
+          customer_id: customerId,
+          order_id: orderId,
+          server_id: server.id,
+          plan_id: plan?.id || null,
+          status: "failed",
+          metadata: {
+            server_tier: "trial",
+            region: server.region,
+            order_type: "trial",
+            error: String(err?.message || err).slice(0, 500),
+          },
+        });
+      } catch {}
+
       throw err;
     }
   }

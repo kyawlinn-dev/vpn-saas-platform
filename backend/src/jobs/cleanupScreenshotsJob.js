@@ -1,7 +1,9 @@
 import { supabase } from "../lib/supabase.js";
+import { logger } from "../lib/logger.js";
 
 const INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
 const RETENTION_DAYS = 30;
+const log = logger.child({ job: "cleanupScreenshots" });
 
 async function cleanupOldScreenshots() {
   const cutoff = new Date();
@@ -16,12 +18,12 @@ async function cleanupOldScreenshots() {
     .lt("updated_at", cutoffIso);
 
   if (error) {
-    console.error("[cleanupScreenshots] Query error:", error.message);
+    log.error({ err: error }, "query error");
     return;
   }
 
   if (!orders?.length) {
-    console.log("[cleanupScreenshots] Nothing to clean up.");
+    log.debug("nothing to clean up");
     return;
   }
 
@@ -32,7 +34,7 @@ async function cleanupOldScreenshots() {
     .remove(paths);
 
   if (removeError) {
-    console.error("[cleanupScreenshots] Storage remove error:", removeError.message);
+    log.error({ err: removeError }, "storage remove error");
     return;
   }
 
@@ -44,28 +46,24 @@ async function cleanupOldScreenshots() {
     .in("id", ids);
 
   if (updateError) {
-    console.error("[cleanupScreenshots] DB nullify error:", updateError.message);
+    log.error({ err: updateError }, "db nullify error");
     return;
   }
 
-  console.log(`[cleanupScreenshots] Deleted ${paths.length} screenshot(s).`);
+  log.info({ deleted: paths.length }, "screenshots deleted");
 }
 
 async function runCleanupScreenshots() {
-  console.log("[cleanupScreenshots] Running...");
+  log.info("running");
   await cleanupOldScreenshots();
 }
 
 export function startCleanupScreenshotsJob() {
-  runCleanupScreenshots().catch((err) =>
-    console.error("[cleanupScreenshots] Initial run error:", err.message)
-  );
+  runCleanupScreenshots().catch((err) => log.error({ err }, "initial run error"));
 
   setInterval(() => {
-    runCleanupScreenshots().catch((err) =>
-      console.error("[cleanupScreenshots] Interval run error:", err.message)
-    );
+    runCleanupScreenshots().catch((err) => log.error({ err }, "interval run error"));
   }, INTERVAL_MS);
 
-  console.log("[cleanupScreenshots] Job scheduled (every 24 hours).");
+  log.info({ interval_ms: INTERVAL_MS }, "job scheduled");
 }

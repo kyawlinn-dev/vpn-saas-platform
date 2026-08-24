@@ -94,7 +94,26 @@ async function startBotForReseller(row) {
   const plainToken = decrypt(bot_token_encrypted);
   const bot = new Telegraf(plainToken);
   const secretToken = createWebhookSecret();
-  const botInfo = await withTimeout(bot.telegram.getMe(), 10_000, "Bot identity lookup");
+  // 30s ceiling per attempt + up to 3 attempts with 2s backoff — Telegram
+  // is occasionally slow or unreachable over roaming/hotel networks, and a
+  // single hard failure here kills the entire bot registration for minutes
+  // (Telegram's rate-limit backoff kicks in). Retry until we get an answer
+  // or genuinely give up.
+  let botInfo = null;
+  let lastGetMeErr = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      botInfo = await withTimeout(bot.telegram.getMe(), 30_000, "Bot identity lookup");
+      break;
+    } catch (err) {
+      lastGetMeErr = err;
+      if (attempt < 3) {
+        console.warn(`[bot:${reseller_id}] getMe attempt ${attempt}/3 failed: ${err.message} — retrying in 2s`);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+  if (!botInfo) throw lastGetMeErr;
 
   setupHandlers(bot, {
     resellerId: reseller_id,
@@ -220,6 +239,41 @@ export async function restartBot(resellerId) {
   } catch (err) {
     await persistBotStatus(resellerId, { bot_connected: false });
     throw err;
+  }
+}
+
+/**
+ * Return the raw Telegraf bot instance for a reseller so services outside
+ * the bot module (e.g. notificationService) can send outbound messages
+ * without going through the update dispatcher.
+ * Returns undefined if the reseller's bot is not currently online.
+ */
+export function getActiveBot(resellerId) {
+  return activeBots.get(resellerId)?.bot;
+}
+
+/**
+ * Send a Telegram DM via a specific reseller's bot.
+ * Returns { ok: true } on success or { ok: false, code, message } on any
+ * failure — callers should treat all failures as non-retryable (dropped),
+ * per the notifications design ("missed > duplicate").
+ *
+ * Common error codes worth knowing:
+ *   - "bot_not_running": no active bot for this reseller (dead config or 429)
+ *   - Telegram error codes 403 (user blocked bot), 400 (chat not found), etc.
+ */
+export async function sendMessageAsReseller(resellerId, chatId, text, options = {}) {
+  const entry = activeBots.get(resellerId);
+  if (!entry) return { ok: false, code: "bot_not_running", message: "reseller bot is not online" };
+  try {
+    await entry.bot.telegram.sendMessage(chatId, text, options);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      code: err?.code || err?.response?.error_code || "send_failed",
+      message: err?.message || err?.description || String(err),
+    };
   }
 }
 

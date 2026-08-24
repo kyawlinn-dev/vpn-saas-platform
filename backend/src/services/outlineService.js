@@ -172,13 +172,20 @@ async function withRetry(fn, { attempts = 3, baseDelayMs = 400 } = {}) {
   throw lastError;
 }
 
+// Default Outline API timeout — 60s to cover slow /metrics/transfer responses
+// from busy servers over cross-region networks (e.g. local dev in Myanmar
+// hitting Singapore/Japan datacenters, or any server with many keys and
+// heavy usage). /server metadata calls still return sub-second in practice,
+// so this only relaxes the ceiling for the genuinely-slow endpoints.
+const OUTLINE_API_TIMEOUT_MS = Number(process.env.OUTLINE_API_TIMEOUT_MS) || 60_000;
+
 function createOutlineClient({ apiUrl, certSha256 }) {
   const { baseURL } = parseApiUrl(apiUrl);
 
   return axios.create({
     baseURL,
     httpsAgent: createPinnedAgent({ apiUrl, certSha256 }),
-    timeout: 15000,
+    timeout: OUTLINE_API_TIMEOUT_MS,
     validateStatus: (status) => status >= 200 && status < 300,
     headers: {
       "Content-Type": "application/json",

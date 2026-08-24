@@ -8,10 +8,12 @@
  */
 
 import { supabase } from "../lib/supabase.js";
+import { logger } from "../lib/logger.js";
 import { stopOrder } from "../services/orderLifecycleService.js";
 import { businessDateOnly } from "../utils/businessTime.js";
 
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const log = logger.child({ job: "autoStop" });
 
 function today() {
   return businessDateOnly();
@@ -25,7 +27,7 @@ async function stopExpiredOrders() {
     .lt("expiry_date", today());
 
   if (error) {
-    console.error("[autoStop] stopExpired query error:", error.message);
+    log.error({ err: error }, "stopExpired query error");
     return;
   }
 
@@ -34,31 +36,24 @@ async function stopExpiredOrders() {
   for (const order of orders) {
     try {
       await stopOrder({ orderId: order.id, resellerId: order.reseller_id });
-
-      console.log(
-        `[autoStop] Auto-stopped order ${order.id}.`
-      );
+      log.info({ order_id: order.id }, "auto-stopped expired order");
     } catch (err) {
-      console.error(`[autoStop] Error stopping order ${order.id}:`, err.message);
+      log.error({ err, order_id: order.id }, "error stopping order");
     }
   }
 }
 
 async function runAutoStop() {
-  console.log("[autoStop] Running...");
+  log.info("running");
   await stopExpiredOrders();
 }
 
 export function startAutoStopJob() {
-  runAutoStop().catch((err) =>
-    console.error("[autoStop] Initial run error:", err.message)
-  );
+  runAutoStop().catch((err) => log.error({ err }, "initial run error"));
 
   setInterval(() => {
-    runAutoStop().catch((err) =>
-      console.error("[autoStop] Interval run error:", err.message)
-    );
+    runAutoStop().catch((err) => log.error({ err }, "interval run error"));
   }, INTERVAL_MS);
 
-  console.log("[autoStop] Job scheduled (every 1 hour).");
+  log.info({ interval_ms: INTERVAL_MS }, "job scheduled");
 }

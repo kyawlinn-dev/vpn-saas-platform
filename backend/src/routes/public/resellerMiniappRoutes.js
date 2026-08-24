@@ -28,6 +28,10 @@ import {
   buildSsconfHttpUrl,
 } from "../../services/publicAccessUrlService.js";
 import { getOrderQuotaSnapshot } from "../../services/subscriptionProvisionService.js";
+import {
+  buildRequestEventContext,
+  trackAppEvent,
+} from "../../services/appEventService.js";
 import { verifyTelegramInitData } from "../../utils/telegramInitData.js";
 import { businessDateOnly } from "../../utils/businessTime.js";
 
@@ -36,6 +40,23 @@ const router = express.Router();
 // Only true when NODE_ENV is explicitly "development". Unset/missing → false →
 // production behaviour (full HMAC verification, no bypass allowed).
 const IS_DEV = process.env.NODE_ENV === "development";
+const MINIAPP_PAGE_VIEW_EVENTS = new Set([
+  "packages_viewed",
+  "server_page_viewed",
+]);
+
+function trackMiniAppEvent(req, event) {
+  trackAppEvent({
+    event_source: "miniapp",
+    actor_type: event.actor_type || "customer",
+    ...buildRequestEventContext(req),
+    ...event,
+    metadata: {
+      slug: req.params?.slug,
+      ...(event.metadata || {}),
+    },
+  });
+}
 
 function miniAppAuthError(message, status = 401, code = "MINIAPP_AUTH_FAILED") {
   return Object.assign(new Error(message), { status, code });
@@ -227,10 +248,12 @@ function mapServerForMiniApp(server, isCurrent = false) {
   const loc = getRegionLocation(server.region);
   const serverTier = normalizeMiniAppServerTier(server.server_tier);
   const flag = server.flag_emoji || loc?.flag || "🌐";
+
   return {
     id: server.id,
     name: server.name,
     region: server.region,
+    region_code: server.region_code || null,
     country: server.display_country || loc?.country || server.region,
     city: server.display_city || loc?.city || server.name,
     flag,
@@ -378,6 +401,13 @@ function normalizeMiniAppServerTier(serverTier) {
   return String(serverTier || "").trim().toLowerCase() === "trial" ? "trial" : "premium";
 }
 
+// Access rule (2026-08): trial customers are still confined to trial-tier
+// servers, but paid/premium customers may now connect to ANY active server
+// — trial-tier included, any region — ignoring the plan's allowed_regions.
+// This is deliberate: trial servers are lightly used and premium customers
+// occasionally need an emergency alternate server when their usual region
+// has issues. Trial customers stay restricted so they don't crowd out the
+// premium server pool they haven't paid for.
 function getMiniAppServerAccessState({ activeOrder, server, allowedRegions = [] }) {
   if (!activeOrder) {
     return {
@@ -390,13 +420,22 @@ function getMiniAppServerAccessState({ activeOrder, server, allowedRegions = [] 
   const requiredTier = getOrderServerTier(activeOrder);
   const serverTier = normalizeMiniAppServerTier(server?.server_tier);
 
+  // Paid customers: no tier or region restriction — any active server.
+  if (requiredTier === "premium") {
+    return {
+      canAccess: true,
+      reason: null,
+      requiredTier,
+    };
+  }
+
+  // Trial customers: unchanged — trial-tier only, no region restriction
+  // (trial plans don't carry allowed_regions in practice, but the check
+  // stays here for parity with premium's original behavior).
   if (serverTier !== requiredTier) {
     return {
       canAccess: false,
-      reason:
-        requiredTier === "trial"
-          ? "TRIAL_CANNOT_USE_PREMIUM"
-          : "PREMIUM_CANNOT_USE_TRIAL",
+      reason: "TRIAL_CANNOT_USE_PREMIUM",
       requiredTier,
     };
   }
@@ -474,6 +513,14 @@ router.get("/:slug/config", async (req, res) => {
         message: "Mini App is disabled",
       });
     }
+
+    trackMiniAppEvent(req, {
+      event_name: "miniapp_config_loaded",
+      actor_type: "anonymous",
+      reseller_id: data.reseller_id,
+      page: "home",
+      status: "success",
+    });
 
     return res.json({
       success: true,
@@ -788,6 +835,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
             id,
             name,
             region,
+            region_code,
             display_country,
             display_city,
             flag_emoji,
@@ -821,6 +869,22 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
 
     const orderUsedBytes =
       currentKeyRow && activeOrder ? await getOrderTotalUsedBytes(activeOrder.id) : 0;
+
+    trackMiniAppEvent(req, {
+      event_name: "miniapp_authenticated",
+      reseller_id: miniapp.reseller_id,
+      customer_id: customer.id,
+      telegram_user_id: telegramUserId,
+      order_id: activeOrder?.id || null,
+      plan_id: activeOrder?.plan_id || null,
+      server_id: currentKeyRow?.server_id || null,
+      page: "home",
+      status: "success",
+      metadata: {
+        created: trialCreated,
+        order_type: activeOrder?.order_type || null,
+      },
+    });
 
     return res.json({
       success: true,
@@ -981,6 +1045,7 @@ async function handleMiniAppServers(
     let allowedRegions = [];
     let currentServerId = null;
     let activeOrder = null;
+    let customerId = null;
 
     if (telegramUserId) {
       try {
@@ -1009,6 +1074,7 @@ async function handleMiniAppServers(
       }
 
       if (link) {
+        customerId = link.customer_id;
         try {
           activeOrder = await getBestActiveOrder({
             customerId: link.customer_id,
@@ -1051,7 +1117,7 @@ async function handleMiniAppServers(
 
     const { data: servers, error: serversError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, display_country, display_city, flag_emoji, status, is_default, server_tier")
+      .select("id, name, region, region_code, display_country, display_city, flag_emoji, status, is_default, server_tier")
       .eq("status", "active")
       .order("created_at", { ascending: true });
 
@@ -1133,6 +1199,124 @@ router.post("/:slug/servers", async (req, res) => {
   }
 
   return handleMiniAppServers(req, res, { telegramUserId, initData });
+});
+
+router.post("/:slug/events", async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const eventName = String(req.body.event_name || "").trim();
+    const page = String(req.body.page || "").trim();
+    const telegramUserId = parseTelegramUserId(req.body.telegram_user_id);
+    const initData = req.body.init_data || req.get("x-telegram-init-data") || "";
+
+    if (!MINIAPP_PAGE_VIEW_EVENTS.has(eventName)) {
+      return res.status(400).json({
+        success: false,
+        message: "Unsupported Mini App event",
+      });
+    }
+
+    if (Number.isNaN(telegramUserId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid telegram_user_id",
+      });
+    }
+
+    if (!telegramUserId || (!IS_DEV && !String(initData).trim())) {
+      return res.status(401).json({
+        success: false,
+        message: "Telegram authentication is required to record Mini App events",
+      });
+    }
+
+    const { data: miniapp, error: miniappError } = await supabase
+      .from("reseller_miniapps")
+      .select("id, reseller_id, miniapp_slug, is_enabled, bot_token_encrypted")
+      .eq("miniapp_slug", slug)
+      .maybeSingle();
+
+    if (miniappError) {
+      console.error("Mini App event lookup error:", miniappError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to load Mini App",
+      });
+    }
+
+    if (!miniapp) {
+      return res.status(404).json({
+        success: false,
+        message: "Mini App not found",
+      });
+    }
+
+    if (!miniapp.is_enabled) {
+      return res.status(403).json({
+        success: false,
+        message: "Mini App is disabled",
+      });
+    }
+
+    try {
+      verifyMiniAppRequestUser({
+        miniapp,
+        initData,
+        expectedTelegramUserId: telegramUserId,
+      });
+    } catch (authErr) {
+      return miniAppAuthResponse(res, authErr);
+    }
+
+    const { data: link, error: linkError } = await supabase
+      .from("telegram_links")
+      .select("customer_id, reseller_id")
+      .eq("reseller_id", miniapp.reseller_id)
+      .eq("telegram_user_id", telegramUserId)
+      .maybeSingle();
+
+    if (linkError) {
+      console.error("Mini App event link lookup error:", linkError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to check Telegram user",
+      });
+    }
+
+    let activeOrder = null;
+    if (link?.customer_id) {
+      try {
+        activeOrder = await getBestActiveOrder({
+          customerId: link.customer_id,
+          resellerId: miniapp.reseller_id,
+        });
+      } catch (err) {
+        console.error("Mini App event order lookup error:", err);
+      }
+    }
+
+    trackMiniAppEvent(req, {
+      event_name: eventName,
+      reseller_id: miniapp.reseller_id,
+      customer_id: link?.customer_id || null,
+      telegram_user_id: telegramUserId,
+      order_id: activeOrder?.id || null,
+      plan_id: activeOrder?.plan_id || null,
+      page: page || (eventName === "packages_viewed" ? "packages" : "servers"),
+      status: "success",
+      metadata: {
+        order_type: activeOrder?.order_type || null,
+      },
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Mini App event exception:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Unexpected server error",
+    });
+  }
 });
 
 router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res) => {
@@ -1276,6 +1460,20 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     }
 
     if (!activeOrder) {
+      trackMiniAppEvent(req, {
+        event_name: "server_select_blocked",
+        reseller_id: miniapp.reseller_id,
+        customer_id: customer.id,
+        telegram_user_id: telegramUserId,
+        server_id: serverId,
+        page: "servers",
+        status: "blocked",
+        metadata: {
+          code: "NO_ACTIVE_PACKAGE",
+          reason: "No active package",
+        },
+      });
+
       return res.status(403).json({
         success: false,
         message: "No active package. Please buy a package.",
@@ -1288,7 +1486,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
 
     const { data: server, error: serverError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, display_country, display_city, flag_emoji, outline_api_url, outline_cert_sha256, status, is_default, server_tier")
+      .select("id, name, region, region_code, display_country, display_city, flag_emoji, outline_api_url, outline_cert_sha256, status, is_default, server_tier")
       .eq("id", serverId)
       .maybeSingle();
 
@@ -1307,27 +1505,38 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
       });
     }
 
-    if (normalizeMiniAppServerTier(server.server_tier) !== requiredServerTier) {
-      const code =
-        requiredServerTier === "trial"
-          ? "TRIAL_CANNOT_USE_PREMIUM"
-          : "PREMIUM_CANNOT_USE_TRIAL";
-      return res.status(403).json({
-        success: false,
-        code,
-        message:
-          requiredServerTier === "trial"
-            ? "Trial packages can only connect to trial servers."
-            : "Premium packages can only connect to premium servers.",
+    // Single choke point for tier/region rules — see
+    // getMiniAppServerAccessState() for the current policy (paid customers:
+    // any active server; trial customers: trial-tier only).
+    const access = getMiniAppServerAccessState({ activeOrder, server, allowedRegions });
+    if (!access.canAccess) {
+      trackMiniAppEvent(req, {
+        event_name: "server_select_blocked",
+        reseller_id: miniapp.reseller_id,
+        customer_id: customer.id,
+        telegram_user_id: telegramUserId,
+        order_id: activeOrder.id,
+        plan_id: activeOrder.plan_id,
+        server_id: server.id,
+        page: "servers",
+        status: "blocked",
+        metadata: {
+          code: access.reason,
+          server_tier: normalizeMiniAppServerTier(server.server_tier),
+          required_tier: requiredServerTier,
+        },
       });
-    }
 
-    const normalizedPlanRegions = allowedRegions.map((r) => String(r || "").toLowerCase().trim());
-    if (normalizedPlanRegions.length > 0 && !normalizedPlanRegions.includes(String(server.region || "").toLowerCase().trim())) {
+      const messages = {
+        NO_ACTIVE_PACKAGE: "No active package. Please buy a package.",
+        TRIAL_CANNOT_USE_PREMIUM: "Trial packages can only connect to trial servers.",
+        REGION_NOT_ALLOWED: "Your package cannot access this server",
+      };
+
       return res.status(403).json({
         success: false,
-        code: "REGION_NOT_ALLOWED",
-        message: "Your package cannot access this server",
+        code: access.reason,
+        message: messages[access.reason] || "This server is not available for your package.",
       });
     }
 
@@ -1382,6 +1591,23 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     // Idempotent: target server is already the only active key -> nothing to switch.
     if (activeTargetKey && activeKeys.length === 1) {
       const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
+      trackMiniAppEvent(req, {
+        event_name: "server_selected",
+        reseller_id: miniapp.reseller_id,
+        customer_id: customer.id,
+        telegram_user_id: telegramUserId,
+        order_id: activeOrder.id,
+        plan_id: activeOrder.plan_id,
+        server_id: server.id,
+        page: "servers",
+        status: "success",
+        metadata: {
+          reused: true,
+          server_tier: normalizeMiniAppServerTier(server.server_tier),
+          region: server.region,
+        },
+      });
+
       return res.json({
         success: true,
         message: "Server already linked",
@@ -1396,6 +1622,22 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     // order has hit its cap. Re-linking the current server above is exempt.
     const quota = await getOrderQuotaSnapshot(activeOrder.id);
     if (!quota.isUnlimited && quota.remainingBytes === 0) {
+      trackMiniAppEvent(req, {
+        event_name: "server_select_blocked",
+        reseller_id: miniapp.reseller_id,
+        customer_id: customer.id,
+        telegram_user_id: telegramUserId,
+        order_id: activeOrder.id,
+        plan_id: activeOrder.plan_id,
+        server_id: server.id,
+        page: "servers",
+        status: "blocked",
+        metadata: {
+          code: "DATA_LIMIT_REACHED",
+          server_tier: normalizeMiniAppServerTier(server.server_tier),
+        },
+      });
+
       return res.status(403).json({
         success: false,
         code: "DATA_LIMIT_REACHED",
@@ -1499,6 +1741,22 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         insertedVpnKeyId = insertedKey.id;
         await incrementServerUsage(server.id);
         incrementedNewServer = true;
+        trackMiniAppEvent(req, {
+          event_name: "key_provisioned",
+          reseller_id: miniapp.reseller_id,
+          customer_id: customer.id,
+          telegram_user_id: telegramUserId,
+          order_id: activeOrder.id,
+          plan_id: activeOrder.plan_id,
+          server_id: server.id,
+          page: "servers",
+          status: "success",
+          metadata: {
+            server_tier: normalizeMiniAppServerTier(server.server_tier),
+            region: server.region,
+            order_type: activeOrder.order_type || null,
+          },
+        });
       }
 
       await clearServerError(server.id);
@@ -1509,6 +1767,23 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     const knownUsedBytes = activeKeys.reduce(
       (sum, k) => sum + Number(k.used_bytes || 0), 0
     );
+    trackMiniAppEvent(req, {
+      event_name: "server_selected",
+      reseller_id: miniapp.reseller_id,
+      customer_id: customer.id,
+      telegram_user_id: telegramUserId,
+      order_id: activeOrder.id,
+      plan_id: activeOrder.plan_id,
+      server_id: server.id,
+      page: "servers",
+      status: "success",
+      metadata: {
+        server_tier: normalizeMiniAppServerTier(server.server_tier),
+        region: server.region,
+        reused: Boolean(activeTargetKey),
+      },
+    });
+
     res.json({
       success: true,
       message: "Server linked successfully",
@@ -1931,7 +2206,7 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
       });
     }
 
-    await createOrderPayment({
+    const payment = await createOrderPayment({
       order: {
         ...createdOrder,
         commission_percent: commissionPercent,
@@ -1967,6 +2242,7 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
           id,
           name,
           region,
+          region_code,
           display_country,
           display_city,
           flag_emoji,
@@ -1986,6 +2262,27 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
     }
 
     const currentServer = insertedKey.vpn_servers || null;
+
+    trackMiniAppEvent(req, {
+      event_name: "order_submitted",
+      reseller_id: miniapp.reseller_id,
+      customer_id: customer.id,
+      telegram_user_id: telegramUserId,
+      order_id: activatedOrder.id,
+      payment_id: payment?.id || null,
+      plan_id: plan.id,
+      server_id: currentServer?.id || null,
+      page: "checkout",
+      status: "success",
+      metadata: {
+        price_mmk: priceMmk,
+        duration_days: plan.duration_days,
+        data_limit_gb: plan.data_limit_gb,
+        order_type: "purchase",
+        review_status: activatedOrder.review_status,
+        payment_status: activatedOrder.payment_status,
+      },
+    });
 
     return res.status(201).json({
       success: true,
@@ -2134,6 +2431,15 @@ router.post(
         console.error("Supabase Storage upload error:", uploadError);
         return res.status(500).json({ error: "Failed to store screenshot" });
       }
+
+      trackMiniAppEvent(req, {
+        event_name: "payment_screenshot_uploaded",
+        reseller_id: miniapp.reseller_id,
+        customer_id: link.customer_id,
+        telegram_user_id: telegramUserId,
+        page: "checkout",
+        status: "success",
+      });
 
       return res.json({ path: storagePath });
     } catch (err) {
