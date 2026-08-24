@@ -41,6 +41,10 @@ export function StatusBadge({ status }: { status: string }) {
     provisioning: 'info',
     failed: 'destructive',
     error: 'destructive',
+    healthy: 'success',
+    stale: 'warning',
+    degraded: 'warning',
+    unknown: 'info',
   };
   return (
     <Badge variant={variantMap[status] ?? 'default'}>

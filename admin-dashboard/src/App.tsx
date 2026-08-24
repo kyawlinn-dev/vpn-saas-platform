@@ -7,6 +7,7 @@ import { useDashboardData } from './hooks/useDashboardData';
 
 const OverviewPage = lazy(() => import('./pages/OverviewPage').then((module) => ({ default: module.OverviewPage })));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((module) => ({ default: module.AnalyticsPage })));
+const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then((module) => ({ default: module.MonitoringPage })));
 const ResellersPage = lazy(() => import('./pages/ResellersPage').then((module) => ({ default: module.ResellersPage })));
 const PlansPage = lazy(() => import('./pages/PlansPage').then((module) => ({ default: module.PlansPage })));
 const OrdersPage = lazy(() => import('./pages/OrdersPage').then((module) => ({ default: module.OrdersPage })));
@@ -38,6 +39,7 @@ function AuthenticatedApp() {
           <Route index element={<Navigate to="/overview" replace />} />
           <Route path="overview" element={<OverviewPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
+          <Route path="monitoring" element={<MonitoringPage />} />
           <Route
             path="resellers"
             element={<ResellersPage onSuccess={refresh} />}

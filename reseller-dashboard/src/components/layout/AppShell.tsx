@@ -7,6 +7,7 @@ import {
   Users,
   Send,
   Tags,
+  Bell,
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Accounting",      to: "/app/accounting",       Icon: Calculator },
   { label: "Telegram Orders", to: "/app/telegram-orders",  Icon: Send },
   { label: "Plans",           to: "/app/plans",            Icon: Tags },
+  { label: "Notifications",   to: "/app/notifications",    Icon: Bell },
   { label: "Settings",        to: "/app/settings",         Icon: Settings },
 ];
 

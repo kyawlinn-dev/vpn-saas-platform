@@ -3,7 +3,7 @@ import {
   type LucideIcon,
   LayoutDashboard, Users, CreditCard, ShoppingCart,
   Key, Server, UserCheck, Shield, Calculator, BarChart3,
-  LogOut, PanelLeftClose, PanelLeftOpen,
+  Activity, LogOut, PanelLeftClose, PanelLeftOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Overview",    to: "/overview",    Icon: LayoutDashboard },
   { label: "Analytics",   to: "/analytics",   Icon: BarChart3 },
+  { label: "Monitoring",  to: "/monitoring",  Icon: Activity },
   { label: "Resellers",   to: "/resellers",   Icon: UserCheck },
   { label: "Plans",       to: "/plans",       Icon: CreditCard },
   { label: "Orders",      to: "/orders",      Icon: ShoppingCart },

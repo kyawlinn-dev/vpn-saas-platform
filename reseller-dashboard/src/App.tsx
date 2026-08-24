@@ -14,6 +14,7 @@ const AccountingPage = lazy(() => import("./pages/AccountingPage").then((module)
 const PlansPage = lazy(() => import("./pages/PlansPage").then((module) => ({ default: module.PlansPage })));
 const TelegramOrdersPage = lazy(() => import("./pages/TelegramOrdersPage").then((module) => ({ default: module.TelegramOrdersPage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage").then((module) => ({ default: module.NotificationsPage })));
 
 function RouteLoading() {
   return <div className="min-h-48 animate-pulse rounded-lg bg-white/50" aria-label="Loading page" />;
@@ -43,6 +44,7 @@ export default function App() {
                 <Route path="accounting" element={<AccountingPage />} />
                 <Route path="telegram-orders" element={<TelegramOrdersPage />} />
                 <Route path="plans" element={<PlansPage />} />
+                <Route path="notifications" element={<NotificationsPage />} />
                 <Route path="settings" element={<SettingsPage />} />
               </Route>
 
