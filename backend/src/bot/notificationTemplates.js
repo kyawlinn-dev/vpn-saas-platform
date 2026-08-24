@@ -54,6 +54,8 @@ export const NOTIFICATION_EVENT_TYPES = [
   "subscription_expired",
   "payment_confirmed",
   "payment_rejected",
+  "data_limit_reached",
+  "data_limit_warning",
 ];
 
 // Human labels + which placeholders each event's data object provides. Used
@@ -96,6 +98,26 @@ export const EVENT_META = {
     label: "ငွေပေးချေမှု လက်မခံ",
     description: "order_payments.review_status flipped to rejected.",
     placeholders: ["brand_name", "plan_name", "reject_reason", "support_username"],
+  },
+  data_limit_reached: {
+    label: "Data limit ကုန်ဆုံးပြီး",
+    description:
+      "Fires the moment syncUsageJob auto-stops an order for exceeding its plan's " +
+      "data limit — trial or paid, whichever hits first. Independent of the " +
+      "date-based trial_expired/subscription_expired events, which wouldn't " +
+      "fire until the order's original calendar expiry date even though " +
+      "access was already cut off earlier for running out of data.",
+    placeholders: ["brand_name", "plan_name", "deep_link_url"],
+  },
+  data_limit_warning: {
+    label: "Data limit ကုန်ခါနီးပြီ (80%)",
+    description:
+      "Advance warning at 80% of the plan's data limit, checked on the same " +
+      "hourly syncUsageJob tick as data_limit_reached — the data-limit side's " +
+      "equivalent of trial_ending_24h / subscription_expiring_3d, so customers " +
+      "get a heads-up before hitting a hard cutoff either way (by date or by " +
+      "data), not just for the date-based one.",
+    placeholders: ["brand_name", "plan_name", "percent_used", "remaining_gb", "deep_link_url"],
   },
 };
 
@@ -165,6 +187,21 @@ export const DEFAULT_TEMPLATES = {
     "",
     "ပြန်လည် ငွေပေးချေရန်၊ သို့မဟုတ် အကူအညီ လိုပါက Admin ကို ဆက်သွယ်ပါ 👇",
     "👤 @{support_username}",
+  ].join("\n"),
+
+  data_limit_reached: [
+    "<b>⚠️ data limit reached!</b>",
+    "",
+    "သင့် {plan_name} ၏ data limit ကို အသုံးပြုပြီးပါပြီ။ VPN ချိတ်ဆက်မှု ရပ်တန့်သွားပါပြီ။",
+    "ဆက်လက်အသုံးပြုလိုပါက အောက်ပါ \"Package ဝယ်ရန်\" ခလုတ်ကိုနှိပ်ပါ 👇",
+  ].join("\n"),
+
+  data_limit_warning: [
+    "<b>⚠️ data limit ကုန်ခါနီးပြီ!</b>",
+    "",
+    "သင့် {plan_name} ၏ data ကို {percent_used}% အသုံးပြုပြီးပါပြီ — လက်ကျန် {remaining_gb} GB သာ ရှိပါတော့သည်။",
+    "Data ကုန်သွားပါက VPN ချိတ်ဆက်မှု ချက်ချင်း ရပ်တန့်သွားပါလိမ့်မည်။",
+    "ကြိုတင်ဝယ်ယူထားလိုပါက အောက်ပါ \"Package ဝယ်ရန်\" ခလုတ်ကိုနှိပ်ပါ 👇",
   ].join("\n"),
 };
 

@@ -71,6 +71,8 @@ const DEEP_LINK_BUTTON_EVENTS = new Map([
   ["trial_expired", "Package ဝယ်ရန်"],
   ["subscription_expiring_3d", "Package ဝယ်ရန်"],
   ["subscription_expired", "Package ဝယ်ရန်"],
+  ["data_limit_reached", "Package ဝယ်ရန်"],
+  ["data_limit_warning", "Package ဝယ်ရန်"],
 ]);
 
 function buildDeepLinkButtonMarkup(eventType, deepLinkUrl) {
@@ -257,12 +259,39 @@ async function getCheapestPaidPlanPriceMmk() {
   return data?.price_mmk ?? null;
 }
 
+// Trial orders never get their status touched when a customer buys a paid
+// plan — the purchase route only blocks a SECOND purchase while one is
+// active, it doesn't look at or stop the customer's existing trial order at
+// all (confirmed against resellerMiniappRoutes.js POST /:slug/orders). So a
+// trial order can sit at status='active' with its original expiry_date
+// indefinitely even after the customer has already converted to paid,
+// which would otherwise make both trial_ending_24h and trial_expired keep
+// firing "your trial is ending!" at someone who already paid. Exclude any
+// trial row whose customer already has an active purchase order.
+async function excludeCustomersWithActivePurchase(rows) {
+  if (rows.length === 0) return rows;
+  const customerIds = [...new Set(rows.map((r) => r.customerId))];
+  const { data: activePurchases, error } = await supabase
+    .from("vpn_orders")
+    .select("customer_id")
+    .in("customer_id", customerIds)
+    .eq("order_type", "purchase")
+    .eq("status", "active");
+  if (error) {
+    log.warn({ err: error }, "failed to check active-purchase exclusion for trial events");
+    return rows;
+  }
+  const excluded = new Set((activePurchases || []).map((p) => p.customer_id));
+  return rows.filter((r) => !excluded.has(r.customerId));
+}
+
 async function findTrialEndingIn24h() {
   const target = shiftDate(yangonDate(), 1);
-  const rows = await fetchOrderBasedEvent({
+  let rows = await fetchOrderBasedEvent({
     eventType: "trial_ending_24h",
     orderFilter: (q) => q.eq("order_type", "trial").eq("status", "active").eq("expiry_date", target),
   });
+  rows = await excludeCustomersWithActivePurchase(rows);
   return attachCheapestPlanPrice(rows);
 }
 
@@ -277,12 +306,24 @@ async function attachCheapestPlanPrice(rows) {
   return rows;
 }
 
+// trial_expired and subscription_expired both used to match purely on
+// expiry_date, with no status check — so an order that already stopped
+// EARLY for any other reason (data_limit_reached, a manual stop, ...) would
+// still fire this a second, redundant/stale time once its original
+// calendar expiry date rolled around, even though the customer already
+// found out (or should have) days earlier. Restricting to status='active'
+// fixes that without breaking the normal case: autoStopJob only stops
+// orders once expiry_date is strictly in the PAST (`< today`), so on the
+// actual expiry day itself a normally-expiring order is still 'active' when
+// this check runs — this filter only excludes the early-stopped edge cases,
+// not the everyday one.
 async function findTrialExpired() {
   const today = yangonDate();
-  const rows = await fetchOrderBasedEvent({
+  let rows = await fetchOrderBasedEvent({
     eventType: "trial_expired",
-    orderFilter: (q) => q.eq("order_type", "trial").eq("expiry_date", today),
+    orderFilter: (q) => q.eq("order_type", "trial").eq("status", "active").eq("expiry_date", today),
   });
+  rows = await excludeCustomersWithActivePurchase(rows);
   return attachCheapestPlanPrice(rows);
 }
 
@@ -298,7 +339,7 @@ async function findSubscriptionExpired() {
   const today = yangonDate();
   return fetchOrderBasedEvent({
     eventType: "subscription_expired",
-    orderFilter: (q) => q.neq("order_type", "trial").eq("expiry_date", today),
+    orderFilter: (q) => q.neq("order_type", "trial").eq("status", "active").eq("expiry_date", today),
   });
 }
 
@@ -379,6 +420,84 @@ async function fetchCustomTemplatesForEvent(eventType) {
     return new Map();
   }
   return new Map((data || []).map((r) => [r.reseller_id, r.custom_text]));
+}
+
+// ── Public: single event-driven send ─────────────────────────────────────────
+// Fired immediately by syncUsageJob.js right when it auto-stops an order for
+// exceeding its plan's data limit — trial or paid. Not part of the batch
+// pass above: the date-based trial_expired/subscription_expired events
+// wouldn't fire until the order's ORIGINAL calendar expiry date, which could
+// be days after access was actually cut off for running out of data. This
+// tells the customer immediately, at the moment it's actually true, instead
+// of leaving them with a silently-dead VPN key and no explanation (or a
+// stale explanation days later). Self-contained — looks up everything it
+// needs from just the orderId, so the caller doesn't have to.
+// Shared by both data-limit event senders below — loads everything needed to
+// notify about a single order (customer, telegram link, reseller brand,
+// kill-switch check) from just the orderId, so each caller only has to
+// supply the event-specific extra placeholder data (e.g. percent_used).
+async function sendSingleOrderNotification(orderId, eventType, extraData = {}) {
+  const { data: order, error } = await supabase
+    .from("vpn_orders")
+    .select(`
+      id,
+      customer_id,
+      reseller_id,
+      plan:vpn_plans(id, name),
+      customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_links(telegram_user_id)),
+      reseller_row:resellers!inner(id, notifications_paused)
+    `)
+    .eq("id", orderId)
+    .eq("reseller_row.notifications_paused", false)
+    .maybeSingle();
+
+  if (error) {
+    log.error({ err: error, order_id: orderId, event_type: eventType }, "sendSingleOrderNotification: order lookup failed");
+    return { sent: false, reason: "lookup_failed" };
+  }
+  if (!order) return { sent: false, reason: "not_found_or_reseller_paused" };
+
+  const tgUserId = order.customer?.telegram_links?.[0]?.telegram_user_id;
+  if (!tgUserId) return { sent: false, reason: "no_telegram_link" };
+
+  const miniappsById = await fetchResellerMiniappsById([order.reseller_id]);
+  const miniapp = miniappsById.get(order.reseller_id);
+
+  const data = {
+    brand_name: miniapp?.brand_name || "",
+    plan_name: order.plan?.name || "",
+    deep_link_url: buildDeepLink(miniapp),
+    ...extraData,
+  };
+
+  const customTemplates = await fetchCustomTemplatesForEvent(eventType);
+  const customText = customTemplates.get(order.reseller_id) || null;
+  const text = renderNotification(eventType, data, customText);
+  if (!text) return { sent: false, reason: "no_template" };
+
+  return sendAndRecord({
+    resellerId: order.reseller_id,
+    customerId: order.customer_id,
+    telegramUserId: Number(tgUserId),
+    eventType,
+    orderId: order.id,
+    text,
+    replyMarkup: buildDeepLinkButtonMarkup(eventType, data.deep_link_url),
+  });
+}
+
+export async function notifyDataLimitReached(orderId) {
+  return sendSingleOrderNotification(orderId, "data_limit_reached");
+}
+
+// percentUsed/remainingGb are computed by the caller (syncUsageJob already
+// has the usage numbers on hand while checking the limit) rather than
+// re-querying key usage here — keeps the usage math in one place.
+export async function notifyDataLimitWarning(orderId, { percentUsed, remainingGb }) {
+  return sendSingleOrderNotification(orderId, "data_limit_warning", {
+    percent_used: percentUsed,
+    remaining_gb: remainingGb,
+  });
 }
 
 // ── Public: run one pass ─────────────────────────────────────────────────────

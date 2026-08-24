@@ -1,12 +1,71 @@
 import { supabase } from "../lib/supabase.js";
+import { logger } from "../lib/logger.js";
 import { getOutlineTransferMetrics } from "../services/outlineService.js";
 import { stopOrder } from "../services/orderLifecycleService.js";
+import { notifyDataLimitReached, notifyDataLimitWarning } from "../services/notificationService.js";
+import {
+  markJobFailure,
+  markJobStarted,
+  markJobSuccess,
+  recordServerHealthFailure,
+  recordServerUsageSyncSuccess,
+} from "../services/healthMonitoringService.js";
 
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const WARNING_THRESHOLD = 0.8; // 80% of the plan's data limit
+const log = logger.child({ job: "syncUsage" });
 
 function planLimitToBytes(gb) {
   if (!gb || Number(gb) <= 0) return null;
   return Math.floor(Number(gb) * 1024 * 1024 * 1024);
+}
+
+// Advance warning at 80% usage — the data-limit side's equivalent of
+// trial_ending_24h / subscription_expiring_3d, so customers get a heads-up
+// before a hard cutoff either way (by date or by data), not just the
+// date-based one. The notifications_sent unique constraint on (customer,
+// event_type, order_id) makes this naturally fire-once even though this
+// function re-checks every order on every hourly tick — once sent for an
+// order, later ticks just no-op on the dedup check inside sendAndRecord.
+async function warnOrdersNearDataLimit() {
+  const { data: orders, error } = await supabase
+    .from("vpn_orders")
+    .select("id, reseller_id, vpn_plans ( data_limit_gb )")
+    .eq("status", "active");
+
+  if (error) {
+    log.error({ err: error }, "near-limit query error");
+    return;
+  }
+
+  for (const order of orders || []) {
+    const limitGb = Number(order.vpn_plans?.data_limit_gb || 0);
+    const limitBytes = planLimitToBytes(limitGb);
+    if (!limitBytes) continue;
+
+    const { data: keys, error: keysErr } = await supabase
+      .from("vpn_keys")
+      .select("used_bytes")
+      .eq("order_id", order.id)
+      .in("status", ["active", "deleted"]);
+
+    if (keysErr) continue;
+
+    const total = (keys || []).reduce((sum, k) => sum + Number(k.used_bytes || 0), 0);
+    // Strictly below the limit — an order at or over it gets stopped and
+    // gets data_limit_reached instead (stopOrdersOverDataLimit, right after
+    // this function), not this warning.
+    if (total < limitBytes * WARNING_THRESHOLD || total >= limitBytes) continue;
+
+    const percentUsed = Math.floor((total / limitBytes) * 100);
+    const remainingGb = Math.max(0, (limitBytes - total) / 1024 / 1024 / 1024).toFixed(2);
+
+    try {
+      await notifyDataLimitWarning(order.id, { percentUsed, remainingGb });
+    } catch (err) {
+      log.error({ err, order_id: order.id }, "failed to send data-limit-warning notification");
+    }
+  }
 }
 
 async function stopOrdersOverDataLimit() {
@@ -16,7 +75,7 @@ async function stopOrdersOverDataLimit() {
     .eq("status", "active");
 
   if (error) {
-    console.error("[syncUsage] over-limit query error:", error.message);
+    log.error({ err: error }, "over-limit query error");
     return;
   }
 
@@ -37,9 +96,19 @@ async function stopOrdersOverDataLimit() {
 
     try {
       await stopOrder({ orderId: order.id, resellerId: order.reseller_id });
-      console.log(`[syncUsage] Auto-stopped order ${order.id} (data limit reached).`);
+      log.info({ order_id: order.id }, "auto-stopped order (data limit reached)");
     } catch (err) {
-      console.error(`[syncUsage] Failed to stop over-limit order ${order.id}:`, err.message);
+      log.error({ err, order_id: order.id }, "failed to stop over-limit order");
+      continue;
+    }
+
+    // Best-effort — a failed notification should never be treated as a
+    // failure of the actual stop-order operation above, which already
+    // succeeded and shouldn't be retried because of this.
+    try {
+      await notifyDataLimitReached(order.id);
+    } catch (err) {
+      log.error({ err, order_id: order.id }, "failed to send data-limit-reached notification");
     }
   }
 }
@@ -52,8 +121,8 @@ async function syncUsage() {
     .not("outline_api_url", "is", null);
 
   if (serverError) {
-    console.error("[syncUsage] Failed to fetch servers:", serverError.message);
-    return;
+    log.error({ err: serverError }, "failed to fetch servers");
+    throw serverError;
   }
 
   if (!servers?.length) return;
@@ -65,8 +134,6 @@ async function syncUsage() {
         certSha256: server.outline_cert_sha256,
       });
 
-      if (!Object.keys(metricsMap).length) continue;
-
       const { data: keys, error: keysError } = await supabase
         .from("vpn_keys")
         .select("id, outline_key_id, used_bytes")
@@ -75,14 +142,10 @@ async function syncUsage() {
         .is("deleted_at", null);
 
       if (keysError) {
-        console.warn(
-          `[syncUsage] Failed to fetch keys for server ${server.id}:`,
-          keysError.message
-        );
+        log.warn({ err: keysError, server_id: server.id }, "failed to fetch keys for server");
+        await recordServerHealthFailure(server.id, keysError);
         continue;
       }
-
-      if (!keys?.length) continue;
 
       let updated = 0;
 
@@ -97,18 +160,19 @@ async function syncUsage() {
           .eq("id", key.id);
 
         if (updateError) {
-          console.warn(
-            `[syncUsage] Failed to update used_bytes for key ${key.id}:`,
-            updateError.message
-          );
+          log.warn({ err: updateError, key_id: key.id }, "failed to update used_bytes");
         } else {
           updated += 1;
         }
       }
 
-      console.log(`[syncUsage] Server ${server.id}: updated ${updated} key(s).`);
+      await recordServerUsageSyncSuccess(server.id, {
+        activeKeysSeen: keys?.length || 0,
+      });
+      log.info({ server_id: server.id, keys_updated: updated, keys_seen: keys?.length || 0 }, "server usage synced");
     } catch (err) {
-      console.error(`[syncUsage] Error syncing server ${server.id}:`, err.message);
+      await recordServerHealthFailure(server.id, err);
+      log.error({ err, server_id: server.id }, "error syncing server");
     }
   }
 }
@@ -120,7 +184,7 @@ async function reconcileServerActiveKeyCounts() {
     .eq("status", "active");
 
   if (error) {
-    console.error("[syncUsage] Failed to load server counters:", error.message);
+    log.error({ err: error }, "failed to load server counters");
     return;
   }
 
@@ -133,7 +197,7 @@ async function reconcileServerActiveKeyCounts() {
       .is("deleted_at", null);
 
     if (countError) {
-      console.warn(`[syncUsage] Failed to count active keys for ${server.id}:`, countError.message);
+      log.warn({ err: countError, server_id: server.id }, "failed to count active keys");
       continue;
     }
 
@@ -149,32 +213,36 @@ async function reconcileServerActiveKeyCounts() {
       .select("id");
 
     if (updateError) {
-      console.warn(`[syncUsage] Failed to reconcile server ${server.id}:`, updateError.message);
+      log.warn({ err: updateError, server_id: server.id }, "failed to reconcile server");
     } else if (updatedServers?.length) {
-      console.log(`[syncUsage] Reconciled server ${server.id}: ${current} -> ${expected}.`);
+      log.info({ server_id: server.id, from: current, to: expected }, "reconciled server counter");
     } else {
-      console.log(`[syncUsage] Skipped stale counter update for server ${server.id}.`);
+      log.debug({ server_id: server.id }, "skipped stale counter update");
     }
   }
 }
 
 async function runSyncUsage() {
-  console.log("[syncUsage] Running...");
-  await syncUsage();
-  await reconcileServerActiveKeyCounts();
-  await stopOrdersOverDataLimit();
+  log.info("running");
+  await markJobStarted("usage_sync");
+  try {
+    await syncUsage();
+    await reconcileServerActiveKeyCounts();
+    await warnOrdersNearDataLimit();
+    await stopOrdersOverDataLimit();
+    await markJobSuccess("usage_sync");
+  } catch (err) {
+    await markJobFailure("usage_sync", err);
+    throw err;
+  }
 }
 
 export function startSyncUsageJob() {
-  runSyncUsage().catch((err) =>
-    console.error("[syncUsage] Initial run error:", err.message)
-  );
+  runSyncUsage().catch((err) => log.error({ err }, "initial run error"));
 
   setInterval(() => {
-    runSyncUsage().catch((err) =>
-      console.error("[syncUsage] Interval run error:", err.message)
-    );
+    runSyncUsage().catch((err) => log.error({ err }, "interval run error"));
   }, INTERVAL_MS);
 
-  console.log("[syncUsage] Job scheduled (every 1 hour).");
+  log.info({ interval_ms: INTERVAL_MS }, "job scheduled (every 1 hour)");
 }
