@@ -170,6 +170,16 @@ function getOrderRemainingGb(key?: VpnKey | null) {
 
 function getOrderLimitGb(key?: VpnKey | null) {
   if (!key) return 0;
+  // Denominator = the order's TOTAL plan allowance, reconstructed as
+  // used + remaining. After a server migration the active key's own
+  // data_limit_bytes is REMAINING-based (e.g. 129 GB left of a 300 GB plan),
+  // not the plan total — so dividing lifetime-used by it falsely shows >100%
+  // for migrated heavy users. used + remaining rebuilds the true plan total
+  // (300), matching what the customer sees in the Mini App, and stays correct
+  // for extend/top-up orders (plan + extra). Fall back to the raw key limit
+  // only when remaining isn't available.
+  const remaining = getOrderRemainingGb(key);
+  if (typeof remaining === "number") return getOrderUsageGb(key) + remaining;
   if (typeof key.data_limit_gb === "number") return key.data_limit_gb;
   if (typeof key.data_limit_bytes === "number") return key.data_limit_bytes / 1024 / 1024 / 1024;
   return 0;
