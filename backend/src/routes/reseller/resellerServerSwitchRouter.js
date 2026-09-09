@@ -12,11 +12,30 @@
 // communication themselves (per user 2026-08-16 decision).
 
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { supabase } from "../../lib/supabase.js";
-import { switchOrderServer } from "../../services/subscriptionProvisionService.js";
+import {
+  switchOrderServer,
+  getOrderQuotaSnapshot,
+} from "../../services/subscriptionProvisionService.js";
 import { getRegionLocation } from "../../constants/doRegions.js";
 
 const router = express.Router();
+
+// A reseller may legitimately move many DIFFERENT customers during an
+// outage, but repeatedly switching the SAME order is the only way the
+// quota-reset bug could be farmed. Cap per (reseller, order).
+const switchLimiter = rateLimit({
+  windowMs: 6 * 60 * 60 * 1000, // 6h
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.reseller?.id || req.ip}:${req.params.orderId}`,
+  message: {
+    error: "SWITCH_RATE_LIMITED",
+    message: "This subscription was switched too many times recently. Try again later.",
+  },
+});
 
 async function loadPaidActiveOrder(orderId, resellerId) {
   const { data: order, error } = await supabase
@@ -136,7 +155,7 @@ router.get("/:orderId/eligible-servers", async (req, res) => {
 
 // POST /api/reseller/orders/:orderId/switch-server
 // Body: { new_server_id }
-router.post("/:orderId/switch-server", async (req, res) => {
+router.post("/:orderId/switch-server", switchLimiter, async (req, res) => {
   const resellerId = req.reseller.id;
   const { orderId } = req.params;
   const { new_server_id: newServerId } = req.body || {};
@@ -158,6 +177,18 @@ router.post("/:orderId/switch-server", async (req, res) => {
     }
     if (currentKey.server_id === newServerId) {
       return res.status(400).json({ error: "SAME_SERVER" });
+    }
+
+    // Mirror the mini-app DATA_LIMIT_REACHED guard: no switch once the
+    // order's balance is spent (otherwise the new key would be minted at the
+    // remaining balance of ~0 and the customer would appear "broken", or —
+    // pre-fix — get a free full-plan refill).
+    const quota = await getOrderQuotaSnapshot(orderId);
+    if (!quota.isUnlimited && quota.remainingBytes === 0) {
+      return res.status(403).json({
+        error: "DATA_LIMIT_REACHED",
+        message: "This customer has used all their data. Renew or upgrade before switching servers.",
+      });
     }
 
     const { data: newServer, error: serverErr } = await supabase

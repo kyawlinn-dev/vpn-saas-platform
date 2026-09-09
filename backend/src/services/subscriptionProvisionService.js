@@ -506,11 +506,49 @@ export async function provisionServersForToken({
   return created;
 }
 
+// Choose the data limit for a key created by a server migration / switch.
+// Priority:
+//   1. carryRemainingBytes when the caller passes it (number => bytes,
+//      null => unlimited). Use this when the old key was ALREADY retired
+//      (admin decommission) so a fresh snapshot would see no active key.
+//   2. the order's live remaining balance (buildOrderQuotaSnapshot).
+//   3. the plan's full allowance — only when the order has no resolvable
+//      balance (e.g. an orphaned order with no keys at all).
+// Never returns 0: an out-of-data order still gets a 1-byte (immediately
+// capped) key rather than an unlimited one. Callers that want to BLOCK an
+// out-of-data switch do it before calling migrate (reseller route + mini-app
+// DATA_LIMIT_REACHED).
+export function pickMigrationDataLimitBytes({ snapshot, planDataLimitGb, carryRemainingBytes }) {
+  if (carryRemainingBytes !== undefined) {
+    return carryRemainingBytes === null
+      ? null
+      : Math.max(1, Math.floor(Number(carryRemainingBytes) || 0));
+  }
+  if (snapshot && snapshot.isUnlimited) return null;
+  if (snapshot && snapshot.remainingBytes != null) {
+    return Math.max(1, Math.floor(snapshot.remainingBytes));
+  }
+  return gbToBytes(planDataLimitGb);
+}
+
 // Migrate a single active order from a decommissioned server to `newServer`.
 // Creates a fresh Outline key, stores it, wires up token/miniapp assignments.
 // The order stays active with its existing expiry — only the key location changes.
-export async function migrateActiveOrderToServer({ order, newServer, oldServerId }) {
-  const dataLimitBytes = gbToBytes(order.plan?.data_limit_gb);
+export async function migrateActiveOrderToServer({
+  order,
+  newServer,
+  oldServerId,
+  // Optional caller-supplied remaining balance (bytes; null = unlimited).
+  // Pass when the caller has already retired the order's old key.
+  carryRemainingBytes,
+}) {
+  const snapshot =
+    carryRemainingBytes === undefined ? await getOrderQuotaSnapshot(order.id) : null;
+  const dataLimitBytes = pickMigrationDataLimitBytes({
+    snapshot,
+    planDataLimitGb: order.plan?.data_limit_gb,
+    carryRemainingBytes,
+  });
   const keyName = [
     order.customer?.full_name || "Customer",
     newServer.name,

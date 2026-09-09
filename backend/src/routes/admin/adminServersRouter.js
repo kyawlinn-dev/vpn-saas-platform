@@ -4,7 +4,10 @@ import { startProvisionOutlineServer } from "../../services/serverProvisionServi
 import { getServerInventorySummary, getActiveServers } from "../../services/serverService.js";
 import { destroyDroplet } from "../../services/digitalOceanService.js";
 import { deleteOutlineKey } from "../../services/outlineService.js";
-import { migrateActiveOrderToServer } from "../../services/subscriptionProvisionService.js";
+import {
+  migrateActiveOrderToServer,
+  getOrderQuotaSnapshot,
+} from "../../services/subscriptionProvisionService.js";
 
 const router = express.Router();
 
@@ -231,6 +234,25 @@ router.post("/:serverId/decommission", async (req, res) => {
     const keys = activeKeys || [];
     const orderIds = [...new Set(keys.map((k) => k.order_id).filter(Boolean))];
 
+    // Snapshot each order's REMAINING balance now, while its key is still
+    // active, so the migrated key carries the real balance instead of
+    // resetting to the full plan (quota-reset gap, 2026-09-09). Uses stored
+    // used_bytes — for a planned decommission of a HEALTHY server, run a
+    // usage sync first for to-the-minute accuracy.
+    const carryByOrderId = new Map();
+    for (const oid of orderIds) {
+      try {
+        const snap = await getOrderQuotaSnapshot(oid);
+        carryByOrderId.set(
+          oid,
+          snap.isUnlimited ? null : snap.remainingBytes != null ? snap.remainingBytes : undefined
+        );
+      } catch (err) {
+        console.warn(`[decommission] quota snapshot failed for order ${oid}:`, err.message);
+        carryByOrderId.set(oid, undefined);
+      }
+    }
+
     // 4. Delete each Outline key from the VPN server API (best-effort)
     if (server.outline_api_url && server.outline_cert_sha256) {
       for (const key of keys) {
@@ -288,7 +310,12 @@ router.post("/:serverId/decommission", async (req, res) => {
             continue;
           }
 
-          await migrateActiveOrderToServer({ order, newServer, oldServerId: serverId });
+          await migrateActiveOrderToServer({
+            order,
+            newServer,
+            oldServerId: serverId,
+            carryRemainingBytes: carryByOrderId.get(order.id),
+          });
           console.log(`[decommission] Migrated order ${order.id} → server ${newServer.name} (${newServer.id})`);
           ordersMigrated++;
         } catch (err) {
