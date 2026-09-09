@@ -30,7 +30,10 @@ const switchLimiter = rateLimit({
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `${req.reseller?.id || req.ip}:${req.params.orderId}`,
+  // This route is always authenticated (requireActiveReseller), so req.reseller.id
+  // is present — key by (reseller, order) and never fall back to req.ip, which
+  // would trip express-rate-limit's IPv6 keyGenerator validation.
+  keyGenerator: (req) => `${req.reseller?.id || "anon"}:${req.params.orderId}`,
   message: {
     error: "SWITCH_RATE_LIMITED",
     message: "This subscription was switched too many times recently. Try again later.",
