@@ -15,30 +15,36 @@ interface FilterChipsProps<T extends string> {
 
 function FilterChips<T extends string>({ value, onChange, options }: FilterChipsProps<T>) {
   return (
-    <div className="flex gap-1.5 overflow-x-auto">
-      {options.map((opt) => {
-        const active = opt.value === value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => onChange(opt.value)}
-            className={cn(
-              "rounded-full border px-2.5 py-1 text-xs whitespace-nowrap transition-colors",
-              active
-                ? "bg-primary/10 text-primary border-primary/30"
-                : "bg-card text-muted-foreground border-border hover:bg-secondary"
-            )}
-          >
-            {opt.label}
-            {opt.count !== undefined && (
-              <span className={cn("ml-1 text-[11px]", active ? "text-primary/70" : "text-muted-foreground/70")}>
-                {opt.count}
-              </span>
-            )}
-          </button>
-        );
-      })}
+    <div className="relative">
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {options.map((opt) => {
+          const active = opt.value === value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={cn(
+                "min-h-[34px] rounded-full border px-3 py-1 text-xs whitespace-nowrap transition-colors",
+                active
+                  ? "bg-primary/10 text-primary border-primary/30"
+                  : "bg-card text-muted-foreground border-border hover:bg-secondary"
+              )}
+            >
+              {opt.label}
+              {opt.count !== undefined && (
+                <span className={cn("ml-1 text-[11px]", active ? "text-primary/70" : "text-muted-foreground/70")}>
+                  {opt.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-background to-transparent"
+      />
     </div>
   );
 }

@@ -310,17 +310,36 @@ router.patch("/:id", async (req, res) => {
       return res.status(500).json({ error: resellerError.message });
     }
 
-    // Also sync miniapp visibility — non-fatal if miniapp row doesn't exist yet
-    const { error: miniappError } = await supabase
-      .from("reseller_miniapps")
-      .update({ is_enabled: enabled })
-      .eq("reseller_id", id);
+    // Sync miniapp visibility, but never turn a miniapp ON for a dashboard-only
+    // (hybrid) reseller: approving them must not hand them a miniapp. Only
+    // enable the miniapp if they actually have a connected bot. Disabling always
+    // switches it off (full suspend).
+    let miniappPatch = null;
+    if (enabled) {
+      const { data: mp } = await supabase
+        .from("reseller_miniapps")
+        .select("bot_connected")
+        .eq("reseller_id", id)
+        .maybeSingle();
+      if (mp?.bot_connected) {
+        miniappPatch = { is_enabled: true };
+      }
+    } else {
+      miniappPatch = { is_enabled: false };
+    }
 
-    if (miniappError) {
-      console.warn(
-        "admin PATCH resellers: reseller status updated but miniapp sync failed:",
-        miniappError.message
-      );
+    if (miniappPatch) {
+      const { error: miniappError } = await supabase
+        .from("reseller_miniapps")
+        .update(miniappPatch)
+        .eq("reseller_id", id);
+
+      if (miniappError) {
+        console.warn(
+          "admin PATCH resellers: reseller status updated but miniapp sync failed:",
+          miniappError.message
+        );
+      }
     }
 
     return res.json({ success: true, status: newStatus, enabled });
@@ -341,7 +360,7 @@ router.get("/:id/workspace", async (req, res) => {
       .from("reseller_miniapps")
       .select(
         "miniapp_slug, brand_name, brand_logo_url, primary_color, " +
-          "trial_enabled, trial_data_limit_gb, trial_duration_days, " +
+          "trial_enabled, trial_data_limit_gb, trial_duration_days, trial_protocol, " +
           "bot_token_encrypted, bot_connected, bot_username, bot_id"
       )
       .eq("reseller_id", id)
@@ -365,6 +384,7 @@ router.get("/:id/workspace", async (req, res) => {
       trial_enabled: data.trial_enabled ?? false,
       trial_data_limit_gb: data.trial_data_limit_gb ?? null,
       trial_duration_days: data.trial_duration_days ?? null,
+      trial_protocol: data.trial_protocol ?? "shadowsocks",
       bot_connected: botStatus.connected,
       bot_status: botStatus,
     });
@@ -428,6 +448,13 @@ router.patch("/:id/workspace", async (req, res) => {
         }
         updates[f] = body[f];
       }
+    }
+
+    if ("trial_protocol" in body) {
+      if (!["shadowsocks", "vless"].includes(body.trial_protocol)) {
+        return res.status(400).json({ error: "trial_protocol must be 'shadowsocks' or 'vless'" });
+      }
+      updates.trial_protocol = body.trial_protocol;
     }
 
     if ("bot_token" in body) {

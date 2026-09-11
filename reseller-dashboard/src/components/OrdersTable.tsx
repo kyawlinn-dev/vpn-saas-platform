@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, Plus, Copy, Info, Loader2, Crown, Gift,
   RefreshCw, Ban, KeyRound, Lightbulb, Send, UserRound, Server as ServerIcon,
+  Globe, Shuffle, Check,
 } from "lucide-react";
 import { ServerSwitchDialog } from "./ServerSwitchDialog";
 import { Card } from "@/components/ui/card";
@@ -56,6 +57,7 @@ type OrderFilter =
   | "all"
   | "pending"
   | "active"
+  | "scheduled"
   | "expiring"
   | "overdue"
   | "expired"
@@ -105,6 +107,45 @@ function mapActionError(errorData?: { error?: string; code?: string }) {
 
 function getPaymentDisplayStatus(order: Order) {
   return order.order_type === "trial" ? "trial" : order.payment_status;
+}
+
+const PROTOCOL_LABELS: Record<string, string> = {
+  shadowsocks: "Shadowsocks",
+  vless: "VLESS Reality",
+  hysteria2: "Hysteria2",
+};
+
+function protocolLabel(value?: string | null) {
+  return PROTOCOL_LABELS[String(value || "shadowsocks")] || "Shadowsocks";
+}
+
+// Dashboard offers SS and VLESS only. Hysteria2 stays supported in the badge/
+// label maps below (so an existing HY2 customer still renders correctly) but
+// is not offered as a switch target.
+const PROTOCOL_OPTIONS: { value: string; label: string; hint: string }[] = [
+  { value: "shadowsocks", label: "Shadowsocks", hint: "Simple, works everywhere. ssconf link." },
+  { value: "vless", label: "VLESS Reality", hint: "Best censorship resistance. Subscription link, all servers." },
+];
+
+const PROTOCOL_BADGE: Record<string, { label: string; tone: string }> = {
+  shadowsocks: { label: "SS", tone: "bg-secondary text-muted-foreground border-border" },
+  vless: { label: "VLESS", tone: "bg-primary/10 text-primary border-primary/25" },
+  hysteria2: { label: "HY2", tone: "bg-brand-blue/10 text-[color:var(--brand-blue)] border-[color:var(--brand-blue)]/25" },
+};
+
+function ProtocolBadge({ protocol, className }: { protocol?: string | null; className?: string }) {
+  const p = PROTOCOL_BADGE[String(protocol || "shadowsocks")] || PROTOCOL_BADGE.shadowsocks;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] font-bold uppercase leading-none tracking-wide",
+        p.tone,
+        className
+      )}
+    >
+      {p.label}
+    </span>
+  );
 }
 
 function isTelegramManagedOrder(order: Order) {
@@ -170,16 +211,6 @@ function getOrderRemainingGb(key?: VpnKey | null) {
 
 function getOrderLimitGb(key?: VpnKey | null) {
   if (!key) return 0;
-  // Denominator = the order's TOTAL plan allowance, reconstructed as
-  // used + remaining. After a server migration the active key's own
-  // data_limit_bytes is REMAINING-based (e.g. 129 GB left of a 300 GB plan),
-  // not the plan total — so dividing lifetime-used by it falsely shows >100%
-  // for migrated heavy users. used + remaining rebuilds the true plan total
-  // (300), matching what the customer sees in the Mini App, and stays correct
-  // for extend/top-up orders (plan + extra). Fall back to the raw key limit
-  // only when remaining isn't available.
-  const remaining = getOrderRemainingGb(key);
-  if (typeof remaining === "number") return getOrderUsageGb(key) + remaining;
   if (typeof key.data_limit_gb === "number") return key.data_limit_gb;
   if (typeof key.data_limit_bytes === "number") return key.data_limit_bytes / 1024 / 1024 / 1024;
   return 0;
@@ -266,6 +297,7 @@ export function OrdersTable({
     all: 0,
     pending: 0,
     active: 0,
+    scheduled: 0,
     expiring: 0,
     overdue: 0,
     expired: 0,
@@ -319,8 +351,16 @@ export function OrdersTable({
     open: false,
     order: null,
   });
+  const [protocolDialog, setProtocolDialog] = useState<{ open: boolean; order: Order | null; value: string }>({
+    open: false,
+    order: null,
+    value: "shadowsocks",
+  });
+  const [protocolError, setProtocolError] = useState("");
   const [renewError, setRenewError] = useState("");
   const [stopError, setStopError] = useState("");
+  const [cancelDialog, setCancelDialog] = useState<{ open: boolean; order: Order | null }>({ open: false, order: null });
+  const [cancelError, setCancelError] = useState("");
   const [detailsDialog, setDetailsDialog] = useState<DetailsDialogState>({ open: false, order: null });
   // The details dialog captures `order` once when opened. If the underlying
   // order changes afterward (e.g. a server switch retires the old key and
@@ -441,6 +481,18 @@ export function OrdersTable({
     return () => clearTimeout(t);
   }, [stopError]);
 
+  useEffect(() => {
+    if (!protocolError) return;
+    const t = setTimeout(() => setProtocolError(""), 5000);
+    return () => clearTimeout(t);
+  }, [protocolError]);
+
+  useEffect(() => {
+    if (!cancelError) return;
+    const t = setTimeout(() => setCancelError(""), 5000);
+    return () => clearTimeout(t);
+  }, [cancelError]);
+
   const copyText = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -514,8 +566,11 @@ export function OrdersTable({
           serverCount: Number(data?.server_count || 0),
           actionType: "renew",
         });
+      } else if (action === "extend") {
+        // Extend queues a new plan that activates when the current one ends.
+        setMessage(`Queued a new plan for ${customerName} — it starts automatically when the current one ends.`);
       } else {
-        setMessage(`${action === "extend" ? "Extended" : "Renewed"} ${customerName}.`);
+        setMessage(`Renewed ${customerName}.`);
       }
     } catch (err: any) {
       setRenewError(mapActionError(err?.response?.data) || err.message || `Failed to ${action}`);
@@ -527,17 +582,69 @@ export function OrdersTable({
 
   const confirmStop = async () => {
     if (!stopDialog.order) return;
+    const name = stopDialog.order.customer?.full_name || "order";
     try {
       setLoadingId(`${stopDialog.order.id}:stop`);
       setError("");
       setMessage("");
-      await api.post(`/reseller/order-actions/${stopDialog.order.id}/stop`);
+      const res = await api.post(`/reseller/order-actions/${stopDialog.order.id}/stop`);
       setStopDialog({ open: false, order: null });
-      setMessage(`Stopped ${stopDialog.order.customer?.full_name || "order"}.`);
+      // If the customer had a queued plan, it took over immediately.
+      setMessage(
+        res?.data?.promoted
+          ? `Stopped ${name}'s plan — their next queued plan started immediately.`
+          : `Stopped ${name}.`
+      );
       await refreshAll();
     } catch (err: any) {
       setStopError(mapActionError(err?.response?.data) || err.message || "Failed to stop");
       setError(mapActionError(err?.response?.data) || err.message || "Failed to stop");
+    } finally {
+      setLoadingId("");
+    }
+  };
+
+  const confirmCancelScheduled = async () => {
+    if (!cancelDialog.order) return;
+    const order = cancelDialog.order;
+    const name = order.customer?.full_name || "customer";
+    try {
+      setLoadingId(`${order.id}:cancel`);
+      setError("");
+      setMessage("");
+      setCancelError("");
+      await api.post(`/reseller/order-actions/${order.id}/cancel-scheduled`);
+      setCancelDialog({ open: false, order: null });
+      setMessage(`Cancelled ${name}'s queued plan.`);
+      await refreshAll();
+    } catch (err: any) {
+      setCancelError(mapActionError(err?.response?.data) || err.message || "Failed to cancel queued plan");
+    } finally {
+      setLoadingId("");
+    }
+  };
+
+  const confirmProtocolSwitch = async () => {
+    const order = protocolDialog.order;
+    if (!order) return;
+    try {
+      setLoadingId(`${order.id}:protocol`);
+      setError("");
+      setMessage("");
+      setProtocolError("");
+      const res = await api.post(`/reseller/customers/${order.customer_id}/switch-protocol`, {
+        protocol: protocolDialog.value,
+      });
+      setProtocolDialog({ open: false, order: null, value: "shadowsocks" });
+      await refreshAll();
+      const name = order.customer?.full_name || "Customer";
+      setMessage(
+        res?.data?.reprovisioned
+          ? `Switched ${name} to ${protocolLabel(protocolDialog.value)}. Their app updates on next refresh.`
+          : `Set ${name}'s protocol to ${protocolLabel(protocolDialog.value)}. Applies at next renewal.`
+      );
+    } catch (err: any) {
+      setProtocolError(mapActionError(err?.response?.data) || err.message || "Failed to switch protocol");
     } finally {
       setLoadingId("");
     }
@@ -687,13 +794,26 @@ export function OrdersTable({
 
       if (
         (order.status === "stopped" || order.status === "expired") &&
-        order.review_status !== "rejected"
+        order.review_status !== "rejected" &&
+        // Only the customer's current order is renewable. A superseded row (the
+        // customer already has a newer active order) is frozen history.
+        !order.customer_has_active_order
       ) {
         actions.push({
           label: loadingId === `${order.id}:renew` ? "Renewing..." : "Renew",
           icon: <RefreshCw size={14} />,
           disabled: loadingId === `${order.id}:renew`,
           onSelect: () => openRenewDialog(order, "renew"),
+        });
+      }
+
+      if (order.status === "scheduled") {
+        actions.push({
+          label: loadingId === `${order.id}:cancel` ? "Cancelling..." : "Cancel queued plan",
+          icon: <Ban size={14} />,
+          destructive: true,
+          disabled: loadingId === `${order.id}:cancel`,
+          onSelect: () => setCancelDialog({ open: true, order }),
         });
       }
     }
@@ -709,6 +829,16 @@ export function OrdersTable({
         label: "Switch Server",
         icon: <ServerIcon size={14} />,
         onSelect: () => setServerSwitchDialog({ open: true, order }),
+      });
+      actions.push({
+        label: "Switch Protocol",
+        icon: <Shuffle size={14} />,
+        onSelect: () =>
+          setProtocolDialog({
+            open: true,
+            order,
+            value: order.protocol || order.customer?.protocol_preference || "shadowsocks",
+          }),
       });
     }
 
@@ -944,6 +1074,7 @@ export function OrdersTable({
               { value: "all", label: "All", count: filterCounts.all },
               { value: "pending", label: "Pending", count: filterCounts.pending },
               { value: "active", label: "Active", count: filterCounts.active },
+              { value: "scheduled", label: "Queued", count: filterCounts.scheduled },
               { value: "expiring", label: "Expire soon", count: filterCounts.expiring },
               { value: "overdue", label: "Overdue", count: filterCounts.overdue },
               { value: "expired", label: "Expired", count: filterCounts.expired },
@@ -981,7 +1112,10 @@ export function OrdersTable({
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                           Plan
                         </div>
-                        <div className="text-sm font-medium">{order.plan?.name || "-"}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium">{order.plan?.name || "-"}</span>
+                          <ProtocolBadge protocol={order.protocol} />
+                        </div>
                       </div>
                       <div>
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -1046,6 +1180,7 @@ export function OrdersTable({
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
                         <div className="truncate text-xs font-medium">{order.plan?.name || "-"}</div>
+                        <ProtocolBadge protocol={order.protocol} className="mt-1" />
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
                         <StatusBadge status={order.status} />
@@ -1121,12 +1256,12 @@ export function OrdersTable({
             </div>
             <div>
               <DialogTitle>
-                {renewDialog.action === "extend" ? "Extend Subscription" : "Renew Subscription"}
+                {renewDialog.action === "extend" ? "Add Next Plan" : "Renew Subscription"}
               </DialogTitle>
               <DialogDescription>
                 {renewDialog.order?.customer?.full_name || "Customer"}
                 {renewDialog.action === "extend"
-                  ? " · extend current active subscription"
+                  ? " · queue a new plan that starts when the current one ends"
                   : " · start a fresh subscription with a new key"}
               </DialogDescription>
             </div>
@@ -1145,6 +1280,16 @@ export function OrdersTable({
               </div>
             </div>
           )}
+          {renewDialog.action === "extend" ? (
+            <div className="flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 p-2.5 text-xs text-muted-foreground">
+              <Globe size={14} className="mt-0.5 shrink-0 text-primary" />
+              <span>
+                This queues a <span className="font-medium text-foreground">separate new plan</span> that
+                activates automatically when the current one ends (by time or data). It's fresh — no
+                leftover data carries over.
+              </span>
+            </div>
+          ) : null}
           <FormField label="Select new plan">
             <Select
               value={renewDialog.planId}
@@ -1205,11 +1350,12 @@ export function OrdersTable({
         </DialogHeader>
         <DialogBody className="space-y-4">
           <div className="rounded-md border border-destructive/25 bg-destructive/10 p-3 text-sm">
-            Stop subscription for{" "}
+            End the current plan for{" "}
             <span className="font-semibold text-destructive">
               {stopDialog.order?.customer?.full_name || "this customer"}
             </span>
-            ? Their VPN key will be deactivated and they will lose access.
+            ? Their current key is deactivated immediately. If they have a{" "}
+            <span className="font-medium">queued plan</span>, it starts right away; otherwise they lose access.
           </div>
           {stopError ? (
             <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -1239,6 +1385,59 @@ export function OrdersTable({
         </DialogFooter>
       </Dialog>
 
+      {/* ── Cancel queued plan dialog ── */}
+      <Dialog
+        open={cancelDialog.open}
+        onClose={() => setCancelDialog({ open: false, order: null })}
+        size="sm"
+      >
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-destructive/10 text-destructive">
+              <Ban size={18} />
+            </div>
+            <div>
+              <DialogTitle>Cancel Queued Plan</DialogTitle>
+              <DialogDescription>This queued plan hasn't started yet</DialogDescription>
+            </div>
+          </div>
+          <DialogClose />
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          <div className="rounded-md border border-destructive/25 bg-destructive/10 p-3 text-sm">
+            Cancel the queued{" "}
+            <span className="font-semibold">{cancelDialog.order?.plan?.name || "plan"}</span> for{" "}
+            <span className="font-semibold text-destructive">
+              {cancelDialog.order?.customer?.full_name || "this customer"}
+            </span>
+            ? It's removed from the queue and won't activate. The current plan is unaffected.
+          </div>
+          {cancelError ? (
+            <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {cancelError}
+            </div>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => setCancelDialog({ open: false, order: null })}
+          >
+            Keep it
+          </Button>
+          <Button
+            variant="destructive"
+            className="flex-1"
+            onClick={() => void confirmCancelScheduled()}
+            loading={!!cancelDialog.order && loadingId === `${cancelDialog.order.id}:cancel`}
+            disabled={!cancelDialog.order}
+          >
+            Cancel Plan
+          </Button>
+        </DialogFooter>
+      </Dialog>
+
       {/* ── Switch server dialog ── */}
       <ServerSwitchDialog
         order={serverSwitchDialog.order}
@@ -1251,6 +1450,93 @@ export function OrdersTable({
           void refreshAll();
         }}
       />
+
+      {/* ── Switch protocol dialog ── */}
+      <Dialog
+        open={protocolDialog.open}
+        onClose={() => setProtocolDialog({ open: false, order: null, value: "shadowsocks" })}
+        size="sm"
+      >
+        <DialogHeader>
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+              <Shuffle size={18} />
+            </div>
+            <div>
+              <DialogTitle>Switch Protocol</DialogTitle>
+              <DialogDescription>
+                {protocolDialog.order?.customer?.full_name || "Customer"} · currently{" "}
+                {protocolLabel(protocolDialog.order?.protocol)}
+              </DialogDescription>
+            </div>
+          </div>
+          <DialogClose />
+        </DialogHeader>
+        <DialogBody className="space-y-2">
+          {PROTOCOL_OPTIONS.map((p) => {
+            const selected = protocolDialog.value === p.value;
+            return (
+              <button
+                key={p.value}
+                type="button"
+                onClick={() => setProtocolDialog((prev) => ({ ...prev, value: p.value }))}
+                className={cn(
+                  "flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                  selected
+                    ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                    : "border-border hover:bg-secondary/50"
+                )}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-foreground">{p.label}</div>
+                  <div className="text-[11px] text-muted-foreground">{p.hint}</div>
+                </div>
+                <div
+                  className={cn(
+                    "mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border",
+                    selected ? "border-primary bg-primary text-primary-foreground" : "border-border"
+                  )}
+                >
+                  {selected ? <Check size={12} /> : null}
+                </div>
+              </button>
+            );
+          })}
+          <div className="flex items-start gap-2 rounded-md border border-warning/25 bg-warning/10 p-2.5 text-xs text-warning">
+            <Globe size={14} className="mt-0.5 shrink-0" />
+            <span>
+              Rebuilds the customer's active key. Their connection drops briefly, then their app picks
+              up the new protocol on refresh — the key link stays the same.
+            </span>
+          </div>
+          {protocolError ? (
+            <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {protocolError}
+            </div>
+          ) : null}
+        </DialogBody>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => setProtocolDialog({ open: false, order: null, value: "shadowsocks" })}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            className="flex-1"
+            onClick={() => void confirmProtocolSwitch()}
+            loading={!!protocolDialog.order && loadingId === `${protocolDialog.order.id}:protocol`}
+            disabled={
+              !protocolDialog.order ||
+              protocolDialog.value === (protocolDialog.order?.protocol || "shadowsocks")
+            }
+          >
+            Confirm Switch
+          </Button>
+        </DialogFooter>
+      </Dialog>
 
       {/* ── Details dialog ── */}
       <Dialog
@@ -1298,6 +1584,18 @@ export function OrdersTable({
                       label="Server"
                       value={
                         (() => {
+                          // VLESS / Hysteria2 use a global subscription that spans
+                          // every node — the customer's app picks a server, so the
+                          // single provisioning server isn't meaningful here.
+                          const proto = String(liveDetailsOrder.protocol || "shadowsocks");
+                          if (proto === "vless" || proto === "hysteria2") {
+                            return (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Globe size={14} />
+                                <span className="truncate">All servers</span>
+                              </span>
+                            );
+                          }
                           const server = getActiveKeyForOrder(liveDetailsOrder)?.server;
                           if (!server) return "-";
                           return (
@@ -1311,6 +1609,7 @@ export function OrdersTable({
                         })()
                       }
                     />
+                    <DetailItem label="Protocol" value={protocolLabel(liveDetailsOrder.protocol)} />
                     <div className="col-span-2">
                       <DetailItem
                         label="Remaining"

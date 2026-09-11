@@ -2,6 +2,18 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "miniapp",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "miniapp", "run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "backend", "run", "dev"],
+      "port": 3000
+    },
+    {
       "name": "reseller-dashboard",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "reseller-dashboard", "run", "dev"],
@@ -12,6 +24,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "admin-dashboard", "run", "dev"],
       "port": 3001
+    },
+    {
+      "name": "content-studio",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "vpn-content-agent-web", "run", "dev"],
+      "port": 3000
     }
   ]
 }

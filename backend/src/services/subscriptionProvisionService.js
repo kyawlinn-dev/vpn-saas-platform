@@ -1,10 +1,11 @@
 import { supabase } from "../lib/supabase.js";
 import {
-  createOutlineKey,
-  deleteOutlineKey,
-  updateOutlineKeyDataLimit,
-} from "./outlineService.js";
-import { parseSsUrl } from "../utils/parseSsUrl.js";
+  createKey,
+  deleteKey,
+  getKey,
+  updateKeyDataLimit,
+} from "./vpnProviderService.js";
+// parseSsUrl no longer needed — Marzneshin returns subscription URLs, not ss:// links
 import {
   incrementServerUsage,
   decrementServerUsage,
@@ -106,15 +107,13 @@ function normalizeKeyStatus(status) {
 }
 
 function formatServerConfig(server, accessUrl) {
-  const parsed = parseSsUrl(accessUrl);
-
+  // Marzneshin: access_url is a subscription URL that VPN apps import directly.
+  // Customers add this URL to their app (Hiddify, V2Box, Happ, etc.) and it
+  // returns all available protocols (SS, VLESS Reality, Hysteria2).
   return {
     tag: server.name,
     region: server.region,
-    server: parsed.server,
-    port: parsed.port,
-    method: parsed.method,
-    password: parsed.password,
+    subscription_url: accessUrl,
   };
 }
 
@@ -245,15 +244,11 @@ async function reactivateExistingVpnKey({
   return formatServerConfig(server, updatedKey.access_url);
 }
 
-async function cleanupNewOutlineKey({ server, outlineKeyId }) {
-  if (!outlineKeyId) return;
+async function cleanupNewKey({ server, keyId }) {
+  if (!keyId) return;
 
   try {
-    await deleteOutlineKey({
-      apiUrl: server.outline_api_url,
-      certSha256: server.outline_cert_sha256,
-      outlineKeyId,
-    });
+    await deleteKey({ server, keyId });
   } catch {
     // best effort cleanup only
   }
@@ -281,12 +276,8 @@ export async function deleteProvisionedKeysForOrder(orderId) {
     try {
       const server = key.server_id ? await getServerById(key.server_id) : null;
 
-      if (server?.outline_api_url && server?.outline_cert_sha256 && key.outline_key_id) {
-        await deleteOutlineKey({
-          apiUrl: server.outline_api_url,
-          certSha256: server.outline_cert_sha256,
-          outlineKeyId: key.outline_key_id,
-        });
+      if (server && key.outline_key_id) {
+        await deleteKey({ server, keyId: key.outline_key_id });
       }
     } catch (err) {
       await setServerError(key.server_id, err.message);
@@ -326,10 +317,9 @@ export async function updateProvisionedKeyLimitsForOrder({ orderId, plan }) {
       packageLimitBytes
     );
 
-    await updateOutlineKeyDataLimit({
-      apiUrl: server.outline_api_url,
-      certSha256: server.outline_cert_sha256,
-      outlineKeyId: key.outline_key_id,
+    await updateKeyDataLimit({
+      server,
+      keyId: key.outline_key_id,
       dataLimitBytes,
     });
 
@@ -349,6 +339,7 @@ export async function provisionServersForToken({
   reseller,
   plan,
   servers,
+  protocol = "shadowsocks",
 }) {
   const created = [];
   const dataLimitBytes = gbToBytes(plan?.data_limit_gb);
@@ -384,14 +375,14 @@ export async function provisionServersForToken({
       await incrementServerUsage(server.id);
       incremented = true;
 
-      const outlineKey = await createOutlineKey({
-        apiUrl: server.outline_api_url,
-        certSha256: server.outline_cert_sha256,
+      const createdKey = await createKey({
+        server,
         name: buildKeyName({ customer, server, order, plan }),
         dataLimitBytes,
+        protocol,
       });
 
-      outlineKeyId = outlineKey.outline_key_id;
+      outlineKeyId = createdKey.outline_key_id;
 
       const { data: vpnKey, error: keyErr } = await supabase
         .from("vpn_keys")
@@ -400,14 +391,16 @@ export async function provisionServersForToken({
           customer_id: customer.id,
           reseller_id: reseller.id,
           server_id: server.id,
-          outline_key_id: outlineKey.outline_key_id,
-          key_name: outlineKey.key_name,
-          access_url: outlineKey.access_url,
+          outline_key_id: createdKey.outline_key_id,
+          key_name: createdKey.key_name,
+          access_url: createdKey.access_url,
+          key_credentials: createdKey._marzneshin_meta || null,
           data_limit_bytes: dataLimitBytes,
           used_bytes: 0,
           status: "active",
           is_used: true,
           used_at: new Date().toISOString(),
+          protocol,                              // ← persist the actual protocol so sendActiveKey routes SS vs VLESS correctly
         })
         .select()
         .single();
@@ -443,7 +436,7 @@ export async function provisionServersForToken({
         },
       });
 
-      created.push(formatServerConfig(server, outlineKey.access_url));
+      created.push(formatServerConfig(server, createdKey.access_url));
     } catch (err) {
       // rollback local state as much as possible
       if (incremented) {
@@ -473,8 +466,8 @@ export async function provisionServersForToken({
         } catch {}
       }
 
-      // if Outline key was created but DB failed, clean it up so retries do not duplicate infra keys
-      await cleanupNewOutlineKey({ server, outlineKeyId });
+      // if VPN key was created but DB failed, clean it up so retries do not duplicate infra keys
+      await cleanupNewKey({ server, keyId: outlineKeyId });
       await setServerError(server.id, err.message);
 
       // Emit a failure event so admin monitoring can see provisioning breakage
@@ -506,49 +499,11 @@ export async function provisionServersForToken({
   return created;
 }
 
-// Choose the data limit for a key created by a server migration / switch.
-// Priority:
-//   1. carryRemainingBytes when the caller passes it (number => bytes,
-//      null => unlimited). Use this when the old key was ALREADY retired
-//      (admin decommission) so a fresh snapshot would see no active key.
-//   2. the order's live remaining balance (buildOrderQuotaSnapshot).
-//   3. the plan's full allowance — only when the order has no resolvable
-//      balance (e.g. an orphaned order with no keys at all).
-// Never returns 0: an out-of-data order still gets a 1-byte (immediately
-// capped) key rather than an unlimited one. Callers that want to BLOCK an
-// out-of-data switch do it before calling migrate (reseller route + mini-app
-// DATA_LIMIT_REACHED).
-export function pickMigrationDataLimitBytes({ snapshot, planDataLimitGb, carryRemainingBytes }) {
-  if (carryRemainingBytes !== undefined) {
-    return carryRemainingBytes === null
-      ? null
-      : Math.max(1, Math.floor(Number(carryRemainingBytes) || 0));
-  }
-  if (snapshot && snapshot.isUnlimited) return null;
-  if (snapshot && snapshot.remainingBytes != null) {
-    return Math.max(1, Math.floor(snapshot.remainingBytes));
-  }
-  return gbToBytes(planDataLimitGb);
-}
-
 // Migrate a single active order from a decommissioned server to `newServer`.
 // Creates a fresh Outline key, stores it, wires up token/miniapp assignments.
 // The order stays active with its existing expiry — only the key location changes.
-export async function migrateActiveOrderToServer({
-  order,
-  newServer,
-  oldServerId,
-  // Optional caller-supplied remaining balance (bytes; null = unlimited).
-  // Pass when the caller has already retired the order's old key.
-  carryRemainingBytes,
-}) {
-  const snapshot =
-    carryRemainingBytes === undefined ? await getOrderQuotaSnapshot(order.id) : null;
-  const dataLimitBytes = pickMigrationDataLimitBytes({
-    snapshot,
-    planDataLimitGb: order.plan?.data_limit_gb,
-    carryRemainingBytes,
-  });
+export async function migrateActiveOrderToServer({ order, newServer, oldServerId, protocol = "shadowsocks" }) {
+  const dataLimitBytes = gbToBytes(order.plan?.data_limit_gb);
   const keyName = [
     order.customer?.full_name || "Customer",
     newServer.name,
@@ -560,13 +515,13 @@ export async function migrateActiveOrderToServer({
   let vpnKey = null;
 
   try {
-    const outlineKey = await createOutlineKey({
-      apiUrl: newServer.outline_api_url,
-      certSha256: newServer.outline_cert_sha256,
+    const createdKey = await createKey({
+      server: newServer,
       name: keyName,
       dataLimitBytes,
+      protocol,
     });
-    outlineKeyId = outlineKey.outline_key_id;
+    outlineKeyId = createdKey.outline_key_id;
 
     const { data: inserted, error: keyErr } = await supabase
       .from("vpn_keys")
@@ -575,14 +530,16 @@ export async function migrateActiveOrderToServer({
         customer_id: order.customer_id,
         reseller_id: order.reseller_id,
         server_id: newServer.id,
-        outline_key_id: outlineKey.outline_key_id,
+        outline_key_id: createdKey.outline_key_id,
         key_name: keyName,
-        access_url: outlineKey.access_url,
+        access_url: createdKey.access_url,
+        key_credentials: createdKey._marzneshin_meta || null,
         data_limit_bytes: dataLimitBytes,
         used_bytes: 0,
         status: "active",
         is_used: true,
         used_at: new Date().toISOString(),
+        protocol,                              // ← persist the actual protocol on the key row
       })
       .select()
       .single();
@@ -614,14 +571,10 @@ export async function migrateActiveOrderToServer({
     await clearServerError(newServer.id);
     return vpnKey;
   } catch (err) {
-    // Best-effort rollback: remove the Outline key and DB row we just created
+    // Best-effort rollback: remove the VPN key and DB row we just created
     if (outlineKeyId) {
       try {
-        await deleteOutlineKey({
-          apiUrl: newServer.outline_api_url,
-          certSha256: newServer.outline_cert_sha256,
-          outlineKeyId,
-        });
+        await deleteKey({ server: newServer, keyId: outlineKeyId });
       } catch {}
     }
     if (vpnKey?.id) {
@@ -661,16 +614,12 @@ export async function switchOrderServer({ order, newServer, oldKey }) {
   try {
     if (oldKey.outline_key_id) {
       const oldServer = await getServerById(oldKey.server_id);
-      if (oldServer?.outline_api_url && oldServer?.outline_cert_sha256) {
-        await deleteOutlineKey({
-          apiUrl: oldServer.outline_api_url,
-          certSha256: oldServer.outline_cert_sha256,
-          outlineKeyId: oldKey.outline_key_id,
-        });
+      if (oldServer) {
+        await deleteKey({ server: oldServer, keyId: oldKey.outline_key_id });
       }
     }
   } catch (err) {
-    console.warn(`[switchOrderServer] Failed to delete old Outline key ${oldKey.outline_key_id}:`, err.message);
+    console.warn(`[switchOrderServer] Failed to delete old VPN key ${oldKey.outline_key_id}:`, err.message);
   }
 
   try {
@@ -698,6 +647,109 @@ export async function switchOrderServer({ order, newServer, oldKey }) {
       to_server_id: newServer.id,
       to_server_tier: newServer.server_tier || "premium",
       to_server_region: newServer.region,
+    },
+  });
+
+  return migrated;
+}
+
+// Re-provision an active order's key on the SAME server but with a different
+// protocol (e.g. shadowsocks → vless). Marzneshin assigns a user to per-node
+// SS services or the global VLESS service based on protocol, so switching
+// protocol means creating a new user with the new service_ids and retiring the
+// old one.
+//
+// Unlike a server switch, this stays on the SAME server, and a partial unique
+// index forbids two active vpn_keys rows for one (order_id, server_id). So we
+// must free that slot BEFORE provisioning the new key: soft-delete the old key
+// ROW first (its Marzneshin user stays alive, so the customer keeps working),
+// then create the new key, then tear the old Marzneshin user down. If
+// provisioning fails, the old row is restored — the customer never loses access.
+//
+// The caller MUST update vpn_customers.protocol_preference first so the access
+// URL the customer sees resolves to the right link type (ssconf for SS, the
+// Marzneshin subscription URL for VLESS/Hysteria2 — never an ssconf link for a
+// non-SS protocol).
+export async function switchOrderProtocol({ order, server, oldKey, protocol }) {
+  // Before touching anything, snapshot the live Marzneshin usage for the old
+  // key. The old Marzneshin user will be deleted after the new key is created,
+  // so any unsynced traffic would be silently lost. Writing it now means
+  // buildOrderQuotaSnapshot's lifetime sum stays accurate even if the hourly
+  // sync job hasn't run yet. Best-effort: a fetch failure should not block the
+  // protocol switch — we fall back to whatever was already in the DB row.
+  let snapshotBytes = Number(oldKey.used_bytes || 0);
+  try {
+    const liveUser = await getKey({ server, keyId: oldKey.outline_key_id });
+    const liveBytes = Number(liveUser?.used_traffic || 0);
+    if (liveBytes > snapshotBytes) snapshotBytes = liveBytes;
+  } catch (err) {
+    console.warn(
+      `[switchOrderProtocol] Could not fetch live usage for key ${oldKey.outline_key_id}:`,
+      err.message
+    );
+  }
+
+  // 1. Free the (order_id, server_id) active-key slot. Only the DB row is
+  //    retired here; the Marzneshin user is left alive so the customer stays
+  //    connected until the new key is provisioned. Also persist the usage
+  //    snapshot so it survives the old Marzneshin user deletion below.
+  await supabase
+    .from("vpn_keys")
+    .update({
+      status: "deleted",
+      deleted_at: new Date().toISOString(),
+      used_bytes: snapshotBytes,
+    })
+    .eq("id", oldKey.id);
+  try {
+    await decrementServerUsage(server.id);
+  } catch {}
+
+  let migrated;
+  try {
+    migrated = await migrateActiveOrderToServer({
+      order,
+      newServer: server,
+      oldServerId: server.id,
+      protocol,
+    });
+  } catch (err) {
+    // Restore the old key row — its Marzneshin user is still alive, so the
+    // customer keeps their working connection on the original protocol.
+    try {
+      await supabase
+        .from("vpn_keys")
+        .update({ status: "active", deleted_at: null })
+        .eq("id", oldKey.id);
+      await incrementServerUsage(server.id);
+    } catch {}
+    throw err;
+  }
+
+  // 2. New key is live — delete the old Marzneshin user from the panel.
+  //    Best-effort: the customer already has the new key, so a teardown hiccup
+  //    shouldn't surface as a failed switch.
+  try {
+    if (oldKey.outline_key_id) {
+      await deleteKey({ server, keyId: oldKey.outline_key_id });
+    }
+  } catch (err) {
+    console.warn(`[switchOrderProtocol] Failed to delete old VPN key ${oldKey.outline_key_id}:`, err.message);
+  }
+
+  trackAppEvent({
+    event_name: "protocol_switched",
+    event_source: "backend",
+    actor_type: "reseller",
+    reseller_id: order.reseller_id,
+    customer_id: order.customer_id,
+    order_id: order.id,
+    server_id: server.id,
+    plan_id: order.plan_id || null,
+    status: "success",
+    metadata: {
+      protocol,
+      server_id: server.id,
     },
   });
 

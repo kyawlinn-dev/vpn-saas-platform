@@ -30,6 +30,9 @@ Read before making schema decisions:
 |-------|------|
 | `resellers` | Tenants; one row per reseller business |
 | `admins` | Platform owner accounts |
+| `app_events` | Backend-owned monitoring events for Mini App, checkout, server, and provisioning flow |
+| `system_job_runs` | Compact backend job health state for usage sync and health checks |
+| `server_health_status` | One-row-per-server Outline API and usage-sync health state |
 | `reseller_miniapps` | Per-reseller Mini App config (slug, brand, bot, payments) |
 | `vpn_servers` | Outline servers; Outline API URL + cert per row |
 | `vpn_plans` | Subscription catalogue shared across resellers |
@@ -74,6 +77,9 @@ These three tables use different name columns — this has caused bugs:
 | `order_payments.review_status` | `pending_review`, `confirmed`, `rejected` |
 | `order_payments.payment_type` | `initial`, `extend`, `renew` |
 | `order_payments.apply_status` | `pending`, `applied`, `failed`, `reversed` |
+| `app_events.status` | `info`, `success`, `blocked`, `failed` |
+| `system_job_runs.status` | `idle`, `running`, `success`, `failed`, `stale` |
+| `server_health_status.outline_api_status` | `unknown`, `healthy`, `degraded`, `failed`, `stale` |
 
 ## Money Model
 
@@ -117,6 +123,25 @@ dashboard/admin retry protection when applying extend or renew actions.
 
 Mini App top-ups are intentionally two-step: customer checkout creates a pending
 `extend` payment, then reseller confirmation applies the duration/data change.
+
+## Monitoring Event Model
+
+`app_events` is append-only business telemetry written by backend code with the
+service-role key. It powers admin and reseller monitoring dashboards.
+
+- Store event names, IDs, safe status, and allowlisted metadata.
+- Do not store raw IPs, Telegram init data, bot tokens, payment screenshot
+  paths, Outline API URLs, or Outline access URLs.
+- Reseller monitoring queries must filter by `reseller_id`; admin monitoring
+  can read across resellers.
+- Admin monitoring summaries should use the `admin_monitoring_*` SQL helper
+  functions and paginated event queries. Do not fetch thousands of raw
+  `app_events` rows into the backend just to calculate cards or charts.
+
+`system_job_runs` and `server_health_status` are compact operational health
+tables. Use them for backend health cards and alerts instead of scanning raw
+logs. They must not store Outline API URLs, access URLs, bot tokens, raw IPs, or
+other secrets.
 
 ## Reseller Isolation Rule
 

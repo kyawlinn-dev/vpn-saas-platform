@@ -10,6 +10,7 @@ import { formatDate } from "../lib/format";
 import { cn } from "@/lib/utils";
 import PackageCard from "../features/packages/PackageCard";
 import { useLanguage } from "../i18n/language";
+import { useMiniAppPageView } from "../hooks/useMiniAppPageView";
 
 // ── Inline sub-components ──────────────────────────────────────────────────────
 
@@ -148,6 +149,7 @@ function DurationSelector({ durations, selectedDuration, onChange }) {
 
 export default function PackagesPage({
   data,
+  initData,
   onToast,
   onNavigateToCheckout,
   onOpenSettings,
@@ -156,6 +158,13 @@ export default function PackagesPage({
   const plans = useMemo(() => data?.plans || [], [data?.plans]);
   const subscription = data?.subscription || null;
   const brand = data?.config?.brand || null;
+
+  useMiniAppPageView({
+    eventName: "packages_viewed",
+    page: "packages",
+    data,
+    initData,
+  });
 
   // ── Plan grouping (unchanged) ──────────────────────────────────────────────
   const visiblePlans = useMemo(

@@ -60,6 +60,15 @@ export function usePaginatedTable<T>(
         setPageState(p);
       } catch (err: any) {
         if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError") return;
+        if (err?.response?.status === 403) {
+          // Feature-gated 403 (e.g. MINIAPP_REQUIRED) — surface the error so
+          // the page can show an access-denied message.
+          if (err?.response?.data?.code) {
+            setError(err.response.data.error || "Feature not available for your account");
+          }
+          // Other 403s (pending/inactive reseller) — stay silent; AppShell banner explains.
+          return;
+        }
         setError(err?.response?.data?.error || err.message || "Failed to load data");
       } finally {
         if (abortRef.current === controller) setLoading(false);

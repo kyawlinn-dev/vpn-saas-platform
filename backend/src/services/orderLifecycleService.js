@@ -12,6 +12,7 @@ import {
   deleteProvisionedKeysForOrder,
   updateProvisionedKeyLimitsForOrder,
   deactivateTokenAssignments,
+  buildOrderQuotaSnapshot,
 } from "./subscriptionProvisionService.js";
 import {
   confirmOrderPayments,
@@ -26,6 +27,7 @@ import {
   buildDynamicAccessUrl,
   buildSsconfHttpUrl,
 } from "./publicAccessUrlService.js";
+import { businessDateOnly } from "../utils/businessTime.js";
 
 export class OrderLifecycleError extends Error {
   constructor(message, status = 400, code = "ORDER_LIFECYCLE_ERROR") {
@@ -394,6 +396,19 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
     await activateToken(token.id, expiryAt.toISOString());
   }
 
+  // Fetch the customer's protocol preference for service ID selection
+  let customerProtocol = "shadowsocks";
+  if (order.customer_id) {
+    const { data: custRow } = await supabase
+      .from("vpn_customers")
+      .select("protocol_preference")
+      .eq("id", order.customer_id)
+      .maybeSingle();
+    if (custRow?.protocol_preference) {
+      customerProtocol = custRow.protocol_preference;
+    }
+  }
+
   const configs = await provisionServersForToken({
     token,
     order,
@@ -401,6 +416,7 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
     reseller,
     plan,
     servers: selectedServers,
+    protocol: customerProtocol,
   });
   const accessLinks = await buildOrderAccessLinks({ order, reseller });
 
@@ -788,6 +804,11 @@ export async function activateOrder({ orderId, reseller }) {
   };
 }
 
+// Queued-plan model: extending an ACTIVE subscription creates a NEW independent
+// plan in the 'scheduled' state (a fresh sale row) that activates automatically
+// when the current plan ends — by time OR data, whichever comes first. Nothing
+// about the current plan changes and no usage/data carries over. Multiple
+// extends stack FIFO (oldest scheduled activates first).
 export async function extendOrder({ orderId, resellerId, planId, idempotencyKey = null, source = "dashboard" }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
 
@@ -803,38 +824,59 @@ export async function extendOrder({ orderId, resellerId, planId, idempotencyKey 
     throw new OrderLifecycleError("Rejected orders cannot be extended", 409, "ORDER_REJECTED");
   }
 
-  const activeKeyCount = await countActiveKeys(order.id);
-  if (activeKeyCount === 0) {
-    throw new OrderLifecycleError(
-      "Active order has no VPN key. Stop and renew it instead.",
-      409,
-      "NO_ACTIVE_ACCESS"
-    );
-  }
-
   const plan = await resolvePlan(planId, order.plan);
   const reseller = await loadResellerForLifecycle({ id: resellerId });
-  const targetOrderType = getPackageOrderType(plan);
   const commissionPercent = getPackageCommissionPercent({ order, reseller, plan });
 
-  if (targetOrderType === "purchase") {
-    await assertNoOtherActivePurchase({
-      customerId: order.customer_id,
-      resellerId: order.reseller_id,
-      excludeOrderId: order.id,
-    });
-
-    if (order.order_type === "trial") {
-      await stopActiveTrialsForCustomer({
-        customerId: order.customer_id,
-        resellerId: order.reseller_id,
-        excludeOrderId: order.id,
-      });
+  // Idempotency pre-check: because extend now inserts a queued row, a naive
+  // retry would create a duplicate. Return the already-queued plan instead.
+  if (idempotencyKey) {
+    const existing = await findOrderPaymentByIdempotencyKey({ resellerId, idempotencyKey });
+    if (existing) {
+      if (existing.payment_type !== "extend") {
+        throw new OrderLifecycleError("Duplicate package payment request key", 409, "DUPLICATE_IDEMPOTENCY_KEY");
+      }
+      if (existing.apply_status === "applied") {
+        return { success: true, already_processed: true, message: "Extension already queued", order_id: existing.order_id, queued: true };
+      }
+      if (existing.apply_status === "pending") {
+        throw new OrderLifecycleError("This package payment is already being processed", 409, "PAYMENT_APPLY_PENDING");
+      }
+      throw new OrderLifecycleError("This package payment request was already used", 409, "PAYMENT_REQUEST_ALREADY_USED");
     }
   }
 
-  const { payment, alreadyApplied } = await beginPackagePayment({
-    order,
+  // Insert the queued plan. It holds no keys and no server capacity until it
+  // activates; start/expiry dates are set at activation time.
+  const { data: inserted, error: insertErr } = await supabase
+    .from("vpn_orders")
+    .insert({
+      customer_id: order.customer_id,
+      reseller_id: order.reseller_id,
+      plan_id: plan.id,
+      status: "scheduled",
+      price_mmk: Number(plan.price_mmk ?? 0),
+      commission_percent: commissionPercent,
+      commission_amount_mmk: 0,
+      total_paid_mmk: 0,
+      start_date: null,
+      expiry_date: null,
+      payment_status: "paid",
+      review_status: "confirmed",
+      order_type: "purchase",
+      source,
+    })
+    .select("*")
+    .single();
+
+  if (insertErr || !inserted) {
+    throw new Error(insertErr?.message || "Failed to queue extension plan");
+  }
+
+  const scheduledOrder = { ...inserted, customer: order.customer, plan };
+
+  const { payment } = await beginPackagePayment({
+    order: scheduledOrder,
     plan,
     resellerId,
     commissionPercent,
@@ -843,91 +885,160 @@ export async function extendOrder({ orderId, resellerId, planId, idempotencyKey 
     idempotencyKey,
   });
 
-  if (alreadyApplied) {
-    return {
-      success: true,
-      already_processed: true,
-      message: "Order extension already applied",
-      order_id: order.id,
-      expiry_date: order.expiry_date,
-      ...(await buildOrderAccessLinks({ order, reseller: { id: resellerId } })),
-    };
-  }
-
-  const baseDate =
-    order.expiry_date && new Date(order.expiry_date) > new Date()
-      ? new Date(order.expiry_date)
-      : new Date();
-
-  const expiryAt = calcExpiryDate(baseDate, plan.duration_days);
-  const token = await getTokenByOrderId(order.id);
-
   try {
-    if (token?.id) {
-      await activateToken(token.id, expiryAt.toISOString());
-    }
-
-    if (order.order_type === "trial" && targetOrderType === "purchase") {
-      await provisionOrderAccess({
-        order,
-        reseller,
-        plan,
-        mode: "renew",
-      });
-      const refreshedToken = await getTokenByOrderId(order.id);
-      if (refreshedToken?.id) {
-        await activateToken(refreshedToken.id, expiryAt.toISOString());
-      }
-    } else {
-      await updateProvisionedKeyLimitsForOrder({ orderId: order.id, plan });
-    }
-
-    const { error: updateErr } = await supabase
-      .from("vpn_orders")
-      .update({
-        status: "active",
-        payment_status: "paid",
-        review_status: targetOrderType === "purchase" ? "confirmed" : order.review_status,
-        order_type: targetOrderType,
-        expiry_date: toDateOnly(expiryAt),
-        start_date: order.order_type === "trial" && targetOrderType === "purchase" ? toDateOnly(new Date()) : order.start_date,
-        activated_at: order.order_type === "trial" && targetOrderType === "purchase" ? new Date().toISOString() : order.activated_at,
-        stopped_at: null,
-        plan_id: plan.id,
-        price_mmk: Number(plan.price_mmk ?? 0),
-        commission_percent: commissionPercent,
-      })
-      .eq("id", order.id);
-
-    if (updateErr) throw new Error(updateErr.message);
-    await finishAppliedPackagePayment({ payment, orderId: order.id });
+    // The sale is complete now (money in, plan queued). No provisioning here —
+    // keys are created when the lifecycle job activates this plan.
+    await finishAppliedPackagePayment({ payment, orderId: scheduledOrder.id });
   } catch (err) {
     await failPackagePayment(payment, err);
+    try {
+      await supabase.from("vpn_orders").delete().eq("id", scheduledOrder.id);
+    } catch {}
     throw err;
   }
 
   return {
     success: true,
-    message: "Order extended",
-    order_id: order.id,
-    expiry_date: toDateOnly(expiryAt),
-    expires_at: expiryAt.toISOString(),
-    ...(await buildOrderAccessLinks({ order, reseller: { id: resellerId } })),
+    message: "Extension queued",
+    order_id: scheduledOrder.id,
+    queued: true,
   };
 }
 
-export async function renewOrder({ orderId, reseller, planId, idempotencyKey = null, source = "dashboard" }) {
-  const order = await getResellerScopedOrder(orderId, reseller.id);
+// --- Queued-plan activation (lifecycle job) -------------------------------
 
-  if (!["stopped", "expired"].includes(order.status)) {
+async function getOldestScheduledOrder(customerId, resellerId) {
+  const { data, error } = await supabase
+    .from("vpn_orders")
+    .select(`
+      *,
+      customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, reseller_id, telegram_username, phone, ssconf_token),
+      plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb, allowed_regions, is_trial)
+    `)
+    .eq("customer_id", customerId)
+    .eq("reseller_id", resellerId)
+    .eq("status", "scheduled")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+// Bring a queued plan online: set its dates active-from-now and provision fresh
+// keys. On provisioning failure it reverts to 'scheduled' so the next job run
+// retries rather than leaving an active-but-keyless order.
+export async function activateScheduledOrder(scheduledOrder) {
+  const reseller = await loadResellerForLifecycle({ id: scheduledOrder.reseller_id });
+  const plan = scheduledOrder.plan || (await resolvePlan(scheduledOrder.plan_id, null));
+  const now = new Date();
+  const expiryAt = calcExpiryDate(now, plan.duration_days);
+
+  await supabase
+    .from("vpn_orders")
+    .update({
+      status: "active",
+      start_date: toDateOnly(now),
+      expiry_date: toDateOnly(expiryAt),
+      activated_at: now.toISOString(),
+      stopped_at: null,
+    })
+    .eq("id", scheduledOrder.id);
+
+  const orderForProvision = {
+    ...scheduledOrder,
+    status: "active",
+    start_date: toDateOnly(now),
+    expiry_date: toDateOnly(expiryAt),
+  };
+
+  try {
+    await provisionOrderAccess({ order: orderForProvision, reseller, plan, mode: "activate" });
+  } catch (err) {
+    await supabase
+      .from("vpn_orders")
+      .update({ status: "scheduled", start_date: null, expiry_date: null, activated_at: null })
+      .eq("id", scheduledOrder.id);
+    throw err;
+  }
+
+  return { order_id: scheduledOrder.id, expiry_date: toDateOnly(expiryAt) };
+}
+
+// Activate the customer's oldest queued plan, if any. Returns the promoted
+// order id or null. Shared by the expiry sweep and manual stop.
+async function promoteNextScheduledPlan(customerId, resellerId) {
+  const next = await getOldestScheduledOrder(customerId, resellerId);
+  if (!next) return null;
+  await activateScheduledOrder(next);
+  return next.id;
+}
+
+// End a spent active order (time or data exhausted) and promote the customer's
+// next queued plan, if any.
+async function endOrderAndPromoteNext(order) {
+  await stopOrderAccess(order.id);
+  await supabase
+    .from("vpn_orders")
+    .update({ status: "expired", stopped_at: new Date().toISOString() })
+    .eq("id", order.id);
+
+  const promoted = await promoteNextScheduledPlan(order.customer_id, order.reseller_id);
+  return { ended: order.id, promoted };
+}
+
+// Lifecycle sweep (run by autoStopJob): expire active orders that have run out
+// of time OR data, and promote the next queued plan for each. Returns a summary
+// of what changed. Errors on one order don't abort the sweep.
+export async function processExpiredOrdersAndQueue() {
+  const today = businessDateOnly();
+
+  const { data: activeOrders, error } = await supabase
+    .from("vpn_orders")
+    .select(`
+      id, customer_id, reseller_id, expiry_date, order_type,
+      keys:vpn_keys!vpn_keys_order_tenant_fk(id, status, deleted_at, data_limit_bytes, used_bytes)
+    `)
+    .eq("status", "active");
+
+  if (error) throw new Error(error.message);
+
+  const results = [];
+  for (const order of activeOrders || []) {
+    try {
+      const quota = buildOrderQuotaSnapshot(order.keys || []);
+      const timeExpired = Boolean(order.expiry_date) && order.expiry_date < today;
+      const dataExhausted =
+        !quota.isUnlimited && quota.remainingBytes !== null && quota.remainingBytes <= 0;
+
+      if (timeExpired || dataExhausted) {
+        const r = await endOrderAndPromoteNext(order);
+        results.push({ ...r, reason: timeExpired ? "time" : "data" });
+      }
+    } catch (err) {
+      results.push({ ended: order.id, error: err.message });
+    }
+  }
+  return results;
+}
+
+// Sale-record model: a renewal is a NEW sale, so it INSERTS a fresh order row
+// (its own created_at, so it sorts to the top) and leaves the old order frozen
+// in place with its final status. It does not mutate the old row. The customer
+// ends up with one active order (the newest) plus a history of expired ones.
+export async function renewOrder({ orderId, reseller, planId, idempotencyKey = null, source = "dashboard" }) {
+  const oldOrder = await getResellerScopedOrder(orderId, reseller.id);
+
+  if (!["stopped", "expired"].includes(oldOrder.status)) {
     throw new OrderLifecycleError(
-      `Only stopped or expired orders can be renewed. Current status: ${order.status}`,
+      `Only stopped or expired orders can be renewed. Current status: ${oldOrder.status}`,
       409,
       "INVALID_STATUS"
     );
   }
 
-  if (order.review_status === "rejected") {
+  if (oldOrder.review_status === "rejected") {
     throw new OrderLifecycleError(
       "Rejected orders cannot be renewed. Create a new order instead.",
       409,
@@ -936,29 +1047,96 @@ export async function renewOrder({ orderId, reseller, planId, idempotencyKey = n
   }
 
   const resolvedReseller = await loadResellerForLifecycle(reseller);
-  const plan = await resolvePlan(planId, order.plan);
+  const plan = await resolvePlan(planId, oldOrder.plan);
   const targetOrderType = getPackageOrderType(plan);
   const commissionPercent = getPackageCommissionPercent({
-    order,
+    order: oldOrder,
     reseller: resolvedReseller,
     plan,
   });
 
+  // Idempotency pre-check: because a renewal now inserts a row, a naive retry
+  // would create a duplicate. If this key already produced a renewal payment,
+  // return the order it created instead of inserting again.
+  if (idempotencyKey) {
+    const existing = await findOrderPaymentByIdempotencyKey({
+      resellerId: resolvedReseller.id,
+      idempotencyKey,
+    });
+    if (existing) {
+      if (existing.payment_type !== "renew") {
+        throw new OrderLifecycleError("Duplicate package payment request key", 409, "DUPLICATE_IDEMPOTENCY_KEY");
+      }
+      if (existing.apply_status === "applied") {
+        const renewedOrder = await getResellerScopedOrder(existing.order_id, resolvedReseller.id);
+        return {
+          success: true,
+          already_processed: true,
+          message: "Order renewal already applied",
+          order_id: existing.order_id,
+          expiry_date: renewedOrder.expiry_date,
+          ...(await buildOrderAccessLinks({ order: renewedOrder, reseller })),
+        };
+      }
+      if (existing.apply_status === "pending") {
+        throw new OrderLifecycleError("This package payment is already being processed", 409, "PAYMENT_APPLY_PENDING");
+      }
+      throw new OrderLifecycleError("This package payment request was already used", 409, "PAYMENT_REQUEST_ALREADY_USED");
+    }
+  }
+
+  // The old order is stopped/expired (not active), so the only active-purchase
+  // that could exist is a newer renewal — block renewing superseded history.
+  // (excludeOrderId is the old row; it's not active anyway, so this checks for
+  // any OTHER active purchase.)
   if (targetOrderType === "purchase") {
     await assertNoOtherActivePurchase({
-      customerId: order.customer_id,
-      resellerId: order.reseller_id,
-      excludeOrderId: order.id,
+      customerId: oldOrder.customer_id,
+      resellerId: oldOrder.reseller_id,
+      excludeOrderId: oldOrder.id,
     });
     await stopActiveTrialsForCustomer({
-      customerId: order.customer_id,
-      resellerId: order.reseller_id,
-      excludeOrderId: order.id,
+      customerId: oldOrder.customer_id,
+      resellerId: oldOrder.reseller_id,
+      excludeOrderId: oldOrder.id,
     });
   }
 
-  const { payment, alreadyApplied } = await beginPackagePayment({
-    order,
+  const now = new Date();
+  const expiryAt = calcExpiryDate(now, plan.duration_days);
+
+  // Insert the new sale/period row.
+  const { data: inserted, error: insertErr } = await supabase
+    .from("vpn_orders")
+    .insert({
+      customer_id: oldOrder.customer_id,
+      reseller_id: oldOrder.reseller_id,
+      plan_id: plan.id,
+      status: "active",
+      price_mmk: Number(plan.price_mmk ?? 0),
+      commission_percent: commissionPercent,
+      commission_amount_mmk: 0,
+      total_paid_mmk: 0,
+      start_date: toDateOnly(now),
+      expiry_date: toDateOnly(expiryAt),
+      payment_status: "paid",
+      review_status: targetOrderType === "purchase" ? "confirmed" : oldOrder.review_status,
+      order_type: targetOrderType,
+      activated_at: now.toISOString(),
+      source,
+    })
+    .select("*")
+    .single();
+
+  if (insertErr || !inserted) {
+    throw new Error(insertErr?.message || "Failed to create renewal order");
+  }
+
+  // Provisioning + key naming reads order.customer / order.plan.
+  const newOrder = { ...inserted, customer: oldOrder.customer, plan };
+
+  const { payment } = await beginPackagePayment({
+    order: newOrder,
     plan,
     resellerId: resolvedReseller.id,
     commissionPercent,
@@ -967,64 +1145,37 @@ export async function renewOrder({ orderId, reseller, planId, idempotencyKey = n
     idempotencyKey,
   });
 
-  if (alreadyApplied) {
-    return {
-      success: true,
-      already_processed: true,
-      message: "Order renewal already applied",
-      order_id: order.id,
-      expiry_date: order.expiry_date,
-      ...(await buildOrderAccessLinks({ order, reseller })),
-    };
-  }
-
   try {
     const result = await provisionOrderAccess({
-      order,
+      order: newOrder,
       reseller: resolvedReseller,
       plan,
       mode: "renew",
     });
 
-    if (targetOrderType === "purchase") {
-      await assertNoOtherActivePurchase({
-        customerId: order.customer_id,
-        resellerId: order.reseller_id,
-        excludeOrderId: order.id,
-      });
+    if (result.expiry_date && result.expiry_date !== toDateOnly(expiryAt)) {
+      await supabase
+        .from("vpn_orders")
+        .update({ expiry_date: result.expiry_date })
+        .eq("id", newOrder.id);
     }
 
-    const now = new Date();
-    const { error: updateErr } = await supabase
-      .from("vpn_orders")
-      .update({
-        status: "active",
-        payment_status: "paid",
-        review_status: targetOrderType === "purchase" ? "confirmed" : order.review_status,
-        order_type: targetOrderType,
-        activated_at: now.toISOString(),
-        start_date: toDateOnly(now),
-        expiry_date: result.expiry_date,
-        stopped_at: null,
-        plan_id: plan.id,
-        price_mmk: Number(plan.price_mmk ?? 0),
-        commission_percent: commissionPercent,
-      })
-      .eq("id", order.id);
-
-    if (updateErr) throw new Error(updateErr.message);
-    await finishAppliedPackagePayment({ payment, orderId: order.id });
+    await finishAppliedPackagePayment({ payment, orderId: newOrder.id });
 
     return {
       success: true,
       message: "Order renewed",
-      order_id: order.id,
+      order_id: newOrder.id,
       ...result,
     };
   } catch (err) {
     await failPackagePayment(payment, err);
     try {
-      await stopOrderAccess(order.id);
+      await stopOrderAccess(newOrder.id);
+    } catch {}
+    // Roll back the row so a failed renewal doesn't leave a ghost active order.
+    try {
+      await supabase.from("vpn_orders").delete().eq("id", newOrder.id);
     } catch {}
     throw err;
   }
@@ -1047,11 +1198,47 @@ export async function stopOrder({ orderId, resellerId }) {
 
   await markOrderStopped(order.id);
 
+  // Queued-plan model (user decision 2026-09-05): stopping the current plan
+  // ends it now and the customer's next queued plan takes over immediately —
+  // Stop means "switch to the next plan now", not "suspend everything".
+  const promoted = await promoteNextScheduledPlan(order.customer_id, order.reseller_id);
+
   return {
     success: true,
-    message: "Order stopped",
+    message: promoted ? "Order stopped; next queued plan activated" : "Order stopped",
     order_id: order.id,
     status: "stopped",
+    promoted,
+  };
+}
+
+// Cancel a queued ("scheduled") plan before it activates. A queued plan holds
+// no keys and delivered no service, so it's removed cleanly along with its
+// (not-yet-delivered) payment + commission records, keeping accounting correct
+// and the Orders list free of phantom rows. Only 'scheduled' orders qualify —
+// an active/expired order with real keys can never be cancelled this way.
+export async function cancelScheduledOrder({ orderId, resellerId }) {
+  const order = await getResellerScopedOrder(orderId, resellerId);
+
+  if (order.status !== "scheduled") {
+    throw new OrderLifecycleError(
+      `Only queued plans can be cancelled. Current status: ${order.status}`,
+      409,
+      "NOT_SCHEDULED"
+    );
+  }
+
+  // Remove dependent records first (FKs point at the order), then the order.
+  await supabase.from("commission_ledger").delete().eq("order_id", order.id);
+  await supabase.from("order_payments").delete().eq("order_id", order.id);
+
+  const { error: delErr } = await supabase.from("vpn_orders").delete().eq("id", order.id);
+  if (delErr) throw new Error(delErr.message);
+
+  return {
+    success: true,
+    message: "Queued plan cancelled",
+    order_id: order.id,
   };
 }
 

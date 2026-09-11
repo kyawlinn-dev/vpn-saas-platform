@@ -28,6 +28,18 @@ import { api } from "../lib/api";
 import { formatDate, formatMMK } from "../lib/format";
 import type { MonthlyAccountingSnapshot } from "../types/api";
 
+interface PlatformPaymentAccount {
+  method: string;
+  account_name: string;
+  account_number: string;
+  note: string;
+}
+interface PlatformPayment {
+  payment_accounts: PlatformPaymentAccount[];
+  settlement_instructions: string | null;
+  updated_at: string | null;
+}
+
 function currentMonthValue() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -138,6 +150,22 @@ export function AccountingPage() {
   const [transferReference, setTransferReference] = useState("");
   const [transferNote, setTransferNote] = useState("");
   const [transferProofUrl, setTransferProofUrl] = useState("");
+  const [platformPayment, setPlatformPayment] = useState<PlatformPayment | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const res = await api.get<PlatformPayment>("/reseller/accounting/platform-payment");
+        if (active) setPlatformPayment(res.data ?? null);
+      } catch {
+        if (active) setPlatformPayment(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const loadAccounting = useCallback(async () => {
     setLoading(true);
@@ -256,7 +284,7 @@ export function AccountingPage() {
           <h1 className="font-display text-[18px] font-black tracking-tight text-foreground">
             Accounting
           </h1>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
             Monthly sales, commission, and platform transfer amount.
           </p>
         </div>
@@ -378,6 +406,49 @@ export function AccountingPage() {
               This workflow uses order creation month and includes paid purchase orders after payment review is confirmed.
             </p>
           </div>
+
+          {(platformPayment?.payment_accounts?.length || platformPayment?.settlement_instructions) && (
+            <div className="mt-2 rounded-lg border border-primary/25 bg-primary/5 p-3">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <ArrowDownToLine size={14} className="text-primary" />
+                <h3 className="text-[12px] font-black text-foreground">How to pay the platform</h3>
+              </div>
+              {platformPayment?.settlement_instructions && (
+                <p className="mb-2 text-[11px] text-muted-foreground">
+                  {platformPayment.settlement_instructions}
+                </p>
+              )}
+              <div className="space-y-1.5">
+                {(platformPayment?.payment_accounts ?? []).map((acc, i) => (
+                  <div key={i} className="rounded-md border border-border bg-card px-2.5 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-foreground">{acc.method || "Account"}</span>
+                      {acc.account_number && (
+                        <button
+                          type="button"
+                          className="text-[10px] font-medium text-primary hover:underline"
+                          onClick={() => {
+                            void navigator.clipboard.writeText(acc.account_number);
+                            setMessage("Account number copied.");
+                          }}
+                        >
+                          Copy number
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-[12px] font-semibold text-foreground">{acc.account_number}</div>
+                    {acc.account_name && (
+                      <div className="text-[11px] text-muted-foreground">{acc.account_name}</div>
+                    )}
+                    {acc.note && <div className="text-[10px] text-muted-foreground">{acc.note}</div>}
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] text-muted-foreground">
+                Transfer the amount above, then upload your proof and submit below.
+              </p>
+            </div>
+          )}
 
           <div className="mt-2 rounded-lg border border-border bg-card p-3">
             <div className="mb-2 flex items-center justify-between gap-2">

@@ -66,3 +66,22 @@ export async function getMiniAppServers(telegramUserId, initDataOverride = "") {
   const payload = await requestJson(`/api/miniapp/${slug}/servers`);
   return payload.data?.servers || [];
 }
+
+export async function trackMiniAppPageView({
+  eventName,
+  page,
+  telegramUserId,
+  initData: initDataOverride = "",
+}) {
+  const slug = getSlugOrThrow();
+  const initData = initDataOverride || getTelegramInitData();
+
+  if (!telegramUserId || !initData) return { skipped: true };
+
+  return postJson(`/api/miniapp/${slug}/events`, {
+    event_name: eventName,
+    page,
+    telegram_user_id: telegramUserId,
+    init_data: initData,
+  });
+}

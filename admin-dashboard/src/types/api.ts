@@ -362,6 +362,7 @@ export interface AdminResellerWorkspace {
   trial_enabled: boolean;
   trial_data_limit_gb: number | null;
   trial_duration_days: number | null;
+  trial_protocol: "shadowsocks" | "vless";
   bot_connected: boolean;
   bot_status: BotStatus;
 }
@@ -373,6 +374,7 @@ export interface AdminResellerWorkspacePatch {
   trial_enabled?: boolean;
   trial_data_limit_gb?: number | null;
   trial_duration_days?: number | null;
+  trial_protocol?: "shadowsocks" | "vless";
   bot_token?: string;
 }
 

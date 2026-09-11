@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Server as ServerIcon, AlertTriangle, Check } from "lucide-react";
+import { Server as ServerIcon, AlertTriangle, Check, Globe } from "lucide-react";
 import {
   Dialog, DialogHeader, DialogTitle, DialogDescription,
   DialogBody, DialogFooter, DialogClose,
@@ -39,6 +39,7 @@ export function ServerSwitchDialog({ order, open, onClose, onSwitched }: ServerS
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [protocolNoSwitch, setProtocolNoSwitch] = useState("");
 
   useEffect(() => {
     if (!open || !order) {
@@ -46,12 +47,14 @@ export function ServerSwitchDialog({ order, open, onClose, onSwitched }: ServerS
       setServers(null);
       setSelectedId(null);
       setError("");
+      setProtocolNoSwitch("");
       return;
     }
 
     let active = true;
     setLoading(true);
     setError("");
+    setProtocolNoSwitch("");
     void (async () => {
       try {
         const res = await api.get<EligibleServersResponse>(`/reseller/orders/${order.id}/eligible-servers`);
@@ -59,7 +62,12 @@ export function ServerSwitchDialog({ order, open, onClose, onSwitched }: ServerS
         setCurrentServer(res.data?.current_server ?? null);
         setServers(res.data?.servers ?? []);
       } catch (err: any) {
-        if (active) setError(err?.response?.data?.error || "Failed to load servers");
+        if (!active) return;
+        if (err?.response?.data?.error === "PROTOCOL_NO_SWITCH") {
+          setProtocolNoSwitch(err.response.data.message);
+        } else {
+          setError(err?.response?.data?.error || "Failed to load servers");
+        }
       } finally {
         if (active) setLoading(false);
       }
@@ -114,7 +122,15 @@ export function ServerSwitchDialog({ order, open, onClose, onSwitched }: ServerS
       </DialogHeader>
 
       <DialogBody className="space-y-3">
-        {loading ? (
+        {protocolNoSwitch ? (
+          <div className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
+            <Globe size={20} className="mt-0.5 shrink-0 text-primary" />
+            <div className="space-y-1.5 text-sm">
+              <div className="font-medium text-foreground">Server switch not needed</div>
+              <p className="text-muted-foreground">{protocolNoSwitch}</p>
+            </div>
+          </div>
+        ) : loading ? (
           <div className="h-14 animate-pulse rounded-lg bg-secondary/50" />
         ) : currentServer ? (
           <div className="flex items-center gap-3 rounded-lg border border-border bg-secondary/30 px-3 py-2.5">
@@ -133,13 +149,15 @@ export function ServerSwitchDialog({ order, open, onClose, onSwitched }: ServerS
           </div>
         ) : null}
 
-        <div className="flex items-start gap-2 rounded-md border border-warning/25 bg-warning/10 p-2.5 text-xs text-warning">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>
-            The customer's connection will briefly drop while they reconnect. Their key link
-            stays the same — no need to resend it.
-          </span>
-        </div>
+        {!protocolNoSwitch && (
+          <div className="flex items-start gap-2 rounded-md border border-warning/25 bg-warning/10 p-2.5 text-xs text-warning">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              The customer's connection will briefly drop while they reconnect. Their key link
+              stays the same — no need to resend it.
+            </span>
+          </div>
+        )}
 
         {loading ? (
           <div className="space-y-2">
@@ -200,17 +218,25 @@ export function ServerSwitchDialog({ order, open, onClose, onSwitched }: ServerS
       </DialogBody>
 
       <DialogFooter>
-        <Button variant="outline" className="flex-1" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          className="flex-1"
-          onClick={() => void handleConfirm()}
-          loading={switching}
-          disabled={!selectedId || switching || loading}
-        >
-          {switching ? "Switching…" : "Confirm Switch"}
-        </Button>
+        {protocolNoSwitch ? (
+          <Button variant="outline" className="w-full" onClick={onClose}>
+            Got it
+          </Button>
+        ) : (
+          <>
+            <Button variant="outline" className="flex-1" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={() => void handleConfirm()}
+              loading={switching}
+              disabled={!selectedId || switching || loading}
+            >
+              {switching ? "Switching…" : "Confirm Switch"}
+            </Button>
+          </>
+        )}
       </DialogFooter>
     </Dialog>
   );

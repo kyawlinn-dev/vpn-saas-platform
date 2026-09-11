@@ -3,11 +3,8 @@ import { supabase } from "../../lib/supabase.js";
 import { startProvisionOutlineServer } from "../../services/serverProvisionService.js";
 import { getServerInventorySummary, getActiveServers } from "../../services/serverService.js";
 import { destroyDroplet } from "../../services/digitalOceanService.js";
-import { deleteOutlineKey } from "../../services/outlineService.js";
-import {
-  migrateActiveOrderToServer,
-  getOrderQuotaSnapshot,
-} from "../../services/subscriptionProvisionService.js";
+import { deleteKey } from "../../services/vpnProviderService.js";
+import { migrateActiveOrderToServer } from "../../services/subscriptionProvisionService.js";
 
 const router = express.Router();
 
@@ -234,38 +231,13 @@ router.post("/:serverId/decommission", async (req, res) => {
     const keys = activeKeys || [];
     const orderIds = [...new Set(keys.map((k) => k.order_id).filter(Boolean))];
 
-    // Snapshot each order's REMAINING balance now, while its key is still
-    // active, so the migrated key carries the real balance instead of
-    // resetting to the full plan (quota-reset gap, 2026-09-09). Uses stored
-    // used_bytes — for a planned decommission of a HEALTHY server, run a
-    // usage sync first for to-the-minute accuracy.
-    const carryByOrderId = new Map();
-    for (const oid of orderIds) {
+    // 4. Delete each VPN key from the server API (best-effort)
+    for (const key of keys) {
+      if (!key.outline_key_id) continue;
       try {
-        const snap = await getOrderQuotaSnapshot(oid);
-        carryByOrderId.set(
-          oid,
-          snap.isUnlimited ? null : snap.remainingBytes != null ? snap.remainingBytes : undefined
-        );
+        await deleteKey({ server, keyId: key.outline_key_id });
       } catch (err) {
-        console.warn(`[decommission] quota snapshot failed for order ${oid}:`, err.message);
-        carryByOrderId.set(oid, undefined);
-      }
-    }
-
-    // 4. Delete each Outline key from the VPN server API (best-effort)
-    if (server.outline_api_url && server.outline_cert_sha256) {
-      for (const key of keys) {
-        if (!key.outline_key_id) continue;
-        try {
-          await deleteOutlineKey({
-            apiUrl: server.outline_api_url,
-            certSha256: server.outline_cert_sha256,
-            outlineKeyId: key.outline_key_id,
-          });
-        } catch (err) {
-          console.warn(`[decommission] Outline key ${key.outline_key_id} deletion failed:`, err.message);
-        }
+        console.warn(`[decommission] VPN key ${key.outline_key_id} deletion failed:`, err.message);
       }
     }
 
@@ -288,7 +260,7 @@ router.post("/:serverId/decommission", async (req, res) => {
         .from("vpn_orders")
         .select(`
           id, customer_id, reseller_id, status, order_type,
-          customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name),
+          customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, protocol_preference),
           plan:vpn_plans(id, name, data_limit_gb, allowed_regions, is_trial)
         `)
         .in("id", orderIds)
@@ -310,12 +282,8 @@ router.post("/:serverId/decommission", async (req, res) => {
             continue;
           }
 
-          await migrateActiveOrderToServer({
-            order,
-            newServer,
-            oldServerId: serverId,
-            carryRemainingBytes: carryByOrderId.get(order.id),
-          });
+          const protocol = order.customer?.protocol_preference || "shadowsocks";
+          await migrateActiveOrderToServer({ order, newServer, oldServerId: serverId, protocol });
           console.log(`[decommission] Migrated order ${order.id} → server ${newServer.name} (${newServer.id})`);
           ordersMigrated++;
         } catch (err) {

@@ -24,6 +24,7 @@ export interface Customer {
   phone: Nullable<string>;
   notes: Nullable<string>;
   customer_type?: "normal" | "telegram";
+  protocol_preference?: Nullable<string>;
   created_at?: string;
   reseller?: Reseller;
 }
@@ -57,6 +58,10 @@ export interface Order {
 
   order_type?: "trial" | "purchase" | string;
   review_status?: "pending_review" | "confirmed" | "rejected" | string;
+  protocol?: "shadowsocks" | "vless" | "hysteria2" | string;
+  // True when this order's customer already has a current active purchase — used
+  // to hide Renew on superseded (frozen) rows in the sale-record model.
+  customer_has_active_order?: boolean;
   payment_screenshot_url?: Nullable<string>;
   source?: "miniapp" | "bot" | "dashboard" | string;
 

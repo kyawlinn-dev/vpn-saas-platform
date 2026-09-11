@@ -81,12 +81,12 @@ export async function alertJobFailure({ jobName, consecutiveFailures, lastError 
 }
 
 /**
- * Convenience: report a server whose Outline API went down.
+ * Convenience: report a server whose VPN panel went down.
  */
 export async function alertServerDown({ serverId, serverName, lastError }) {
   return sendAlert({
     subject: `server:${serverId}:down`,
-    text: `Server *${serverName || serverId}* Outline API is *failed*.\n\nLast error: \`${(lastError || "unknown").slice(0, 300)}\``,
+    text: `Server *${serverName || serverId}* VPN panel is *failed*.\n\nLast error: \`${(lastError || "unknown").slice(0, 300)}\``,
   });
 }
 

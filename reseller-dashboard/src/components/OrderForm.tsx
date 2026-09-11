@@ -20,7 +20,13 @@ const initialForm = {
   plan_id: "",
   payment_note: "",
   notes: "",
+  protocol_preference: "shadowsocks" as "shadowsocks" | "vless",
 };
+
+const PROTOCOLS = [
+  { id: "shadowsocks" as const, label: "Shadowsocks", desc: "Outline app · One-tap connect" },
+  { id: "vless" as const, label: "VLESS Reality", desc: "Hiddify / V2Box app" },
+];
 
 function splitContact(contact: string) {
   const cleaned = contact.trim();
@@ -119,6 +125,7 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
         notes: form.notes.trim() || null,
         phone: phone || null,
         telegram_username: telegram_username || null,
+        protocol_preference: form.protocol_preference,
       });
 
       setForm({
@@ -222,6 +229,33 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
         </div>
 
         <PlanPreview plan={selectedPlan} />
+
+        <div>
+          <div className="mb-1.5 text-[11px] font-semibold text-muted-foreground">
+            VPN Protocol
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {PROTOCOLS.map((proto) => (
+              <button
+                key={proto.id}
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, protocol_preference: proto.id }))}
+                className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                  form.protocol_preference === proto.id
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-secondary/40 hover:border-border/80"
+                }`}
+              >
+                <div className={`text-sm font-medium ${
+                  form.protocol_preference === proto.id ? "text-primary" : "text-foreground"
+                }`}>
+                  {proto.label}
+                </div>
+                <div className="mt-0.5 text-[11px] text-muted-foreground">{proto.desc}</div>
+              </button>
+            ))}
+          </div>
+        </div>
 
         <FormField label="Payment note">
           <Input

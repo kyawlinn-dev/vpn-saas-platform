@@ -2,8 +2,12 @@ import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { parsePagination, sanitizeSearchTerm } from "../../utils/pagination.js";
 import { enrichCustomer } from "../../services/customerOrderEnrichmentService.js";
+import { getServerById } from "../../services/serverService.js";
+import { switchOrderProtocol } from "../../services/subscriptionProvisionService.js";
 
 const router = express.Router();
+
+const VALID_PROTOCOLS = ["shadowsocks", "vless", "hysteria2"];
 
 const ORDER_SELECT_FOR_CUSTOMERS = `
   *,
@@ -268,6 +272,114 @@ router.get("/counts", async (req, res) => {
   } catch (err) {
     console.error("GET /api/reseller/customers/counts crash:", err);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// POST /api/reseller/customers/:customerId/switch-protocol
+// Body: { protocol }
+//
+// Changes the customer's preferred protocol and, if they have a live paid key,
+// rebuilds it on the same server with the new protocol's Marzneshin services
+// (SS → per-node SS service, VLESS/Hysteria2 → global VLESS service). The new
+// key is provisioned before the old one is torn down, so the customer is never
+// left without access. Trial orders are SS-only and are never re-provisioned —
+// the preference is still saved for their next paid order.
+router.post("/:customerId/switch-protocol", async (req, res) => {
+  const reseller = req.reseller;
+  const { customerId } = req.params;
+  const protocol = String(req.body?.protocol || "").trim();
+
+  if (!VALID_PROTOCOLS.includes(protocol)) {
+    return res.status(400).json({
+      error: "INVALID_PROTOCOL",
+      message: `Choose one of: ${VALID_PROTOCOLS.join(", ")}`,
+    });
+  }
+
+  try {
+    const { data: customer, error: custErr } = await supabase
+      .from("vpn_customers")
+      .select("id, protocol_preference")
+      .eq("id", customerId)
+      .eq("reseller_id", reseller.id)
+      .maybeSingle();
+
+    if (custErr) throw custErr;
+    if (!customer) return res.status(404).json({ error: "CUSTOMER_NOT_FOUND" });
+
+    const current = customer.protocol_preference || "shadowsocks";
+    if (current === protocol) {
+      return res.json({ ok: true, protocol, reprovisioned: false, unchanged: true });
+    }
+
+    // Find the customer's active paid order (with the fields migrateActiveOrderToServer
+    // needs for key naming + data limit).
+    const { data: order, error: orderErr } = await supabase
+      .from("vpn_orders")
+      .select(`
+        id, customer_id, reseller_id, plan_id, status, order_type,
+        customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name),
+        plan:vpn_plans(id, name, data_limit_gb, is_trial)
+      `)
+      .eq("customer_id", customerId)
+      .eq("reseller_id", reseller.id)
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (orderErr) throw orderErr;
+
+    const isTrial = order && (order.order_type === "trial" || order.plan?.is_trial);
+
+    // No live paid key to rebuild — just save the preference; it applies at the
+    // next provision.
+    if (!order || isTrial) {
+      const { error: updErr } = await supabase
+        .from("vpn_customers")
+        .update({ protocol_preference: protocol })
+        .eq("id", customerId);
+      if (updErr) throw updErr;
+      return res.json({ ok: true, protocol, reprovisioned: false });
+    }
+
+    const { data: activeKey, error: keyErr } = await supabase
+      .from("vpn_keys")
+      .select("id, server_id, outline_key_id, status")
+      .eq("order_id", order.id)
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (keyErr) throw keyErr;
+
+    if (!activeKey?.server_id) {
+      const { error: updErr } = await supabase
+        .from("vpn_customers")
+        .update({ protocol_preference: protocol })
+        .eq("id", customerId);
+      if (updErr) throw updErr;
+      return res.json({ ok: true, protocol, reprovisioned: false });
+    }
+
+    const server = await getServerById(activeKey.server_id);
+
+    // Re-provision first; only persist the new preference once the new key is
+    // live so a failure leaves the customer on their working old protocol.
+    await switchOrderProtocol({ order, server, oldKey: activeKey, protocol });
+
+    const { error: updErr } = await supabase
+      .from("vpn_customers")
+      .update({ protocol_preference: protocol })
+      .eq("id", customerId);
+    if (updErr) throw updErr;
+
+    return res.json({ ok: true, protocol, reprovisioned: true });
+  } catch (err) {
+    console.error("POST /api/reseller/customers/:customerId/switch-protocol error:", err);
+    return res.status(500).json({ error: "Failed to switch protocol" });
   }
 });
 

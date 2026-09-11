@@ -14,6 +14,7 @@ const STATUS_MAP: Record<string, { variant: BadgeVariant; label: string }> = {
   expired:        { variant: "destructive", label: "Expired" },
   rejected:       { variant: "destructive", label: "Rejected" },
   stopped:        { variant: "default",     label: "Stopped" },
+  scheduled:      { variant: "info",        label: "Queued" },
   deleted:        { variant: "default",     label: "Deleted" },
   unpaid:         { variant: "default",     label: "Unpaid" },
   refunded:       { variant: "default",     label: "Refunded" },

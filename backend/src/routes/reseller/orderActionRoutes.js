@@ -5,6 +5,7 @@ import { normalizePaymentStatus } from "../../utils/validators.js";
 import {
   OrderLifecycleError,
   activateOrder,
+  cancelScheduledOrder,
   confirmPayment,
   extendOrder,
   rejectPayment,
@@ -149,6 +150,20 @@ router.post("/:orderId/stop", async (req, res) => {
     return res.json(result);
   } catch (err) {
     return sendActionError(res, err, "Failed to stop order");
+  }
+});
+
+router.post("/:orderId/cancel-scheduled", async (req, res) => {
+  try {
+    await assertNormalCustomer(req.params.orderId, req.reseller.id);
+    const result = await cancelScheduledOrder({
+      orderId: req.params.orderId,
+      resellerId: req.reseller.id,
+    });
+
+    return res.json(result);
+  } catch (err) {
+    return sendActionError(res, err, "Failed to cancel queued plan");
   }
 });
 

@@ -5,7 +5,9 @@ import { ThemeProvider } from "./providers/ThemeProvider";
 import { ResellerAuthProvider } from "./providers/ResellerAuthProvider";
 import { DashboardDataProvider } from "./providers/DashboardDataProvider";
 import LoginPage from "./pages/LoginPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import { AppShell } from "./components/layout/AppShell";
+import { MiniappGate } from "./components/MiniappGate";
 
 const OverviewPage = lazy(() => import("./pages/OverviewPage").then((module) => ({ default: module.OverviewPage })));
 const OrdersPage = lazy(() => import("./pages/OrdersPage").then((module) => ({ default: module.OrdersPage })));
@@ -28,6 +30,7 @@ export default function App() {
           <Suspense fallback={<RouteLoading />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
 
               <Route
                 path="/app"
@@ -42,10 +45,10 @@ export default function App() {
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="customers" element={<CustomersPage />} />
                 <Route path="accounting" element={<AccountingPage />} />
-                <Route path="telegram-orders" element={<TelegramOrdersPage />} />
+                <Route path="telegram-orders" element={<MiniappGate><TelegramOrdersPage /></MiniappGate>} />
                 <Route path="plans" element={<PlansPage />} />
-                <Route path="notifications" element={<NotificationsPage />} />
-                <Route path="settings" element={<SettingsPage />} />
+                <Route path="notifications" element={<MiniappGate><NotificationsPage /></MiniappGate>} />
+                <Route path="settings" element={<MiniappGate><SettingsPage /></MiniappGate>} />
               </Route>
 
               <Route path="*" element={<Navigate to="/app" replace />} />

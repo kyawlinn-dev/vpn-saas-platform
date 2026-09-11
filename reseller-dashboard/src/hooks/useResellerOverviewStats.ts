@@ -34,6 +34,8 @@ export function useResellerOverviewStats() {
       const res = await api.get<ResellerOverviewStats>("/reseller/stats/overview");
       setStats(res.data);
     } catch (err: any) {
+      // 403 = pending/inactive reseller — stay silent, the AppShell banner explains why.
+      if (err?.response?.status === 403) return;
       setError(
         err?.response?.data?.error || err.message || "Failed to load overview stats"
       );

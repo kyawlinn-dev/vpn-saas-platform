@@ -66,10 +66,15 @@ export function useDashboardData(): DashboardDataState {
       const res = await api.get<Plan[]>("/reseller/plans");
       setPlans(readArrayPayload<Plan>(res.data));
     } catch (err: any) {
-      if (err?.response?.status === 401 || err?.response?.status === 403) {
+      // 401 = session expired → log out.
+      // 403 = authenticated but not permitted (e.g. pending reseller waiting
+      //       for approval) → stay logged in, silently return empty data.
+      //       The pending-approval banner in AppShell explains why.
+      if (err?.response?.status === 401) {
         await logout();
         return;
       }
+      if (err?.response?.status === 403) return;
       setError(extractErrorMessage(err, "Failed to load plans"));
     } finally {
       setLoading(false);

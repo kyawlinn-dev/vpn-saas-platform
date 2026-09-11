@@ -64,3 +64,33 @@ export function buildDynamicAccessUrl(token, label, { req } = {}) {
   const fragment = label ? `#${label}` : "";
   return `ssconf://${url.host}${url.pathname}${fragment}`;
 }
+
+/**
+ * Build the public-facing access URL based on protocol preference.
+ *
+ * - shadowsocks → ssconf:// dynamic URL (same UX as Outline — one-tap import)
+ * - vless / hysteria2 → raw Marzneshin subscription URL (paste into Hiddify/V2Box)
+ *
+ * @param {object} opts
+ * @param {string} opts.protocol      - "shadowsocks" | "vless" | "hysteria2"
+ * @param {string} opts.ssconfToken   - vpn_customers.ssconf_token (for SS)
+ * @param {string} opts.subscriptionUrl - Marzneshin subscription URL (for VLESS/Hysteria2)
+ * @param {string} [opts.label]       - display label for SS deep-link fragment
+ * @param {object} [opts.req]         - Express request for base URL detection
+ */
+export function buildAccessUrlForProtocol({ protocol, ssconfToken, subscriptionUrl, label, req } = {}) {
+  if (protocol === "shadowsocks") {
+    return {
+      dynamic_access_url: buildDynamicAccessUrl(ssconfToken, label, { req }),
+      ssconf_url: buildSsconfHttpUrl(ssconfToken, { req }),
+      subscription_url: null,
+    };
+  }
+
+  // VLESS or Hysteria2 — customer uses subscription URL directly
+  return {
+    dynamic_access_url: null,
+    ssconf_url: null,
+    subscription_url: subscriptionUrl || null,
+  };
+}

@@ -1,4 +1,4 @@
-import { postJson, uploadFormData } from "../../services/http";
+import { postJson, requestJson, uploadFormData } from "../../services/http";
 import { MINIAPP_SLUG } from "../../lib/slug";
 import { getTelegramInitData } from "../../lib/telegram";
 
@@ -49,6 +49,7 @@ export async function submitMiniAppPurchase({
   plan_id,
   payment_screenshot_url,
   payment_note,
+  protocol_preference,
   init_data = "",
 }) {
   const slug = getSlugOrThrow();
@@ -57,7 +58,26 @@ export async function submitMiniAppPurchase({
     plan_id,
     payment_screenshot_url,
     payment_note,
+    protocol_preference,
     init_data: requireTelegramInitData(init_data),
+  });
+  return payload.data;
+}
+
+export async function updateProtocolPreference({
+  telegram_user_id,
+  protocol_preference,
+  init_data = "",
+}) {
+  const slug = getSlugOrThrow();
+  const payload = await requestJson(`/api/miniapp/${slug}/protocol-preference`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      telegram_user_id,
+      protocol_preference,
+      init_data: requireTelegramInitData(init_data),
+    }),
   });
   return payload.data;
 }

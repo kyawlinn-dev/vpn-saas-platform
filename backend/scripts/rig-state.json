@@ -1,0 +1,20 @@
+{
+  "orders": [
+    {
+      "id": "da5d532b-b832-483d-854d-26eef2629222",
+      "original_expiry_date": "2026-08-21"
+    },
+    {
+      "id": "e2b6766f-307a-4ab2-a576-def88e07a2dd",
+      "original_expiry_date": "2026-08-21"
+    }
+  ],
+  "fake_payment_ids": [
+    "20061af9-2da9-4260-9b5c-ca337c8ce474",
+    "e5fdad4c-d8ba-472f-b300-446cf16d0bcb"
+  ],
+  "fake_order_ids": [
+    "e568dd4a-abf3-4da0-b664-32446f1d9dd2",
+    "39ba588b-b63c-4f0d-a47e-6870964c09fd"
+  ]
+}

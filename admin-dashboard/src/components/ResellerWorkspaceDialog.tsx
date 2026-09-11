@@ -151,6 +151,9 @@ function TrialSection({
   const [durationDays, setDurationDays] = useState(
     workspace.trial_duration_days != null ? String(workspace.trial_duration_days) : ''
   );
+  const [trialProtocol, setTrialProtocol] = useState<'shadowsocks' | 'vless'>(
+    workspace.trial_protocol ?? 'shadowsocks'
+  );
   const { save, saving, saved, error } = useSave(patch, onSaved);
 
   return (
@@ -192,6 +195,31 @@ function TrialSection({
           </div>
         </div>
 
+        {/* Protocol toggle */}
+        <div>
+          <div className="mb-1.5 text-xs font-medium text-foreground">Trial Protocol</div>
+          <div className="grid grid-cols-2 gap-1 rounded-md border border-border bg-secondary/50 p-1">
+            {(['shadowsocks', 'vless'] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                disabled={!trialEnabled}
+                onClick={() => setTrialProtocol(p)}
+                className={`py-1.5 text-sm transition-colors ${
+                  trialProtocol === p
+                    ? 'rounded-[6px] bg-card text-foreground shadow-sm font-semibold'
+                    : 'text-muted-foreground hover:text-foreground disabled:opacity-40'
+                }`}
+              >
+                {p === 'shadowsocks' ? 'Shadowsocks' : 'VLESS Reality'}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Protocol used when provisioning trial VPN keys for new customers.
+          </p>
+        </div>
+
         {error ? <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
 
         <Button
@@ -204,6 +232,7 @@ function TrialSection({
               trial_enabled: trialEnabled,
               trial_data_limit_gb: dataLimitGb !== '' ? Number(dataLimitGb) : null,
               trial_duration_days: durationDays !== '' ? Number(durationDays) : null,
+              trial_protocol: trialProtocol,
             })
           }
         >

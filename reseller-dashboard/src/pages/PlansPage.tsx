@@ -99,7 +99,7 @@ export function PlansPage() {
           <h1 className="font-display text-[18px] font-black tracking-tight text-foreground">
             Plans
           </h1>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
             Active packages available for orders and Telegram Mini App purchases.
           </p>
         </div>

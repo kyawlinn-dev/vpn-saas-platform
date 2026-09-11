@@ -1,7 +1,7 @@
 # NovaNet MM — Database Schema Reference
 
 **Source:** Live Supabase project (`huqmzvlzfcexycdrsxpn`), queried via PostgREST OpenAPI spec.  
-**Last updated:** 2026-07-22
+**Last updated:** 2026-08-10
 
 > **NOT NULL semantics:** The `Required` column below means the column is `NOT NULL` in Postgres.  
 > Many required columns have server-side defaults (UUIDs, timestamps, booleans) — they don't need to be  
@@ -13,11 +13,14 @@
 
 - [access\_tokens](#access_tokens)
 - [admins](#admins)
+- [app\_events](#app_events)
 - [commission\_ledger](#commission_ledger)
 - [monthly\_settlements](#monthly_settlements)
 - [order\_payments](#order_payments)
 - [reseller\_miniapps](#reseller_miniapps)
 - [resellers](#resellers)
+- [server\_health\_status](#server_health_status)
+- [system\_job\_runs](#system_job_runs)
 - [telegram\_links](#telegram_links)
 - [token\_server\_assignments](#token_server_assignments)
 - [vpn\_customers](#vpn_customers)
@@ -61,6 +64,108 @@ Super-admin accounts. Login via Supabase email+password auth; backend checks thi
 | `created_at` | timestamptz | ✓ | now() | |
 
 > **Column trap:** this table uses `full_name`, not `name`. See also `vpn_customers.full_name`.
+
+---
+
+## app_events
+
+Backend-owned business event ledger for monitoring Mini App usage, checkout
+flow, server selection, and provisioning health. Frontends never write this
+table directly; backend service-role code records safe events only.
+
+| Column | Type | NOT NULL | Default | Notes |
+|--------|------|----------|---------|-------|
+| `id` | uuid | ✓ | gen_random_uuid() | PK |
+| `event_name` | text | ✓ | — | e.g. `miniapp_config_loaded`, `miniapp_authenticated`, `server_selected`, `key_provisioned` |
+| `event_source` | text | ✓ | `'backend'` | `backend`, `miniapp`, `bot`, `admin`, `reseller` |
+| `actor_type` | text | | — | `customer`, `reseller`, `admin`, `system`, `anonymous` |
+| `reseller_id` | uuid | | — | FK → resellers.id |
+| `customer_id` | uuid | | — | FK → vpn_customers.id |
+| `admin_id` | uuid | | — | FK → admins.id |
+| `telegram_user_id` | bigint | | — | Safe Telegram numeric ID, no init data |
+| `order_id` | uuid | | — | FK → vpn_orders.id |
+| `payment_id` | uuid | | — | FK → order_payments.id |
+| `server_id` | uuid | | — | FK → vpn_servers.id |
+| `plan_id` | uuid | | — | FK → vpn_plans.id |
+| `page` | text | | — | Logical app page |
+| `route` | text | | — | Backend route path without query string |
+| `status` | text | ✓ | `'info'` | `info` \| `success` \| `blocked` \| `failed` |
+| `metadata` | jsonb | ✓ | `'{}'` | Safe allowlisted metadata only |
+| `session_id` | text | | — | Optional anonymous session correlation |
+| `user_agent` | text | | — | Request user agent |
+| `ip_hash` | text | | — | Salted hash, never raw IP |
+| `created_at` | timestamptz | ✓ | now() | |
+
+> **Privacy rule:** never store Outline API URLs, Outline access URLs, Telegram
+> init data, bot tokens, payment screenshot paths, or other secrets in
+> `app_events.metadata`.
+
+Monitoring query indexes:
+
+- `idx_app_events_created_at` on `created_at desc`
+- `idx_app_events_reseller_created` on `(reseller_id, created_at desc)`
+- `idx_app_events_customer_created` on `(customer_id, created_at desc)`
+- `idx_app_events_name_created` on `(event_name, created_at desc)`
+- `idx_app_events_server_created` on `(server_id, created_at desc)` where `server_id is not null`
+- `idx_app_events_failed_recent` on `created_at desc` where `status = 'failed'`
+- `idx_app_events_session_created` on `(session_id, created_at desc)` where `session_id is not null`
+- `idx_app_events_status_created` on `(status, created_at desc)`
+- `idx_app_events_telegram_created` on `(telegram_user_id, created_at desc)` where `telegram_user_id is not null`
+
+Admin monitoring uses service-role-only RPC helpers:
+
+- `admin_monitoring_summary`
+- `admin_monitoring_funnel`
+- `admin_monitoring_daily`
+- `admin_monitoring_server_events`
+
+---
+
+## server_health_status
+
+Compact operational health state for Outline servers. Backend service-role code
+updates this table from usage sync and periodic Outline API health checks.
+
+| Column | Type | NOT NULL | Default | Notes |
+|--------|------|----------|---------|-------|
+| `server_id` | uuid | ✓ | — | PK, FK → vpn_servers.id |
+| `outline_api_status` | text | ✓ | `'unknown'` | `unknown` \| `healthy` \| `degraded` \| `failed` \| `stale` |
+| `last_checked_at` | timestamptz | | — | Last Outline API health check attempt |
+| `last_success_at` | timestamptz | | — | Last successful Outline API health check |
+| `last_usage_sync_at` | timestamptz | | — | Last successful usage sync for this server |
+| `last_error` | text | | — | Sanitized operational error only |
+| `response_ms` | integer | | — | Outline API health check duration |
+| `active_key_count_seen` | integer | | — | Key count observed from Outline API |
+| `consecutive_failures` | integer | ✓ | `0` | |
+| `updated_at` | timestamptz | ✓ | now() | |
+
+Indexes:
+
+- `idx_server_health_status_status` on `(outline_api_status, updated_at desc)`
+- `idx_server_health_status_usage_sync` on `(last_usage_sync_at desc)`
+
+---
+
+## system_job_runs
+
+Compact operational health state for backend jobs such as usage sync and
+Outline health checks.
+
+| Column | Type | NOT NULL | Default | Notes |
+|--------|------|----------|---------|-------|
+| `job_name` | text | ✓ | — | PK, e.g. `usage_sync`, `outline_health_check` |
+| `status` | text | ✓ | `'idle'` | `idle` \| `running` \| `success` \| `failed` \| `stale` |
+| `last_started_at` | timestamptz | | — | |
+| `last_finished_at` | timestamptz | | — | |
+| `last_success_at` | timestamptz | | — | |
+| `last_error` | text | | — | Sanitized operational error only |
+| `consecutive_failures` | integer | ✓ | `0` | |
+| `run_count` | integer | ✓ | `0` | |
+| `updated_at` | timestamptz | ✓ | now() | |
+
+Indexes:
+
+- `idx_system_job_runs_status` on `(status, updated_at desc)`
 
 ---
 
@@ -186,6 +291,7 @@ tell whether to contact the admin.
 | `trial_enabled` | boolean | ✓ | false | |
 | `trial_data_limit_gb` | integer | ✓ | `5` | Has DB default but **cannot pass null** |
 | `trial_duration_days` | integer | ✓ | `7` | Has DB default but **cannot pass null** |
+| `trial_protocol` | text | ✓ | `'shadowsocks'` | `shadowsocks` or `vless` — protocol used when provisioning trial keys |
 | `is_enabled` | boolean | ✓ | true | Disabling blocks all miniapp routes for this slug |
 | `payment_info` | jsonb | | `'[]'` | Array of `{method, account_name, account_number, qr_url?}` |
 | `created_at` | timestamptz | ✓ | now() | |
@@ -362,7 +468,7 @@ Subscription plan catalogue. Shared across resellers. `is_trial = true` rows are
 
 ## vpn_servers
 
-Outline VPN servers (DigitalOcean droplets). Provisioned automatically or added manually.
+VPN servers (DigitalOcean droplets). Managed by Marzneshin panel.
 
 | Column | Type | NOT NULL | Default | Notes |
 |--------|------|----------|---------|-------|
@@ -373,8 +479,16 @@ Outline VPN servers (DigitalOcean droplets). Provisioned automatically or added 
 | `region_code` | text | | — | Display code e.g. `SG` |
 | `droplet_id` | bigint | | — | DigitalOcean droplet ID |
 | `host_ip` | text | | — | |
-| `outline_api_url` | text | | — | Management API URL (includes path + secret) |
-| `outline_cert_sha256` | text | | — | TLS cert fingerprint for pinning |
+| `outline_api_url` | text | | — | ⚠️ LEGACY — not used by Marzneshin |
+| `outline_cert_sha256` | text | | — | ⚠️ LEGACY — not used by Marzneshin |
+| `panel_type` | text | ✓ | `'marzneshin'` | `marzneshin` |
+| `panel_url` | text | | — | Marzneshin panel API URL (e.g. `http://127.0.0.1:8000`) |
+| `panel_public_url` | text | | — | Public HTTPS URL for subscription links |
+| `panel_username` | text | | — | Marzneshin admin username |
+| `panel_password_encrypted` | text | | — | Encrypted admin password |
+| `marzneshin_service_ids` | integer[] | | `'{}'` | Per-server SS service IDs (one node's SS inbound only) |
+| `marzneshin_vless_service_ids` | integer[] | | `'{}'` | Global VLESS service IDs (all nodes' VLESS inbounds — same value on every server row) |
+| `marzneshin_vless_trial_service_ids` | integer[] | | `'{}'` | Trial-only VLESS service IDs — references a Marzneshin service containing ONLY this trial server's VLESS inbound. Set on trial servers only; empty on premium servers. |
 | `status` | text | ✓ | — | `active` \| `provisioning` \| `error` \| `inactive` |
 | `is_active` | boolean | | — | |
 | `is_default` | boolean | ✓ | — | One server is the default for new mini-app orders |
@@ -408,6 +522,13 @@ Outline VPN servers (DigitalOcean droplets). Provisioned automatically or added 
 | `commission_ledger.reseller_id` | `resellers.id` |
 | `monthly_settlements.reseller_id` | `resellers.id` |
 | `monthly_settlements.confirmed_by_admin_id` | `admins.id` |
+| `app_events.reseller_id` | `resellers.id` |
+| `app_events.customer_id` | `vpn_customers.id` |
+| `app_events.admin_id` | `admins.id` |
+| `app_events.order_id` | `vpn_orders.id` |
+| `app_events.payment_id` | `order_payments.id` |
+| `app_events.server_id` | `vpn_servers.id` |
+| `app_events.plan_id` | `vpn_plans.id` |
 | `order_payments.order_id` | `vpn_orders.id` |
 | `order_payments.customer_id` | `vpn_customers.id` |
 | `order_payments.reseller_id` | `resellers.id` |
@@ -416,6 +537,7 @@ Outline VPN servers (DigitalOcean droplets). Provisioned automatically or added 
 | `order_payments.reviewed_by_admin_id` | `admins.id` |
 | `reseller_miniapps.reseller_id` | `resellers.id` |
 | `resellers.supabase_user_id` | `auth.users.id` (Supabase auth) |
+| `server_health_status.server_id` | `vpn_servers.id` |
 | `telegram_links.customer_id` | `vpn_customers.id` |
 | `telegram_links.reseller_id` | `resellers.id` |
 | `telegram_links.trial_order_id` | `vpn_orders.id` |
@@ -469,4 +591,8 @@ document accepted application values.
 | `order_payments.review_status` | `pending_review`, `confirmed`, `rejected` |
 | `order_payments.payment_type` | `initial`, `extend`, `renew`, `adjustment` |
 | `order_payments.apply_status` | `pending`, `applied`, `failed`, `reversed` |
+| `app_events.status` | `info`, `success`, `blocked`, `failed` |
+| `system_job_runs.status` | `idle`, `running`, `success`, `failed`, `stale` |
+| `server_health_status.outline_api_status` | `unknown`, `healthy`, `degraded`, `failed`, `stale` |
 | `vpn_servers.provider` | `digitalocean` |
+| `vpn_servers.panel_type` | `marzneshin` |

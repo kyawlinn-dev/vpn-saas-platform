@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronDown, Crown, Timer, Zap } from "lucide-react";
+import { Check, ChevronDown, Crown, ShieldAlert, Timer, Zap } from "lucide-react";
 import { Dialog } from "@base-ui/react/dialog";
 import {
   BrandBar,
@@ -14,6 +14,7 @@ import { useLinkServer } from "../features/access/hooks";
 import { getTelegramInitData } from "../lib/telegram";
 import { attachKeyToServer } from "../hooks/useMiniAppAuth";
 import { useLanguage } from "../i18n/language";
+import { useMiniAppPageView } from "../hooks/useMiniAppPageView";
 
 // ── Helpers (logic unchanged from MUI version) ────────────────────────────────
 
@@ -332,12 +333,26 @@ export default function ServersPage({
     );
   const currentServer = data?.current_server || null;
   const brand = data?.config?.brand || null;
+  const protocolPreference = data?.protocol_preference || "shadowsocks";
+  const isVless = protocolPreference === "vless" || protocolPreference === "hysteria2";
+  // Trial VLESS/Hysteria2 customers connect to the trial node only;
+  // premium VLESS customers get a global subscription URL covering all nodes.
+  const isVlessTrial = isVless && subscription?.type === "trial";
+  const isVlessPremium = isVless && !isVlessTrial;
+
+  useMiniAppPageView({
+    eventName: "server_page_viewed",
+    page: "servers",
+    data,
+    initData,
+  });
 
   const queryClient = useQueryClient();
   const [openGroupKey, setOpenGroupKey] = useState("");
   const [selectedServer, setSelectedServer] = useState(null);
   const [blockedServer, setBlockedServer] = useState(null);
   const [noPackageDialogOpen, setNoPackageDialogOpen] = useState(false);
+  const [vlessTrialUpgradeOpen, setVlessTrialUpgradeOpen] = useState(false);
 
   // When no active package: show the full server list but gate linking behind
   // the upgrade dialog instead of running the mutation.
@@ -349,7 +364,7 @@ export default function ServersPage({
   const linkMutation = useLinkServer({
     onSuccess: (responseData) => {
       const newServer = responseData?.current_server;
-      const newKey = responseData?.outline_key;
+      const newKey = responseData?.vpn_key || responseData?.outline_key;
 
       setSelectedServer(null);
 
@@ -361,6 +376,7 @@ export default function ServersPage({
           return {
             ...old,
             current_server: attachKeyToServer(newServer, newKey),
+            vpn_key: newKey,
             outline_key: newKey,
             servers: (old.servers || []).map((s) => ({
               ...s,
@@ -387,6 +403,18 @@ export default function ServersPage({
   const handleSelectServer = (server) => {
     if (lockedMode) {
       setNoPackageDialogOpen(true);
+      return;
+    }
+
+    // VLESS Trial: only the trial node is accessible — show upgrade prompt
+    if (isVlessTrial) {
+      setVlessTrialUpgradeOpen(true);
+      return;
+    }
+
+    // VLESS Premium: subscription URL already includes all nodes — no manual switch
+    if (isVlessPremium) {
+      onToast(t("servers.vlessAllServers"), "info");
       return;
     }
 
@@ -422,8 +450,51 @@ export default function ServersPage({
           <BrandBar brandName={brand?.name || "VPN"} subtitle={t("app.subtitle")} onOpenSettings={onOpenSettings} />
         </div>
 
-        {/* Current server summary — only visible with an active package */}
-        {!lockedMode && <CurrentServerSummary server={currentServer} />}
+        {/* VLESS Premium banner — subscription covers all servers */}
+        {isVlessPremium && hasActivePackage && (
+          <GlassCard className="border-primary/20 p-4">
+            <div className="flex items-start gap-3">
+              <span className="text-2xl">⚡</span>
+              <div>
+                <p className="text-[14px] font-semibold text-foreground">
+                  {t("servers.vlessAllServers")}
+                </p>
+                <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+                  {t("servers.vlessDescription")}
+                </p>
+              </div>
+            </div>
+          </GlassCard>
+        )}
+
+        {/* VLESS Trial banner — trial node only, upgrade CTA */}
+        {isVlessTrial && hasActivePackage && (
+          <GlassCard className="border-warning/30 bg-warning/5 p-4">
+            <div className="flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-warning/30 bg-warning/15 text-warning">
+                <ShieldAlert size={18} />
+              </span>
+              <div className="flex-1">
+                <p className="text-[14px] font-semibold text-foreground">
+                  {t("servers.vlessTrialBannerTitle")}
+                </p>
+                <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+                  {t("servers.vlessTrialBannerDescription")}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onTabChange?.("packages")}
+                  className="mt-2.5 rounded-full bg-warning/20 px-3 py-1 text-[12px] font-semibold text-warning"
+                >
+                  {t("payment.buyPackage")} →
+                </button>
+              </div>
+            </div>
+          </GlassCard>
+        )}
+
+        {/* Current server summary — only visible for SS with an active package */}
+        {!lockedMode && !isVless && <CurrentServerSummary server={currentServer} />}
 
         {/* Server tier sections */}
         <div className="flex flex-col gap-5">
@@ -544,6 +615,40 @@ export default function ServersPage({
               <PrimaryButton
                 onClick={() => {
                   setNoPackageDialogOpen(false);
+                  onTabChange?.("packages");
+                }}
+              >
+                {t("payment.buyPackage")}
+              </PrimaryButton>
+              <Dialog.Close
+                className={cn(
+                  "flex h-12 w-full items-center justify-center gap-2 rounded-2xl",
+                  "border border-border bg-secondary/60 text-[15px] font-semibold text-foreground",
+                  "transition-all hover:bg-secondary active:scale-[0.98]",
+                )}
+              >
+                {t("common.cancel")}
+              </Dialog.Close>
+            </div>
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* ── VLESS Trial upgrade dialog ────────────────────────────────────────── */}
+      <Dialog.Root open={vlessTrialUpgradeOpen} onOpenChange={setVlessTrialUpgradeOpen}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm" />
+          <Dialog.Popup className="glass fixed inset-x-4 bottom-8 z-50 rounded-3xl p-6 shadow-2xl outline-none">
+            <Dialog.Title className="text-[18px] font-semibold text-foreground">
+              {t("servers.vlessTrialUpgradeTitle")}
+            </Dialog.Title>
+            <Dialog.Description className="mt-2 mb-6 text-[13px] text-muted-foreground">
+              {t("servers.vlessTrialUpgradeDescription")}
+            </Dialog.Description>
+            <div className="flex flex-col gap-2">
+              <PrimaryButton
+                onClick={() => {
+                  setVlessTrialUpgradeOpen(false);
                   onTabChange?.("packages");
                 }}
               >

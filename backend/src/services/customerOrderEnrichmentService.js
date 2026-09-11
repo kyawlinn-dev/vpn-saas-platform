@@ -1,7 +1,4 @@
-import {
-  buildDynamicAccessUrl,
-  buildSsconfHttpUrl,
-} from "./publicAccessUrlService.js";
+import { buildAccessUrlForProtocol } from "./publicAccessUrlService.js";
 import { buildOrderQuotaSnapshot } from "./subscriptionProvisionService.js";
 
 function bytesToGb(bytes) {
@@ -28,8 +25,16 @@ export function addPaymentToBucket(bucket, payment) {
 export function enrichOrderAccess(order, req) {
   const customerToken = order?.customer?.ssconf_token;
   const label = order?.reseller?.name || "NovaNet MM";
-  const ssconfUrl = buildSsconfHttpUrl(customerToken, { req });
-  const dynamicAccessUrl = buildDynamicAccessUrl(customerToken, label, { req });
+
+  // Access-URL shape is protocol-specific: Shadowsocks customers use the
+  // ssconf token portal (ssconf/dynamic URL); VLESS & Hysteria2 customers use
+  // the Marzneshin subscription URL directly (key.access_url). Showing an
+  // ssconf link to a VLESS customer is wrong — the app can't import it.
+  const protocol = order?.customer?.protocol_preference || "shadowsocks";
+  const pickUrls = (subscriptionUrl) =>
+    buildAccessUrlForProtocol({ protocol, ssconfToken: customerToken, subscriptionUrl, label, req });
+  const preferredOf = (urls, fallbackAccessUrl) =>
+    urls.dynamic_access_url || urls.subscription_url || urls.ssconf_url || fallbackAccessUrl || null;
 
   // Usage shown to resellers/admins must reflect the order's LIFETIME total
   // across every key it has ever had — not just whatever key happens to be
@@ -40,22 +45,35 @@ export function enrichOrderAccess(order, req) {
   // no status filter in the callers' select), so no extra query needed.
   const quota = buildOrderQuotaSnapshot(order?.keys ?? []);
 
-  const keys = (order?.keys ?? []).map((key) => ({
-    ...key,
-    ssconf_url: ssconfUrl,
-    dynamic_access_url: dynamicAccessUrl,
-    preferred_access_url: dynamicAccessUrl || ssconfUrl || key.access_url || null,
-    order_total_used_bytes: quota.totalUsedBytes,
-    order_total_used_gb: bytesToGb(quota.totalUsedBytes),
-    order_total_remaining_gb:
-      typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
-  }));
+  const keys = (order?.keys ?? []).map((key) => {
+    const urls = pickUrls(key.access_url || null);
+    return {
+      ...key,
+      protocol,
+      ssconf_url: urls.ssconf_url,
+      dynamic_access_url: urls.dynamic_access_url,
+      subscription_url: urls.subscription_url,
+      preferred_access_url: preferredOf(urls, key.access_url),
+      order_total_used_bytes: quota.totalUsedBytes,
+      order_total_used_gb: bytesToGb(quota.totalUsedBytes),
+      order_total_remaining_gb:
+        typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
+    };
+  });
+
+  // Order-level URLs resolve against the currently active key (falling back to
+  // the most recent), so a VLESS order surfaces its live subscription URL.
+  const activeKey =
+    (order?.keys ?? []).find((key) => key.status === "active") || (order?.keys ?? [])[0] || null;
+  const orderUrls = pickUrls(activeKey?.access_url || null);
 
   return {
     ...order,
-    ssconf_url: ssconfUrl,
-    dynamic_access_url: dynamicAccessUrl,
-    preferred_access_url: dynamicAccessUrl || ssconfUrl || keys[0]?.access_url || null,
+    protocol,
+    ssconf_url: orderUrls.ssconf_url,
+    dynamic_access_url: orderUrls.dynamic_access_url,
+    subscription_url: orderUrls.subscription_url,
+    preferred_access_url: preferredOf(orderUrls, activeKey?.access_url),
     keys,
     // Also surface at the order level — some UIs (e.g. admin OrdersPage)
     // read usage off the order directly rather than digging into .keys[].
@@ -154,8 +172,21 @@ export function enrichCustomer(customer, { orders = [], telegramLink = null, req
   const allPayments = customerOrders.flatMap((order) => order.payments ?? []);
   const paymentSummary = addLegacyOrderSummary(summarizeOrderPayments(allPayments), customerOrders);
   const label = customer.reseller?.name || "NovaNet MM";
-  const ssconfUrl = buildSsconfHttpUrl(customer.ssconf_token, { req });
-  const dynamicAccessUrl = buildDynamicAccessUrl(customer.ssconf_token, label, { req });
+
+  // Protocol-aware customer-level access URL: SS → ssconf token portal,
+  // VLESS/Hysteria2 → the active order's subscription URL (never ssconf).
+  const protocol = customer.protocol_preference || "shadowsocks";
+  const activeKey =
+    (activeOrder?.keys ?? []).find((key) => key.status === "active") ||
+    (activeOrder?.keys ?? [])[0] ||
+    null;
+  const urls = buildAccessUrlForProtocol({
+    protocol,
+    ssconfToken: customer.ssconf_token,
+    subscriptionUrl: activeKey?.access_url || null,
+    label,
+    req,
+  });
 
   return {
     ...customer,
@@ -165,8 +196,11 @@ export function enrichCustomer(customer, { orders = [], telegramLink = null, req
     active_order: activeOrder,
     keys: customerOrders.flatMap((order) => order.keys ?? []),
     payment_summary: paymentSummary,
-    ssconf_url: ssconfUrl,
-    dynamic_access_url: dynamicAccessUrl,
-    preferred_access_url: dynamicAccessUrl || ssconfUrl || null,
+    protocol,
+    ssconf_url: urls.ssconf_url,
+    dynamic_access_url: urls.dynamic_access_url,
+    subscription_url: urls.subscription_url,
+    preferred_access_url:
+      urls.dynamic_access_url || urls.subscription_url || urls.ssconf_url || activeKey?.access_url || null,
   };
 }

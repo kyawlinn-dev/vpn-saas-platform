@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { supabase } from "../lib/supabase.js";
-import { listOutlineKeys, testOutlineServer } from "./outlineService.js";
+import { listKeys, testServer } from "./vpnProviderService.js";
 import { alertJobFailure, alertServerDown } from "./alertService.js";
 
 const execFileAsync = promisify(execFile);
@@ -212,23 +212,13 @@ export async function recordServerHealthFailure(serverId, error) {
   }
 }
 
-export async function checkOutlineServerHealth(server) {
+export async function checkServerHealth(server) {
   const startedAt = Date.now();
 
   try {
-    if (!server?.outline_api_url || !server?.outline_cert_sha256) {
-      throw new Error("Outline API config is missing");
-    }
+    await testServer(server);
 
-    await testOutlineServer({
-      apiUrl: server.outline_api_url,
-      certSha256: server.outline_cert_sha256,
-    });
-
-    const keys = await listOutlineKeys({
-      apiUrl: server.outline_api_url,
-      certSha256: server.outline_cert_sha256,
-    });
+    const keys = await listKeys(server);
 
     const responseMs = Date.now() - startedAt;
     const activeKeyCountSeen = Array.isArray(keys) ? keys.length : null;
@@ -267,32 +257,32 @@ export async function checkOutlineServerHealth(server) {
   }
 }
 
-export async function checkAllOutlineServerHealth() {
-  await markJobStarted("outline_health_check");
+export async function checkAllServerHealth() {
+  await markJobStarted("server_health_check");
 
   try {
     const { data: servers, error } = await supabase
       .from("vpn_servers")
-      .select("id, name, status, outline_api_url, outline_cert_sha256")
+      .select("id, name, status, panel_url, panel_username, panel_password_encrypted")
       .eq("status", "active")
-      .not("outline_api_url", "is", null);
+      .not("panel_url", "is", null);
 
     if (error) throw error;
 
     const results = [];
     for (const server of servers || []) {
-      results.push(await checkOutlineServerHealth(server));
+      results.push(await checkServerHealth(server));
     }
 
     const failed = results.filter((result) => result.status === "failed");
     if (failed.length) {
-      throw new Error(`${failed.length} Outline server health check(s) failed`);
+      throw new Error(`${failed.length} server health check(s) failed`);
     }
 
-    await markJobSuccess("outline_health_check");
+    await markJobSuccess("server_health_check");
     return results;
   } catch (error) {
-    await markJobFailure("outline_health_check", error);
+    await markJobFailure("server_health_check", error);
     throw error;
   }
 }
@@ -466,17 +456,17 @@ function buildAlerts({ jobs, servers, pm2 }) {
     if (server.health.outline_api_status === "failed") {
       alerts.push({
         severity: "destructive",
-        code: "OUTLINE_API_FAILED",
-        title: `${server.name} Outline API failed`,
-        detail: server.health.last_error || "Outline API did not respond successfully.",
+        code: "VPN_PANEL_FAILED",
+        title: `${server.name} VPN panel failed`,
+        detail: server.health.last_error || "VPN panel did not respond successfully.",
         server_id: server.id,
       });
     } else if (server.health.health_check_stale) {
       alerts.push({
         severity: "warning",
-        code: "OUTLINE_API_STALE",
+        code: "VPN_PANEL_STALE",
         title: `${server.name} health check is stale`,
-        detail: "No recent Outline API health check has completed.",
+        detail: "No recent VPN panel health check has completed.",
         server_id: server.id,
       });
     }

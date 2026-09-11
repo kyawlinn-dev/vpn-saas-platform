@@ -13,7 +13,7 @@
  */
 
 import { supabase } from "../lib/supabase.js";
-import { createOutlineKey, deleteOutlineKey } from "./outlineService.js";
+import { createKey, deleteKey } from "./vpnProviderService.js";
 import {
   clearServerError,
   decrementServerUsage,
@@ -90,6 +90,7 @@ export async function createTrialOrder({
   resellerId,
   telegramLinkId,
   telegramUsername,
+  source = "bot",
 }) {
   const now = new Date().toISOString();
 
@@ -157,7 +158,7 @@ export async function createTrialOrder({
         total_paid_mmk: 0,
         order_type: "trial",
         review_status: "confirmed",
-        source: "miniapp",
+        source,
       })
       .select(`
         id, customer_id, reseller_id, plan_id, status, order_type,
@@ -235,7 +236,7 @@ export async function createTrialOrder({
  * Server selection: getActiveServers filters server_tier='trial', then ranks by
  * lowest load. The default server only wins ties.
  *
- * @param {{ customerId, resellerId, orderId, plan, customerFullName, keyName }} params
+ * @param {{ customerId, resellerId, orderId, plan, customerFullName, keyName, protocol }} params
  */
 export async function provisionTrialKey({
   customerId,
@@ -244,6 +245,7 @@ export async function provisionTrialKey({
   plan,
   customerFullName,
   keyName,
+  protocol = "shadowsocks",
 }) {
   // Idempotency: skip if a key already exists for this order
   const { data: existingKey } = await supabase
@@ -285,12 +287,23 @@ export async function provisionTrialKey({
         `ORD-${orderId}`,
       ].join(" | ");
 
-      // Call the Outline server to create the key
-      outlineKey = await createOutlineKey({
-        apiUrl: server.outline_api_url,
-        certSha256: server.outline_cert_sha256,
+      // Call the VPN provider API to create the key
+      // For VLESS trial keys, use the trial-specific service IDs so the user
+      // only gets access to the trial node — not the global all-nodes service.
+      // Falls back to marzneshin_vless_service_ids if trial IDs aren't set yet.
+      let serviceIds = null;
+      if (protocol === "vless" || protocol === "hysteria2") {
+        serviceIds = server.marzneshin_vless_trial_service_ids?.length
+          ? server.marzneshin_vless_trial_service_ids
+          : null; // null → createKey falls back to marzneshin_vless_service_ids
+      }
+
+      outlineKey = await createKey({
+        server,
         name,
         dataLimitBytes,
+        protocol,
+        serviceIds,
       });
 
       // Persist the key in vpn_keys
@@ -304,6 +317,8 @@ export async function provisionTrialKey({
           outline_key_id: outlineKey.outline_key_id,
           key_name: outlineKey.key_name,
           access_url: outlineKey.access_url,
+          key_credentials: outlineKey._marzneshin_meta || null,
+          protocol,
           data_limit_bytes: dataLimitBytes,
           used_bytes: 0,
           status: "active",
@@ -342,11 +357,7 @@ export async function provisionTrialKey({
     } catch (err) {
       if (outlineKey?.outline_key_id) {
         try {
-          await deleteOutlineKey({
-            apiUrl: server.outline_api_url,
-            certSha256: server.outline_cert_sha256,
-            outlineKeyId: outlineKey.outline_key_id,
-          });
+          await deleteKey({ server, keyId: outlineKey.outline_key_id });
         } catch {}
       }
 

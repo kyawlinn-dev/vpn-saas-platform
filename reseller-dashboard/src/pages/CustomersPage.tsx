@@ -215,7 +215,7 @@ export function CustomersPage() {
           <h1 className="font-display text-[18px] font-black tracking-tight text-foreground">
             Customers
           </h1>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
             Customer profiles derived from orders, payment history, subscriptions, and active keys.
           </p>
         </div>

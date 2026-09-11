@@ -9,6 +9,7 @@ export interface ResellerProfile {
   supabase_user_id?: string;
   commission_percent?: number;
   status?: string;
+  has_miniapp?: boolean;
 }
 
 export function useResellerProfile() {
@@ -45,6 +46,9 @@ export function useResellerProfile() {
           err?.response?.data?.error || "Failed to load reseller profile"
         );
 
+        // 401 = session gone → log out. 403 = authenticated but forbidden
+        // (e.g. account disabled) → log out too. Pending resellers get 200
+        // from /reseller/me so they are never affected by this branch.
         if (err?.response?.status === 401 || err?.response?.status === 403) {
           await logout();
         }

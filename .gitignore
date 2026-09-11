@@ -70,3 +70,4 @@ audit/backups/
 *.retry
 ansible/.vault_pass
 ansible/**/.vault_pass
+backups/

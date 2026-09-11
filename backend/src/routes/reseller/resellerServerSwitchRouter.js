@@ -12,33 +12,11 @@
 // communication themselves (per user 2026-08-16 decision).
 
 import express from "express";
-import rateLimit from "express-rate-limit";
 import { supabase } from "../../lib/supabase.js";
-import {
-  switchOrderServer,
-  getOrderQuotaSnapshot,
-} from "../../services/subscriptionProvisionService.js";
+import { switchOrderServer } from "../../services/subscriptionProvisionService.js";
 import { getRegionLocation } from "../../constants/doRegions.js";
 
 const router = express.Router();
-
-// A reseller may legitimately move many DIFFERENT customers during an
-// outage, but repeatedly switching the SAME order is the only way the
-// quota-reset bug could be farmed. Cap per (reseller, order).
-const switchLimiter = rateLimit({
-  windowMs: 6 * 60 * 60 * 1000, // 6h
-  max: 3,
-  standardHeaders: true,
-  legacyHeaders: false,
-  // This route is always authenticated (requireActiveReseller), so req.reseller.id
-  // is present — key by (reseller, order) and never fall back to req.ip, which
-  // would trip express-rate-limit's IPv6 keyGenerator validation.
-  keyGenerator: (req) => `${req.reseller?.id || "anon"}:${req.params.orderId}`,
-  message: {
-    error: "SWITCH_RATE_LIMITED",
-    message: "This subscription was switched too many times recently. Try again later.",
-  },
-});
 
 async function loadPaidActiveOrder(orderId, resellerId) {
   const { data: order, error } = await supabase
@@ -91,6 +69,21 @@ router.get("/:orderId/eligible-servers", async (req, res) => {
     if (!order) {
       const status = reason === "ORDER_NOT_FOUND" ? 404 : 400;
       return res.status(status).json({ error: reason });
+    }
+
+    // VLESS/Hysteria2 subscriptions already include all nodes — the client
+    // app picks which server to connect to, so server switch is not needed.
+    const { data: custPref } = await supabase
+      .from("vpn_customers")
+      .select("protocol_preference")
+      .eq("id", order.customer_id)
+      .maybeSingle();
+    const protocol = custPref?.protocol_preference || "shadowsocks";
+    if (protocol !== "shadowsocks") {
+      return res.status(400).json({
+        error: "PROTOCOL_NO_SWITCH",
+        message: `${protocol.toUpperCase()} subscriptions include all servers automatically. No switch needed — the customer's app can connect to any server.`,
+      });
     }
 
     const currentKey = await loadCurrentActiveKey(orderId);
@@ -158,7 +151,7 @@ router.get("/:orderId/eligible-servers", async (req, res) => {
 
 // POST /api/reseller/orders/:orderId/switch-server
 // Body: { new_server_id }
-router.post("/:orderId/switch-server", switchLimiter, async (req, res) => {
+router.post("/:orderId/switch-server", async (req, res) => {
   const resellerId = req.reseller.id;
   const { orderId } = req.params;
   const { new_server_id: newServerId } = req.body || {};
@@ -174,6 +167,20 @@ router.post("/:orderId/switch-server", switchLimiter, async (req, res) => {
       return res.status(status).json({ error: reason });
     }
 
+    // VLESS/Hysteria2 subscriptions already include all nodes — block switch.
+    const { data: custPref } = await supabase
+      .from("vpn_customers")
+      .select("protocol_preference")
+      .eq("id", order.customer_id)
+      .maybeSingle();
+    const protocol = custPref?.protocol_preference || "shadowsocks";
+    if (protocol !== "shadowsocks") {
+      return res.status(400).json({
+        error: "PROTOCOL_NO_SWITCH",
+        message: `${protocol.toUpperCase()} subscriptions include all servers automatically. No switch needed.`,
+      });
+    }
+
     const currentKey = await loadCurrentActiveKey(orderId);
     if (!currentKey) {
       return res.status(400).json({ error: "NO_ACTIVE_KEY" });
@@ -182,22 +189,11 @@ router.post("/:orderId/switch-server", switchLimiter, async (req, res) => {
       return res.status(400).json({ error: "SAME_SERVER" });
     }
 
-    // Mirror the mini-app DATA_LIMIT_REACHED guard: no switch once the
-    // order's balance is spent (otherwise the new key would be minted at the
-    // remaining balance of ~0 and the customer would appear "broken", or —
-    // pre-fix — get a free full-plan refill).
-    const quota = await getOrderQuotaSnapshot(orderId);
-    if (!quota.isUnlimited && quota.remainingBytes === 0) {
-      return res.status(403).json({
-        error: "DATA_LIMIT_REACHED",
-        message: "This customer has used all their data. Renew or upgrade before switching servers.",
-      });
-    }
-
     const { data: newServer, error: serverErr } = await supabase
       .from("vpn_servers")
       .select(
-        "id, name, region, server_tier, outline_api_url, outline_cert_sha256, " +
+        "id, name, region, server_tier, panel_url, panel_username, panel_password_encrypted, " +
+          "marzneshin_service_ids, marzneshin_vless_service_ids, " +
           "current_active_keys, max_active_keys, status, " +
           "server_health_status(outline_api_status)"
       )
@@ -221,7 +217,7 @@ router.post("/:orderId/switch-server", switchLimiter, async (req, res) => {
       return res.status(400).json({ error: "SERVER_FULL" });
     }
 
-    if (!newServer.outline_api_url || !newServer.outline_cert_sha256) {
+    if (!newServer.panel_url || !newServer.panel_username) {
       return res.status(500).json({ error: "SERVER_CONFIG_MISSING" });
     }
 
@@ -233,6 +229,7 @@ router.post("/:orderId/switch-server", switchLimiter, async (req, res) => {
       plan: order.plan,
     };
 
+    // Only SS orders reach here (VLESS/Hysteria2 blocked above).
     const newKey = await switchOrderServer({
       order: orderForMigration,
       newServer,

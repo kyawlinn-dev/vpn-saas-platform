@@ -54,7 +54,7 @@ export default function LoadingPage() {
           <Shimmer className="h-[11px] w-28 rounded-lg" />
         </div>
 
-        {/* "Add Key to Outline" button — h-12 full-width */}
+        {/* "Copy Subscription Link" button — h-12 full-width */}
         <Shimmer className="h-12 w-full" />
       </div>
 

@@ -10,6 +10,7 @@ import {
   serializeSettlement,
   settlementMonthDate,
 } from "../../services/resellerAccountingService.js";
+import { getPlatformSettings } from "../../services/platformSettingsService.js";
 
 const router = express.Router();
 const SCREENSHOT_BUCKET = "payment-screenshots";
@@ -252,6 +253,18 @@ router.get("/monthly", async (req, res) => {
   } catch (err) {
     console.error("GET /api/reseller/accounting/monthly crash:", err);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Where/how the reseller pays the platform owner. Shown on the settlement
+// screen so a reseller always knows where to transfer before uploading proof.
+router.get("/platform-payment", async (_req, res) => {
+  try {
+    const settings = await getPlatformSettings();
+    return res.json(settings);
+  } catch (err) {
+    console.error("GET /api/reseller/accounting/platform-payment crash:", err);
+    return res.status(500).json({ error: "Failed to load platform payment info" });
   }
 });
 

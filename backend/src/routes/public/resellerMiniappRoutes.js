@@ -2,12 +2,11 @@ import express from "express";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import {supabase} from "../../lib/supabase.js";
-import { parseSsUrl } from "../../utils/parseSsUrl.js";
 import {
-  createOutlineKey,
-  deleteOutlineKey,
-  getOutlineTransferMetrics,
-} from "../../services/outlineService.js";
+  createKey,
+  deleteKey,
+  getTransferMetrics,
+} from "../../services/vpnProviderService.js";
 import { decrypt } from "../../lib/tokenEncryption.js";
 
 import {
@@ -26,6 +25,7 @@ import { createTrialOrder, provisionTrialKey } from "../../services/trialService
 import {
   buildDynamicAccessUrl,
   buildSsconfHttpUrl,
+  buildAccessUrlForProtocol,
 } from "../../services/publicAccessUrlService.js";
 import { getOrderQuotaSnapshot } from "../../services/subscriptionProvisionService.js";
 import {
@@ -202,13 +202,32 @@ const serverLinkLimiter = rateLimit({
 
 const EXT_MAP = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 
-function toPublicOutlineKey(req, customerSsconfToken, key, label, orderTotalUsedBytes = 0) {
-  if (!customerSsconfToken) return null;
+/**
+ * Build the public key payload returned to the miniapp.
+ *
+ * For SS customers → ssconf dynamic URL (one-tap Outline import)
+ * For VLESS/Hysteria2 customers → raw Marzneshin subscription URL
+ */
+function toPublicVpnKey(req, { ssconfToken, key, label, protocol, orderTotalUsedBytes = 0 }) {
+  if (!ssconfToken && protocol === "shadowsocks") return null;
+
+  const urls = buildAccessUrlForProtocol({
+    protocol: protocol || "shadowsocks",
+    ssconfToken,
+    subscriptionUrl: key?.access_url || null,
+    label,
+    req,
+  });
 
   return {
-    ssconf_token: customerSsconfToken,
-    ssconf_url: buildSsconfHttpUrl(customerSsconfToken, { req }),
-    dynamic_access_url: buildDynamicAccessUrl(customerSsconfToken, label, { req }),
+    protocol: protocol || "shadowsocks",
+    // SS fields (null for non-SS)
+    ssconf_token: protocol === "shadowsocks" ? ssconfToken : null,
+    ssconf_url: urls.ssconf_url,
+    dynamic_access_url: urls.dynamic_access_url,
+    // VLESS / Hysteria2 field
+    subscription_url: urls.subscription_url,
+    // Common
     data_limit_bytes: key?.data_limit_bytes ?? null,
     used_bytes: orderTotalUsedBytes,
   };
@@ -561,6 +580,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
         trial_enabled,
         trial_data_limit_gb,
         trial_duration_days,
+        trial_protocol,
         is_enabled,
         bot_token_encrypted
       `)
@@ -745,6 +765,14 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
     const customerSsconfToken = await ensureCustomerSsconfToken(customer.id);
     const label = [miniapp.brand_name, customer.full_name].filter(Boolean).join("-");
 
+    // Fetch protocol preference (defaults to 'shadowsocks' in migration)
+    const { data: custPref } = await supabase
+      .from("vpn_customers")
+      .select("protocol_preference")
+      .eq("id", customer.id)
+      .single();
+    const protocolPreference = custPref?.protocol_preference || "shadowsocks";
+
     let activeOrder = null;
 
     try {
@@ -769,6 +797,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
         resellerId: miniapp.reseller_id,
         telegramLinkId: telegramLink.id,
         telegramUsername,
+        source: "miniapp",
       });
 
       if (order) {
@@ -783,6 +812,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
               plan,
               customerFullName: customer.full_name,
               keyName: label,
+              protocol: miniapp.trial_protocol || "shadowsocks",
             });
           } catch (provErr) {
             console.warn("[auth] trial key auto-provision failed (non-fatal):", provErr.message);
@@ -828,6 +858,8 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
         .select(`
           id,
           outline_key_id,
+          access_url,
+          protocol,
           data_limit_bytes,
           used_bytes,
           server_id,
@@ -915,9 +947,28 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
             }
           : null,
         current_server: currentServer,
-        outline_key: currentKeyRow
-          ? toPublicOutlineKey(req, customerSsconfToken, currentKeyRow, label, orderUsedBytes)
+        vpn_key: currentKeyRow
+          ? toPublicVpnKey(req, {
+              ssconfToken: customerSsconfToken,
+              key: currentKeyRow,
+              label,
+              // Use the key's stored protocol column as the authoritative source;
+              // fall back to the customer preference for legacy rows without it.
+              protocol: currentKeyRow.protocol || protocolPreference,
+              orderTotalUsedBytes: orderUsedBytes,
+            })
           : null,
+        // Legacy alias — miniapp may still reference this until updated
+        outline_key: currentKeyRow
+          ? toPublicVpnKey(req, {
+              ssconfToken: customerSsconfToken,
+              key: currentKeyRow,
+              label,
+              protocol: currentKeyRow.protocol || protocolPreference,
+              orderTotalUsedBytes: orderUsedBytes,
+            })
+          : null,
+        protocol_preference: protocolPreference,
         trial: {
           created_now: trialCreated,
           used: Boolean(telegramLink.trial_used_at || trialCreated),
@@ -1444,6 +1495,14 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     const customerSsconfToken = await ensureCustomerSsconfToken(customer.id);
     const label = [miniapp.brand_name, customer.full_name].filter(Boolean).join("-");
 
+    // Fetch protocol preference
+    const { data: custPrefRow } = await supabase
+      .from("vpn_customers")
+      .select("protocol_preference")
+      .eq("id", customer.id)
+      .single();
+    const protocolPreference = custPrefRow?.protocol_preference || "shadowsocks";
+
     let activeOrder = null;
 
     try {
@@ -1486,7 +1545,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
 
     const { data: server, error: serverError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, region_code, display_country, display_city, flag_emoji, outline_api_url, outline_cert_sha256, status, is_default, server_tier")
+      .select("id, name, region, region_code, display_country, display_city, flag_emoji, panel_url, panel_public_url, panel_username, panel_password_encrypted, marzneshin_service_ids, marzneshin_vless_service_ids, status, is_default, server_tier")
       .eq("id", serverId)
       .maybeSingle();
 
@@ -1504,6 +1563,8 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         message: "Server is not available",
       });
     }
+
+    // vpnProviderService handles panel password decryption automatically.
 
     // Single choke point for tier/region rules — see
     // getMiniAppServerAccessState() for the current policy (paid customers:
@@ -1540,12 +1601,8 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
       });
     }
 
-    if (!server.outline_api_url || !server.outline_cert_sha256) {
-      return res.status(500).json({
-        success: false,
-        message: "Server Outline config is missing",
-      });
-    }
+    // vpnProviderService.requireCredentials() will throw if panel_url/panel_username
+    // are missing, so no explicit guard needed here.
 
     const dataLimitBytes = gbToBytes(plan?.data_limit_gb);
 
@@ -1564,8 +1621,12 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         status,
         vpn_servers (
           id,
-          outline_api_url,
-          outline_cert_sha256
+          panel_url,
+          panel_public_url,
+          panel_username,
+          panel_password_encrypted,
+          marzneshin_service_ids,
+          marzneshin_vless_service_ids
         )
       `)
       .eq("customer_id", customer.id)
@@ -1584,6 +1645,129 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     }
 
     const activeKeys = existingActiveKeys || [];
+
+    // ── VLESS / Hysteria2: one key covers ALL servers ──────────────────────
+    // No per-server key switching. If a VLESS key already exists for this
+    // order, return it. If not, create one (on any server — all nodes are
+    // in the VLESS service). The subscription URL gives the client app
+    // access to all servers; the customer picks inside Hiddify/V2Box.
+    if (protocolPreference === "vless" || protocolPreference === "hysteria2") {
+      const existingVlessKey = activeKeys[0]; // any active key will do
+      if (existingVlessKey) {
+        const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
+        return res.json({
+          success: true,
+          message: "Subscription covers all servers",
+          data: {
+            current_server: mapServerForMiniApp(server, true),
+            vpn_key: toPublicVpnKey(req, {
+              ssconfToken: customerSsconfToken,
+              key: existingVlessKey,
+              label,
+              protocol: protocolPreference,
+              orderTotalUsedBytes: totalUsedBytes,
+            }),
+            outline_key: toPublicVpnKey(req, {
+              ssconfToken: customerSsconfToken,
+              key: existingVlessKey,
+              label,
+              protocol: protocolPreference,
+              orderTotalUsedBytes: totalUsedBytes,
+            }),
+          },
+        });
+      }
+
+      // No VLESS key yet — create one
+      const vlessQuota = await getOrderQuotaSnapshot(activeOrder.id);
+      const remainingBytes = vlessQuota.isUnlimited ? null : vlessQuota.remainingBytes;
+
+      let vlessKey;
+      try {
+        vlessKey = await createKey({
+          server,
+          name: buildMiniAppKeyName({ customer, server, order: activeOrder, plan }),
+          dataLimitBytes: remainingBytes,
+          protocol: protocolPreference,
+        });
+      } catch (err) {
+        console.error("VLESS key create error:", err);
+        return res.status(502).json({
+          success: false,
+          message: "Could not create VPN key. Please try again or contact support.",
+        });
+      }
+
+      const { data: vlessInserted, error: vlessInsertErr } = await supabase
+        .from("vpn_keys")
+        .insert({
+          order_id: activeOrder.id,
+          customer_id: customer.id,
+          reseller_id: miniapp.reseller_id,
+          server_id: server.id,
+          outline_key_id: vlessKey.outline_key_id,
+          key_name: vlessKey.key_name,
+          access_url: vlessKey.access_url,
+          key_credentials: vlessKey._marzneshin_meta || null,
+          data_limit_bytes: remainingBytes,
+          used_bytes: 0,
+          status: "active",
+          is_used: true,
+          used_at: new Date().toISOString(),
+        })
+        .select("id, outline_key_id, server_id, access_url, data_limit_bytes, used_bytes")
+        .single();
+
+      if (vlessInsertErr || !vlessInserted) {
+        console.error("VLESS key store error:", vlessInsertErr);
+        // Clean up the panel user
+        try { await deleteKey({ server, keyId: vlessKey.outline_key_id }); } catch {}
+        return res.status(500).json({ success: false, message: "Failed to store VPN key" });
+      }
+
+      await incrementServerUsage(server.id);
+      await clearServerError(server.id);
+
+      trackMiniAppEvent(req, {
+        event_name: "key_provisioned",
+        reseller_id: miniapp.reseller_id,
+        customer_id: customer.id,
+        telegram_user_id: telegramUserId,
+        order_id: activeOrder.id,
+        plan_id: activeOrder.plan_id,
+        server_id: server.id,
+        page: "servers",
+        status: "success",
+        metadata: {
+          protocol: protocolPreference,
+          server_tier: normalizeMiniAppServerTier(server.server_tier),
+        },
+      });
+
+      return res.json({
+        success: true,
+        message: "Subscription link created for all servers",
+        data: {
+          current_server: mapServerForMiniApp(server, true),
+          vpn_key: toPublicVpnKey(req, {
+            ssconfToken: customerSsconfToken,
+            key: vlessInserted,
+            label,
+            protocol: protocolPreference,
+            orderTotalUsedBytes: 0,
+          }),
+          outline_key: toPublicVpnKey(req, {
+            ssconfToken: customerSsconfToken,
+            key: vlessInserted,
+            label,
+            protocol: protocolPreference,
+            orderTotalUsedBytes: 0,
+          }),
+        },
+      });
+    }
+
+    // ── Shadowsocks: per-server key switching (same as Outline flow) ───────
     const activeTargetKey = activeKeys.find(
       (key) => key.server_id === server.id && key.access_url
     );
@@ -1613,7 +1797,20 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         message: "Server already linked",
         data: {
           current_server: mapServerForMiniApp(server, true),
-          outline_key: toPublicOutlineKey(req, customerSsconfToken, activeTargetKey, label, totalUsedBytes),
+          vpn_key: toPublicVpnKey(req, {
+            ssconfToken: customerSsconfToken,
+            key: activeTargetKey,
+            label,
+            protocol: protocolPreference,
+            orderTotalUsedBytes: totalUsedBytes,
+          }),
+          outline_key: toPublicVpnKey(req, {
+            ssconfToken: customerSsconfToken,
+            key: activeTargetKey,
+            label,
+            protocol: protocolPreference,
+            orderTotalUsedBytes: totalUsedBytes,
+          }),
         },
       });
     }
@@ -1660,11 +1857,11 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         // (metrics, delete) is deferred to background after the response is sent.
         // Hitting the old server during the request can disrupt the customer's active
         // VPN connection (which routes through that same server), causing "Load failed".
-        outlineKey = await createOutlineKey({
-          apiUrl: server.outline_api_url,
-          certSha256: server.outline_cert_sha256,
+        outlineKey = await createKey({
+          server,
           name: buildMiniAppKeyName({ customer, server, order: activeOrder, plan }),
           dataLimitBytes: remainingBytes,
+          protocol: protocolPreference,
         });
       } catch (outlineErr) {
         console.error("Outline key create error:", outlineErr);
@@ -1686,6 +1883,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         outline_key_id: outlineKey.outline_key_id,
         key_name: outlineKey.key_name,
         access_url: outlineKey.access_url,
+        key_credentials: outlineKey._marzneshin_meta || null,
         data_limit_bytes: remainingBytes,
         used_bytes: 0,
         status: "active",
@@ -1717,14 +1915,10 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
           insertedKey = racedKey;
           insertKeyError = null;
           try {
-            await deleteOutlineKey({
-              apiUrl: server.outline_api_url,
-              certSha256: server.outline_cert_sha256,
-              outlineKeyId: outlineKey.outline_key_id,
-            });
+            await deleteKey({ server, keyId: outlineKey.outline_key_id });
             createdOutlineKeyId = null;
           } catch (cleanupErr) {
-            console.warn("[link] Failed to clean up raced Outline key:", cleanupErr.message);
+            console.warn("[link] Failed to clean up raced VPN key:", cleanupErr.message);
           }
         }
       }
@@ -1789,7 +1983,20 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
       message: "Server linked successfully",
       data: {
         current_server: mapServerForMiniApp(server, true),
-        outline_key: toPublicOutlineKey(req, customerSsconfToken, insertedKey, label, knownUsedBytes),
+        vpn_key: toPublicVpnKey(req, {
+          ssconfToken: customerSsconfToken,
+          key: insertedKey,
+          label,
+          protocol: protocolPreference,
+          orderTotalUsedBytes: knownUsedBytes,
+        }),
+        outline_key: toPublicVpnKey(req, {
+          ssconfToken: customerSsconfToken,
+          key: insertedKey,
+          label,
+          protocol: protocolPreference,
+          orderTotalUsedBytes: knownUsedBytes,
+        }),
       },
     });
 
@@ -1815,16 +2022,10 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         oldKeysToClean.map(async (oldKey) => {
           await new Promise((resolve) => setTimeout(resolve, OLD_KEY_GRACE_MS));
 
-          if (
-            oldKey.outline_key_id &&
-            oldKey.vpn_servers?.outline_api_url &&
-            oldKey.vpn_servers?.outline_cert_sha256
-          ) {
+          if (oldKey.outline_key_id && oldKey.vpn_servers) {
             // Snapshot live usage before deleting the key
-            const metricsMap = await getOutlineTransferMetrics({
-              apiUrl: oldKey.vpn_servers.outline_api_url,
-              certSha256: oldKey.vpn_servers.outline_cert_sha256,
-            }).catch((err) => {
+            const oldServer = oldKey.vpn_servers;
+            const metricsMap = await getTransferMetrics(oldServer).catch((err) => {
               console.warn(`[link] Usage snapshot failed for key ${oldKey.id}:`, err.message);
               return null;
             });
@@ -1840,13 +2041,9 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
             }
 
             try {
-              await deleteOutlineKey({
-                apiUrl: oldKey.vpn_servers.outline_api_url,
-                certSha256: oldKey.vpn_servers.outline_cert_sha256,
-                outlineKeyId: oldKey.outline_key_id,
-              });
+              await deleteKey({ server: oldServer, keyId: oldKey.outline_key_id });
             } catch (err) {
-              console.error("[link] Old Outline key delete error:", err);
+              console.error("[link] Old VPN key delete error:", err);
               if (oldKey.server_id) {
                 await setServerError(oldKey.server_id, err.message).catch(() => {});
               }
@@ -1893,13 +2090,9 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
       } catch {}
     }
 
-    if (createdOutlineKeyId && createdServer?.outline_api_url) {
+    if (createdOutlineKeyId && createdServer) {
       try {
-        await deleteOutlineKey({
-          apiUrl: createdServer.outline_api_url,
-          certSha256: createdServer.outline_cert_sha256,
-          outlineKeyId: createdOutlineKeyId,
-        });
+        await deleteKey({ server: createdServer, keyId: createdOutlineKeyId });
       } catch {}
     }
 
@@ -1919,7 +2112,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
 router.post("/:slug/orders", orderLimiter, async (req, res) => {
   try {
     const { slug } = req.params;
-    const { telegram_user_id, plan_id, payment_screenshot_url, payment_note, init_data } =
+    const { telegram_user_id, plan_id, payment_screenshot_url, payment_note, init_data, protocol_preference: reqProtocol } =
       req.body;
 
     if (!slug) {
@@ -2049,6 +2242,18 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
 
     const customerSsconfToken = await ensureCustomerSsconfToken(customer.id);
     const label = [miniapp.brand_name, customer.full_name].filter(Boolean).join("-");
+
+    // Protocol preference — save the customer's choice
+    const VALID_PROTOCOLS = ["shadowsocks", "vless", "hysteria2"];
+    const protocolPreference = VALID_PROTOCOLS.includes(reqProtocol) ? reqProtocol : "shadowsocks";
+
+    // Update customer's stored preference if provided
+    if (reqProtocol && VALID_PROTOCOLS.includes(reqProtocol)) {
+      await supabase
+        .from("vpn_customers")
+        .update({ protocol_preference: reqProtocol })
+        .eq("id", customer.id);
+    }
 
     const { data: plan, error: planError } = await supabase
       .from("vpn_plans")
@@ -2304,7 +2509,20 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
           plan: createdOrder.vpn_plans,
         },
         current_server: mapServerForMiniApp(currentServer, true),
-        outline_key: toPublicOutlineKey(req, customerSsconfToken, insertedKey, label, 0),
+        vpn_key: toPublicVpnKey(req, {
+          ssconfToken: customerSsconfToken,
+          key: insertedKey,
+          label,
+          protocol: protocolPreference,
+          orderTotalUsedBytes: 0,
+        }),
+        outline_key: toPublicVpnKey(req, {
+          ssconfToken: customerSsconfToken,
+          key: insertedKey,
+          label,
+          protocol: protocolPreference,
+          orderTotalUsedBytes: 0,
+        }),
       },
     });
   } catch (err) {
@@ -2322,6 +2540,86 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
       success: false,
       message: err.message || "Unexpected server error",
     });
+  }
+});
+
+// ── PATCH /:slug/protocol-preference ─────────────────────────────────────────
+// Lets the customer change their preferred VPN protocol at any time.
+// The stored preference controls which URL format the miniapp shows.
+
+router.patch("/:slug/protocol-preference", async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { telegram_user_id, protocol_preference, init_data } = req.body;
+
+    const VALID_PROTOCOLS = ["shadowsocks", "vless", "hysteria2"];
+    if (!VALID_PROTOCOLS.includes(protocol_preference)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid protocol. Choose one of: ${VALID_PROTOCOLS.join(", ")}`,
+      });
+    }
+
+    if (!telegram_user_id) {
+      return res.status(400).json({ success: false, message: "Telegram user ID is required" });
+    }
+
+    const telegramUserId = Number(telegram_user_id);
+
+    const { data: miniapp, error: miniappError } = await supabase
+      .from("reseller_miniapps")
+      .select("id, reseller_id, miniapp_slug, is_enabled, bot_token_encrypted")
+      .eq("miniapp_slug", slug)
+      .maybeSingle();
+
+    if (miniappError || !miniapp) {
+      return res.status(miniapp ? 500 : 404).json({ success: false, message: miniapp ? "Failed to load Mini App" : "Mini App not found" });
+    }
+    if (!miniapp.is_enabled) {
+      return res.status(403).json({ success: false, message: "Mini App is disabled" });
+    }
+
+    try {
+      verifyMiniAppRequestUser({ miniapp, initData: init_data, expectedTelegramUserId: telegramUserId });
+    } catch (authErr) {
+      return miniAppAuthResponse(res, authErr);
+    }
+
+    const { data: link } = await supabase
+      .from("telegram_links")
+      .select("customer_id")
+      .eq("reseller_id", miniapp.reseller_id)
+      .eq("telegram_user_id", telegramUserId)
+      .maybeSingle();
+
+    if (!link) {
+      return res.status(404).json({ success: false, message: "Customer not found" });
+    }
+
+    const { error: updateErr } = await supabase
+      .from("vpn_customers")
+      .update({ protocol_preference })
+      .eq("id", link.customer_id);
+
+    if (updateErr) {
+      console.error("[protocol-preference] update error:", updateErr);
+      return res.status(500).json({ success: false, message: "Failed to update preference" });
+    }
+
+    trackMiniAppEvent(req, {
+      event_name: "protocol_preference_changed",
+      reseller_id: miniapp.reseller_id,
+      customer_id: link.customer_id,
+      telegram_user_id: telegramUserId,
+      page: "settings",
+      status: "success",
+      metadata: { protocol_preference },
+    });
+
+    return res.json({ success: true, data: { protocol_preference } });
+  } catch (err) {
+    console.error("[protocol-preference] exception:", err);
+    return res.status(500).json({ success: false, message: "Unexpected server error" });
   }
 });
 

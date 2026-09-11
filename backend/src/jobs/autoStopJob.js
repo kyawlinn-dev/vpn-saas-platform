@@ -3,49 +3,38 @@
  *
  * Runs every hour.
  *
- * Stops expired active orders immediately once expiry_date is in the past.
- * Deletes the Outline key and sets status = "stopped".
+ * Lifecycle sweep for the queued-plan model:
+ *   - Expires any active order that has run out of TIME (expiry_date passed) or
+ *     DATA (order allowance consumed), whichever comes first.
+ *   - Promotes the customer's next queued ("scheduled") plan when one ends,
+ *     provisioning its fresh keys.
+ *
+ * All of this is done by processExpiredOrdersAndQueue() in the lifecycle
+ * service; this job just schedules and logs it.
  */
 
-import { supabase } from "../lib/supabase.js";
 import { logger } from "../lib/logger.js";
-import { stopOrder } from "../services/orderLifecycleService.js";
-import { businessDateOnly } from "../utils/businessTime.js";
+import { processExpiredOrdersAndQueue } from "../services/orderLifecycleService.js";
 
 const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const log = logger.child({ job: "autoStop" });
 
-function today() {
-  return businessDateOnly();
-}
-
-async function stopExpiredOrders() {
-  const { data: orders, error } = await supabase
-    .from("vpn_orders")
-    .select("id, reseller_id")
-    .eq("status", "active")
-    .lt("expiry_date", today());
-
-  if (error) {
-    log.error({ err: error }, "stopExpired query error");
-    return;
-  }
-
-  if (!orders?.length) return;
-
-  for (const order of orders) {
-    try {
-      await stopOrder({ orderId: order.id, resellerId: order.reseller_id });
-      log.info({ order_id: order.id }, "auto-stopped expired order");
-    } catch (err) {
-      log.error({ err, order_id: order.id }, "error stopping order");
-    }
-  }
-}
-
 async function runAutoStop() {
   log.info("running");
-  await stopExpiredOrders();
+  try {
+    const results = await processExpiredOrdersAndQueue();
+    const ended = results.filter((r) => !r.error).length;
+    const promoted = results.filter((r) => r.promoted).length;
+    const failed = results.filter((r) => r.error);
+    if (ended > 0 || promoted > 0) {
+      log.info({ ended, promoted }, "lifecycle sweep applied");
+    }
+    for (const f of failed) {
+      log.error({ order_id: f.ended, err: f.error }, "lifecycle sweep order failed");
+    }
+  } catch (err) {
+    log.error({ err }, "lifecycle sweep error");
+  }
 }
 
 export function startAutoStopJob() {

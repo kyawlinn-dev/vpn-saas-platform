@@ -1,4 +1,4 @@
-import { checkAllOutlineServerHealth } from "../services/healthMonitoringService.js";
+import { checkAllServerHealth } from "../services/healthMonitoringService.js";
 import { logger } from "../lib/logger.js";
 
 const DEFAULT_INTERVAL_MS = 10 * 60 * 1000;
@@ -12,7 +12,7 @@ function getIntervalMs() {
 async function runServerHealthCheck() {
   log.info("running");
   try {
-    await checkAllOutlineServerHealth();
+    await checkAllServerHealth();
   } catch (err) {
     log.error({ err }, "health check failed");
   }

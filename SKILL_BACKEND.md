@@ -63,6 +63,23 @@ backend/supabase/
 - Admin routes may intentionally omit reseller filters for platform oversight.
 - Do not log secrets, access tokens, bot tokens, or Outline API URLs.
 
+## Logging
+
+Backend uses **pino** for structured logs, wired at `src/lib/logger.js`.
+
+- Prefer `logger.info({ order_id, reseller_id }, "descriptive msg")` over
+  `console.log`. Fields become searchable in Axiom; the message stays a
+  short verb phrase.
+- For job/service files, bind a `job` or `service` label once:
+  `const log = logger.child({ job: "syncUsage" });`
+- Pino redacts known-secret paths (tokens, init data, screenshot URLs,
+  Outline API URLs, cookies) — but do not rely on redaction as your first
+  line of defense; just don't put secrets in log fields.
+- HTTP request/response logging is automatic via `pino-http` in `server.js`;
+  do not add per-route access logging.
+- New `console.log` in fresh backend code is acceptable only for one-off
+  debugging that will be removed before commit. Ship structured logs.
+
 ## Deployment
 
 Backend production deploy is Ansible -> Droplet -> PM2:

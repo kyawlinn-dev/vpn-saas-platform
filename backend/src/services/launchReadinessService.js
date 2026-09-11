@@ -65,8 +65,8 @@ function isReadyServer(server) {
 
   return (
     status === "active" &&
-    isNonEmpty(server?.outline_api_url) &&
-    isNonEmpty(server?.outline_cert_sha256) &&
+    isNonEmpty(server?.panel_url) &&
+    isNonEmpty(server?.panel_username) &&
     maxKeys > 0 &&
     activeKeys < maxKeys
   );
@@ -154,7 +154,7 @@ async function loadServers() {
   const { data, error } = await supabase
     .from("vpn_servers")
     .select(
-      "id, name, status, server_tier, outline_api_url, outline_cert_sha256, current_active_keys, max_active_keys, is_default, last_error"
+      "id, name, status, server_tier, panel_url, panel_username, current_active_keys, max_active_keys, is_default, last_error"
     )
     .order("is_default", { ascending: false })
     .order("current_active_keys", { ascending: true });
@@ -451,28 +451,28 @@ function addServerChecks(checks, servers, workspace) {
 
   addCheck(
     checks,
-    "outline_servers",
+    "vpn_servers",
     readyPremiumServers.length > 0 ? "pass" : "fail",
-    "Premium Outline servers",
+    "Premium VPN servers",
     readyPremiumServers.length > 0
-      ? `${readyPremiumServers.length} premium Outline server(s) have API config and capacity.`
-      : "Add at least one premium active Outline server with API URL, cert SHA-256, and available capacity."
+      ? `${readyPremiumServers.length} premium VPN server(s) have panel config and capacity.`
+      : "Add at least one premium active VPN server with panel URL, panel username, and available capacity."
   );
 
   if (activeServers.length > readyServers.length) {
     addCheck(
       checks,
-      "outline_server_config",
+      "vpn_server_config",
       readyServers.length > 0 ? "warn" : "fail",
-      "Outline server configuration",
-      "One or more active servers are missing API config, cert SHA-256, or available capacity."
+      "VPN server configuration",
+      "One or more active servers are missing panel config or available capacity."
     );
   } else if (readyServers.length > 0) {
     addCheck(
       checks,
-      "outline_server_config",
+      "vpn_server_config",
       "pass",
-      "Outline server configuration",
+      "VPN server configuration",
       "Active servers look provisionable."
     );
   }

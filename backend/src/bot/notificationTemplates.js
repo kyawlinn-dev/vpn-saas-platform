@@ -146,7 +146,7 @@ export const DEFAULT_TEMPLATES = {
     "သင့်အစမ်းသုံးပက်ကေ့ချ်သည် ကုန်ဆုံးသွားပါပြီ။",
     "ပက်ကေ့ချ်အသစ်ဝယ်ယူရန် အောက်ပါ \"Package ဝယ်ရန်\" ခလုတ်ကိုနှိပ်ပြီး {price_from_mmk} ကျပ်မှစ၍ဝယ်ယူအားပေးနိုင်ပါတယ် 👇",
     "",
-    "အကူအညီ လိုပါက: @{support_username}",
+    "အကူအညီ လိုပါက Admin ကို ဆက်သွယ်ပါ 👇",
   ].join("\n"),
 
   subscription_expiring_3d: [
@@ -163,7 +163,7 @@ export const DEFAULT_TEMPLATES = {
     "သင့် {plan_name} Package သည် ကုန်ဆုံးသွားပါပြီ။",
     "သက်တမ်းတိုးရန် အောက်ပါ \"Package ဝယ်ရန်\" ခလုတ်ကိုနှိပ်ပါ 👇",
     "",
-    "အကူအညီ လိုပါက: @{support_username}",
+    "အကူအညီ လိုပါက Admin ကို ဆက်သွယ်ပါ 👇",
   ].join("\n"),
 
   payment_confirmed: [
@@ -174,7 +174,7 @@ export const DEFAULT_TEMPLATES = {
     "📦 Package: {plan_name}",
     "📅 သက်တမ်း: {expiry_date} အထိ",
     "",
-    "Key ရယူဖို့ အောက်က 🔑 Outline Key ရယူရန် ခလုတ်ကို နှိပ်ပါ 👇",
+    "Key ရယူဖို့ အောက်က 🔑 VPN Key ရယူရန် ခလုတ်ကို နှိပ်ပါ 👇",
   ].join("\n"),
 
   payment_rejected: [
@@ -186,7 +186,6 @@ export const DEFAULT_TEMPLATES = {
     "📝 အကြောင်းရင်း: {reject_reason}",
     "",
     "ပြန်လည် ငွေပေးချေရန်၊ သို့မဟုတ် အကူအညီ လိုပါက Admin ကို ဆက်သွယ်ပါ 👇",
-    "👤 @{support_username}",
   ].join("\n"),
 
   data_limit_reached: [

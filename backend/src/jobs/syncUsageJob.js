@@ -1,6 +1,6 @@
 import { supabase } from "../lib/supabase.js";
 import { logger } from "../lib/logger.js";
-import { getOutlineTransferMetrics } from "../services/outlineService.js";
+import { getTransferMetrics } from "../services/vpnProviderService.js";
 import { stopOrder } from "../services/orderLifecycleService.js";
 import { notifyDataLimitReached, notifyDataLimitWarning } from "../services/notificationService.js";
 import {
@@ -116,9 +116,8 @@ async function stopOrdersOverDataLimit() {
 async function syncUsage() {
   const { data: servers, error: serverError } = await supabase
     .from("vpn_servers")
-    .select("id, outline_api_url, outline_cert_sha256")
-    .eq("status", "active")
-    .not("outline_api_url", "is", null);
+    .select("*")
+    .eq("status", "active");
 
   if (serverError) {
     log.error({ err: serverError }, "failed to fetch servers");
@@ -128,11 +127,11 @@ async function syncUsage() {
   if (!servers?.length) return;
 
   for (const server of servers) {
+    // Skip servers that aren't fully configured
+    if (!server.panel_url) continue;
+
     try {
-      const metricsMap = await getOutlineTransferMetrics({
-        apiUrl: server.outline_api_url,
-        certSha256: server.outline_cert_sha256,
-      });
+      const metricsMap = await getTransferMetrics(server);
 
       const { data: keys, error: keysError } = await supabase
         .from("vpn_keys")

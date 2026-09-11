@@ -25,6 +25,7 @@ import { api } from '@/lib/api';
 import { formatDate, formatMMK } from '@/lib/format';
 import { usePaginatedTable } from '@/hooks/usePaginatedTable';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { PlatformPayoutSettings } from '@/components/PlatformPayoutSettings';
 import type { MonthlySettlement, Reseller } from '@/types/api';
 
 interface Props {
@@ -185,6 +186,8 @@ export function SettlementsPage({ resellers }: Props) {
           Month-end reseller transfers, proof review, and owner confirmation.
         </p>
       </div>
+
+      <PlatformPayoutSettings />
 
       {message && <div className="rounded-md border border-success/25 bg-success/10 px-4 py-2 text-sm text-success">{message}</div>}
       {(error || actionError) && (

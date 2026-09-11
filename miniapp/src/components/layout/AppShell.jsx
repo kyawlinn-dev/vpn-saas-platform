@@ -39,6 +39,7 @@ export default function AppShell() {
   const { data: configData } = useQuery({
     queryKey: ["miniapp-config"],
     queryFn: getMiniAppConfig,
+    enabled: isError && !data?.config,
     retry: false,
     refetchOnWindowFocus: false,
   });

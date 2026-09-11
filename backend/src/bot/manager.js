@@ -88,7 +88,7 @@ function safeWebAppUrlMeta(url) {
 }
 
 async function startBotForReseller(row) {
-  const { reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled } = row;
+  const { reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled, trial_protocol, admin_telegram_user_id } = row;
   const miniappBaseUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").replace(/\/$/, "");
 
   const plainToken = decrypt(bot_token_encrypted);
@@ -122,6 +122,7 @@ async function startBotForReseller(row) {
     miniappBaseUrl,
     supportUsername: support_username || "",
     trialEnabled: trial_enabled ?? false,
+    adminTelegramUserId: admin_telegram_user_id || null,
   });
 
   bot.catch((err) => {
@@ -154,6 +155,7 @@ async function startBotForReseller(row) {
     await bot.telegram.setMyCommands([
       { command: "start", description: `Start ${label}` },
       { command: "app", description: `Open ${label}` },
+      { command: "buy", description: "ပက်ကေ့ဂျ် ဝယ်ရန်" },
     ]);
   } catch (err) {
     console.warn(`[bot:${reseller_id}] menu/commands setup warning (non-fatal):`, err.message);
@@ -194,7 +196,7 @@ async function stopBotForReseller(resellerId) {
 export async function start() {
   const { data, error } = await supabase
     .from("reseller_miniapps")
-    .select("reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled")
+    .select("reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled, trial_protocol, admin_telegram_user_id")
     .eq("is_enabled", true)
     .not("bot_token_encrypted", "is", null);
 
@@ -222,7 +224,7 @@ export async function restartBot(resellerId) {
 
   const { data, error } = await supabase
     .from("reseller_miniapps")
-    .select("reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled")
+    .select("reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled, trial_protocol, admin_telegram_user_id")
     .eq("reseller_id", resellerId)
     .eq("is_enabled", true)
     .not("bot_token_encrypted", "is", null)

@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronRight, Download, Package, Send, Server, Share2, Wifi } from "lucide-react";
+import { ArrowUp, ChevronRight, Copy, Package, Send, Server, Share2, Wifi } from "lucide-react";
 import {
   BrandBar,
   Chip,
@@ -10,7 +10,8 @@ import {
 } from "../components/ui/primitives";
 import { cn } from "@/lib/utils";
 import { formatDate } from "../lib/format";
-import { getShareUrl, openOutlineKey } from "../lib/links";
+import { getShareUrl, getImportUrl } from "../lib/links";
+import { copyText } from "../lib/clipboard";
 import {
   isTelegramWebBrowser,
   openTelegramNativeLink,
@@ -39,9 +40,9 @@ function getPlanTitle(subscription, t) {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function AccessHero({ subscription, outlineKey, keyForActions, hasImportLink, onToast }) {
+function AccessHero({ subscription, vpnKey, keyForActions, hasImportLink, onToast }) {
   const { t } = useLanguage();
-  const usedGb = Number(outlineKey?.used_bytes || 0) / 1024 / 1024 / 1024;
+  const usedGb = Number(vpnKey?.used_bytes || 0) / 1024 / 1024 / 1024;
   const limitGb = Number(subscription?.data_limit_gb || 0);
   const percent = limitGb > 0 ? Math.min(100, (usedGb / limitGb) * 100) : 0;
   const validUntil = subscription?.expiry_date ? formatDate(subscription.expiry_date) : null;
@@ -49,12 +50,19 @@ function AccessHero({ subscription, outlineKey, keyForActions, hasImportLink, on
     ? `${formatGb(usedGb)} / ${formatGb(limitGb)} GB`
     : `${formatGb(usedGb)} GB`;
 
-  const handleAddKey = () => {
-    try {
-      openOutlineKey(keyForActions);
-    } catch (error) {
-      onToast?.(error?.message || t("error.message"), "warning");
+  // All protocols (SS, VLESS, Hysteria2) use a Marzneshin subscription URL.
+  // Copy to clipboard — user pastes into Hiddify or Xray.
+  const handleCopySubscription = async () => {
+    const subUrl = getImportUrl(keyForActions);
+    if (!subUrl) {
+      onToast?.(t("access.chooseServer"), "warning");
+      return;
     }
+    const ok = await copyText(subUrl);
+    onToast?.(
+      ok ? t("access.subscriptionCopied") : t("payment.copyFailed"),
+      ok ? "success" : "warning",
+    );
   };
 
   return (
@@ -92,8 +100,8 @@ function AccessHero({ subscription, outlineKey, keyForActions, hasImportLink, on
         {validUntil ? t("access.validUntil", { date: validUntil }) : t("access.validUntilMissing")}
       </div>
 
-      <PrimaryButton onClick={handleAddKey} disabled={!hasImportLink}>
-        <Download size={18} />
+      <PrimaryButton onClick={handleCopySubscription} disabled={!hasImportLink}>
+        <Copy size={18} />
         {t("access.addKey")}
       </PrimaryButton>
     </GlassCard>
@@ -181,7 +189,7 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
   const { t } = useLanguage();
   const subscription = data?.subscription || null;
   const currentServer = data?.current_server || null;
-  const outlineKey = data?.outline_key || null;
+  const vpnKey = data?.vpn_key || data?.outline_key || null;
   const recentRejection = data?.recent_rejection || null;
   const brand = data?.config?.brand || null;
 
@@ -192,8 +200,8 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
     ? () => openTelegramNativeLink(`https://t.me/${rawSupportHandle}`)
     : null;
 
-  const keyForActions = outlineKey || currentServer;
-  const hasImportLink = Boolean(keyForActions?.dynamic_access_url);
+  const keyForActions = vpnKey || currentServer;
+  const hasImportLink = Boolean(getImportUrl(keyForActions));
 
   const handleShare = async () => {
     const shareUrl = getShareUrl(keyForActions);
@@ -210,17 +218,11 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
       // fallback to clipboard
     }
 
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      onToast(t("access.shareKey"), "success");
-      return;
-    } catch {
-      if (!isTelegramWebBrowser()) {
-        onToast(t("error.message"), "error");
-      } else {
-        onToast(t("error.message"), "error");
-      }
-    }
+    const ok = await copyText(shareUrl);
+    onToast(
+      ok ? t("access.shareKey") : t("payment.copyFailed"),
+      ok ? "success" : "warning",
+    );
   };
 
   return (
@@ -237,7 +239,7 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
         <>
           <AccessHero
             subscription={subscription}
-            outlineKey={outlineKey}
+            vpnKey={vpnKey}
             keyForActions={keyForActions}
             hasImportLink={hasImportLink}
             onToast={onToast}

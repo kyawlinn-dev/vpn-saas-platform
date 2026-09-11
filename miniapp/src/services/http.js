@@ -1,3 +1,5 @@
+import { getMiniAppSessionId } from "../lib/session";
+
 export const API_BASE = String(
   import.meta.env.VITE_BACKEND_BASE_URL || ""
 ).replace(/\/$/, "");
@@ -37,6 +39,7 @@ export async function requestJson(path, options = {}) {
     method: options.method || "GET",
     headers: {
       Accept: "application/json",
+      "x-novanet-session-id": getMiniAppSessionId(),
       "ngrok-skip-browser-warning": "true",
       ...(options.headers || {}),
     },
@@ -52,6 +55,7 @@ export async function uploadFormData(path, formData) {
     method: "POST",
     headers: {
       Accept: "application/json",
+      "x-novanet-session-id": getMiniAppSessionId(),
       "ngrok-skip-browser-warning": "true",
     },
     body: formData,
@@ -67,6 +71,7 @@ export async function postJson(path, body, options = {}) {
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      "x-novanet-session-id": getMiniAppSessionId(),
       "ngrok-skip-browser-warning": "true",
       ...(options.headers || {}),
     },

@@ -3,9 +3,12 @@ import { Plus } from "lucide-react";
 import { CreateOrderDialog } from "../components/CreateOrderDialog";
 import { OrdersTable } from "../components/OrdersTable";
 import { useScopedDashboard } from "../hooks/useScopedDashboard";
+import { useResellerProfile } from "../hooks/useResellerProfile";
 
 export function OrdersPage() {
   const { plans, refresh, error, loading } = useScopedDashboard();
+  const { profile } = useResellerProfile();
+  const isPending = profile?.status === "pending";
   const [openCreateModal, setOpenCreateModal] = useState(false);
   const [orderResetTrigger, setOrderResetTrigger] = useState(0);
 
@@ -36,10 +39,10 @@ export function OrdersPage() {
         resetTrigger={orderResetTrigger}
         scopeFilters={{ hide_rejected_telegram: "true" }}
         headerAction={{
-          label: "Create Order",
+          label: isPending ? "Create Order (pending approval)" : "Create Order",
           icon: <Plus size={16} />,
           onClick: () => setOpenCreateModal(true),
-          disabled: plans.length === 0,
+          disabled: plans.length === 0 || isPending,
         }}
       />
 

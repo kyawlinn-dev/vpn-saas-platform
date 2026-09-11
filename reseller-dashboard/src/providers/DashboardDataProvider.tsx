@@ -3,13 +3,27 @@ import {
   useDashboardData,
   type DashboardDataState,
 } from "../hooks/useDashboardData";
+import {
+  useResellerProfile,
+  type ResellerProfile,
+} from "../hooks/useResellerProfile";
 
-const DashboardDataContext = createContext<DashboardDataState | null>(null);
+export interface DashboardContextValue extends DashboardDataState {
+  profile: ResellerProfile | null;
+  profileLoading: boolean;
+  profileError: string;
+}
+
+const DashboardDataContext = createContext<DashboardContextValue | null>(null);
 
 export function DashboardDataProvider({ children }: { children: ReactNode }) {
-  const value = useDashboardData();
+  const data = useDashboardData();
+  const { profile, loading: profileLoading, error: profileError } = useResellerProfile();
+
   return (
-    <DashboardDataContext.Provider value={value}>
+    <DashboardDataContext.Provider
+      value={{ ...data, profile, profileLoading, profileError }}
+    >
       {children}
     </DashboardDataContext.Provider>
   );

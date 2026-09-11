@@ -281,7 +281,7 @@ export function SettingsPage() {
         <h1 className="font-display text-[18px] font-black tracking-tight text-foreground">
           Workspace Settings
         </h1>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
           Brand contact info and payment details customers see in your miniapp.
         </p>
       </div>

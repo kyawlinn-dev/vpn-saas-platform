@@ -1,6 +1,6 @@
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
-import { parseSsUrl } from "../../utils/parseSsUrl.js";
+import { fetchSubscriptionConfigs } from "../../services/marzneshinService.js";
 import { getOrderQuotaSnapshot } from "../../services/subscriptionProvisionService.js";
 import { businessDateOnly } from "../../utils/businessTime.js";
 
@@ -90,10 +90,10 @@ router.get("/:token", async (req, res) => {
       return res.status(410).json({ error: "Data limit reached" });
     }
 
-    // 5. Find active key
+    // 5. Find active key — need access_url (subscription URL) for Marzneshin fetch
     const { data: key, error: keyError } = await supabase
       .from("vpn_keys")
-      .select("id, access_url")
+      .select("id, access_url, key_credentials")
       .eq("customer_id", customer.id)
       .eq("reseller_id", customer.reseller_id)
       .eq("order_id", activeOrder.id)
@@ -109,13 +109,18 @@ router.get("/:token", async (req, res) => {
     }
     if (!key?.access_url) return res.status(410).json({ error: "No active VPN key" });
 
-    const parsed = parseSsUrl(key.access_url);
+    // Fetch live SS config from Marzneshin subscription URL
+    const configs = await fetchSubscriptionConfigs(key.access_url);
+    if (!configs.ss) {
+      console.error("[ssconf] no SS config found in subscription for key", key.id);
+      return res.status(502).json({ error: "SS configuration unavailable" });
+    }
 
     return res.set("Cache-Control", "no-store").json({
-      server: parsed.server,
-      server_port: parsed.port,
-      password: parsed.password,
-      method: parsed.method,
+      server: configs.ss.server,
+      server_port: configs.ss.port,
+      password: configs.ss.password,
+      method: configs.ss.method,
     });
   } catch (err) {
     console.error("[ssconf] exception:", err);

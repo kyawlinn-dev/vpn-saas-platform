@@ -23,13 +23,16 @@ function normalizeServerTier(serverTier) {
 }
 
 function isServerReady(server) {
+  if (!server || String(server.status || "").toLowerCase() !== "active") {
+    return false;
+  }
+
+  // Marzneshin panel credentials required
   return (
-    server &&
-    String(server.status || "").toLowerCase() === "active" &&
-    typeof server.outline_api_url === "string" &&
-    server.outline_api_url.trim().length > 0 &&
-    typeof server.outline_cert_sha256 === "string" &&
-    server.outline_cert_sha256.trim().length > 0
+    typeof server.panel_url === "string" &&
+    server.panel_url.trim().length > 0 &&
+    typeof server.panel_username === "string" &&
+    server.panel_username.trim().length > 0
   );
 }
 

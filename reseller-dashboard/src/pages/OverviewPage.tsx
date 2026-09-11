@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router";
 import {
@@ -13,9 +13,11 @@ import {
   TrendingUp,
   Users,
   Wallet,
+  ArrowDownToLine,
 } from "lucide-react";
 import { useScopedDashboard } from "../hooks/useScopedDashboard";
 import { useResellerOverviewStats } from "../hooks/useResellerOverviewStats";
+import { api } from "../lib/api";
 import { formatDate, formatDaysLeft, formatMMK } from "../lib/format";
 import { CreateOrderDialog } from "../components/CreateOrderDialog";
 import { OrdersTable } from "../components/OrdersTable";
@@ -89,6 +91,29 @@ export function OverviewPage() {
   const { stats, loading, error, refresh } = useResellerOverviewStats();
   const [openCreateModal, setOpenCreateModal] = useState(false);
   const [orderResetTrigger, setOrderResetTrigger] = useState(0);
+  const [platformDue, setPlatformDue] = useState<{ due: number; settled: boolean } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const res = await api.get<{
+          summary?: { platform_due_mmk?: number };
+          settlement?: { status?: string } | null;
+        }>("/reseller/accounting/monthly");
+        if (!active) return;
+        setPlatformDue({
+          due: Number(res.data?.summary?.platform_due_mmk || 0),
+          settled: res.data?.settlement?.status === "confirmed",
+        });
+      } catch {
+        if (active) setPlatformDue(null);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const initialLoading = loading && stats.total_orders === 0;
 
@@ -121,11 +146,11 @@ export function OverviewPage() {
           <h1 className="font-display text-[18px] font-black tracking-tight text-foreground">
             Overview
           </h1>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
             Revenue, payment reviews, expiries, and daily operations.
           </p>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="hidden items-center gap-1.5 sm:flex">
           <Button
             variant="outline"
             size="sm"
@@ -198,6 +223,27 @@ export function OverviewPage() {
           tone="rose"
         />
       </div>
+
+      {platformDue && platformDue.due > 0 && !platformDue.settled && (
+        <Card className="flex flex-col gap-2 border-primary/25 bg-primary/5 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
+              <ArrowDownToLine size={17} />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                You owe the platform this month
+              </div>
+              <div className="font-display text-xl font-black leading-tight text-foreground">
+                {formatMMK(platformDue.due)}
+              </div>
+            </div>
+          </div>
+          <Button size="sm" leftIcon={<Wallet size={14} />} onClick={() => navigate("/app/accounting")}>
+            View &amp; settle
+          </Button>
+        </Card>
+      )}
 
       <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.78fr)]">
         <Card className="p-2.5">
@@ -321,7 +367,57 @@ export function OverviewPage() {
         {stats.recent_orders.length === 0 ? (
           <EmptyPanel>No orders yet.</EmptyPanel>
         ) : (
-          <div className="overflow-hidden rounded-md border border-border bg-card">
+          <>
+            {/* Mobile: compact cards */}
+            <div className="divide-y divide-border overflow-hidden rounded-md border border-border bg-card md:hidden">
+              {stats.recent_orders.map((order: Order) => {
+                const customerName = order.customer?.full_name || "Unknown customer";
+                return (
+                  <div key={order.id} className="space-y-2 px-2.5 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary/12 text-[10px] font-black text-primary">
+                          {getInitials(customerName)}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-[13px] font-semibold leading-tight text-foreground">
+                            {customerName}
+                          </p>
+                          <p className="truncate text-[10px] leading-tight text-muted-foreground">
+                            {formatDate(order.created_at)}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="shrink-0 text-[13px] font-bold text-foreground">
+                        {formatMMK(order.price_mmk)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="inline-flex max-w-full rounded-full border border-border bg-muted/70 px-2 py-0.5 text-[11px] font-medium text-foreground">
+                        <span className="truncate">{order.plan?.name || "-"}</span>
+                      </span>
+                      <span className="[&>span]:px-1.5 [&>span]:py-0.5 [&>span]:text-[10px]">
+                        <StatusBadge status={order.status} />
+                      </span>
+                      <span className="[&>span]:px-1.5 [&>span]:py-0.5 [&>span]:text-[10px]">
+                        <StatusBadge
+                          status={
+                            order.order_type === "trial"
+                              ? "trial"
+                              : order.review_status === "rejected"
+                                ? "rejected"
+                                : order.payment_status
+                          }
+                        />
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden overflow-hidden rounded-md border border-border bg-card md:block">
             <div className="grid grid-cols-[1.35fr_0.9fr_82px_82px_116px] items-center gap-2 border-b border-border bg-muted/65 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
               <span>Customer</span>
               <span>Plan</span>
@@ -379,12 +475,13 @@ export function OverviewPage() {
                       </p>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </Card>
+                 );
+               })}
+             </div>
+           </div>
+           </>
+         )}
+       </Card>
 
       <OrdersTable
         plans={plans}

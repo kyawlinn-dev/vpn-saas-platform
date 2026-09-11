@@ -9,11 +9,11 @@ import {
   Tags,
   Bell,
   Settings,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardContext } from "@/providers/DashboardDataProvider";
 import { useResellerAuth } from "@/providers/ResellerAuthProvider";
-import { useResellerProfile } from "@/hooks/useResellerProfile";
 import { Sidebar, type NavItem } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -51,8 +51,7 @@ function useIsDesktop() {
 export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { refresh, loading, error } = useDashboardContext();
-  const { profile, loading: profileLoading, error: profileError } = useResellerProfile();
+  const { refresh, loading, error, profile, profileLoading, profileError } = useDashboardContext();
   const { logout } = useResellerAuth();
   const isDesktop = useIsDesktop();
 
@@ -84,8 +83,16 @@ export function AppShell() {
 
   const sidebarWidth = collapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH;
 
+  // Miniapp-only tabs (Telegram Orders / Notifications / Settings) are hidden
+  // for dashboard-only resellers — they only make sense with a connected bot.
+  // Default to hidden until the profile confirms access; miniapp resellers see
+  // the tabs appear after the first /me response (~200 ms), which is fine.
+  const hasMiniapp = profileLoading ? false : Boolean(profile?.has_miniapp);
+  const MINIAPP_ONLY = new Set(["/app/telegram-orders", "/app/notifications", "/app/settings"]);
+  const navItems = hasMiniapp ? NAV_ITEMS : NAV_ITEMS.filter((item) => !MINIAPP_ONLY.has(item.to));
+
   const sharedSidebarProps = {
-    navItems: NAV_ITEMS,
+    navItems,
     isActive,
     profile,
     profileLoading,
@@ -158,6 +165,18 @@ export function AppShell() {
               className="mb-3 rounded-md border border-warning/25 bg-warning/10 px-3 py-2 text-xs text-[color:var(--warning)]"
             >
               {profileError}
+            </div>
+          )}
+          {profile?.status === "pending" && (
+            <div className="mb-3 flex items-start gap-2.5 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-[color:var(--warning)]">
+              <Clock size={18} className="mt-0.5 shrink-0" />
+              <div>
+                <div className="font-semibold">Your account is pending approval</div>
+                <p className="mt-0.5 text-xs opacity-90">
+                  You can explore the dashboard and set up your brand &amp; payment info in Settings.
+                  Creating live customers is unlocked once we approve your account — we'll be in touch.
+                </p>
+              </div>
             </div>
           )}
           <Outlet />

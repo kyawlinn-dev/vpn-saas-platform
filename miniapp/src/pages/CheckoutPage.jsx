@@ -13,6 +13,7 @@ import { uploadPaymentScreenshot } from "../features/access/api";
 import { useSubmitPurchase } from "../features/access/hooks";
 import { TAB_KEYS } from "../constants/routes";
 import { useLanguage } from "../i18n/language";
+import { copyText } from "../lib/clipboard";
 
 const BRAND_KBZ = "#0A50A1";
 const BRAND_WAVE = "#FDD100";
@@ -101,12 +102,12 @@ function AccountCard({ method, brand, onCopy }) {
   const accentColor = brand?.color || null;
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(method.account_number);
+    const ok = await copyText(method.account_number);
+    if (ok) {
       setCopied(true);
       onCopy?.(t("payment.copySuccess"), "success");
       setTimeout(() => setCopied(false), 2000);
-    } catch {
+    } else {
       onCopy?.(t("payment.copyFailed"), "warning");
     }
   };
@@ -295,6 +296,9 @@ export default function CheckoutPage({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [paymentNote, setPaymentNote] = useState("");
+  const [selectedProtocol, setSelectedProtocol] = useState(
+    data?.protocol_preference || "shadowsocks"
+  );
 
   // Guard: no plan selected → bounce back to packages
   const selectedMethod = paymentMethods[selectedMethodIdx] ?? null;
@@ -336,6 +340,7 @@ export default function CheckoutPage({
       plan_id: checkoutPlan?.id,
       payment_screenshot_url: uploadedPath,
       payment_note: paymentNote.trim() || undefined,
+      protocol_preference: selectedProtocol,
       init_data: initData,
     });
   };
@@ -357,6 +362,43 @@ export default function CheckoutPage({
 
       {/* 1 — Plan summary */}
       <PlanSummaryCard plan={checkoutPlan} />
+
+      {/* 1.5 — Protocol choice */}
+      <div className="flex flex-col gap-2">
+        <SectionLabel>{t("protocol.choose")}</SectionLabel>
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            {
+              id: "shadowsocks",
+              label: "Outline",
+              desc: t("protocol.ssDesc"),
+              icon: "🛡️",
+            },
+            {
+              id: "vless",
+              label: "VLESS Reality",
+              desc: t("protocol.vlessDesc"),
+              icon: "⚡",
+            },
+          ].map((proto) => (
+            <button
+              key={proto.id}
+              type="button"
+              onClick={() => setSelectedProtocol(proto.id)}
+              className={cn(
+                "flex flex-col gap-1.5 rounded-xl border p-3 text-left transition-all",
+                selectedProtocol === proto.id
+                  ? "border-primary bg-primary/10 ring-1 ring-primary/30"
+                  : "border-border bg-secondary/30 hover:bg-secondary/50",
+              )}
+            >
+              <span className="text-xl">{proto.icon}</span>
+              <span className="text-[13px] font-semibold text-foreground">{proto.label}</span>
+              <span className="text-[11px] leading-snug text-muted-foreground">{proto.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* 2 — Payment method selector */}
       {paymentMethods.length > 0 ? (

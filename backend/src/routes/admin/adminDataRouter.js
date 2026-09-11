@@ -835,7 +835,7 @@ router.get("/orders", async (req, res) => {
       .from("vpn_orders")
       .select(
         `*,
-        customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username, phone, ssconf_token),
+        customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username, phone, protocol_preference, ssconf_token),
         plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb),
         reseller:resellers(id, name),
         payments:order_payments(

@@ -13,8 +13,19 @@ import { deriveManualOrderPolicy } from "../../services/manualOrderPolicy.js";
 import { parsePagination, sanitizeSearchTerm } from "../../utils/pagination.js";
 import { addDaysToDateOnly, businessDateOnly } from "../../utils/businessTime.js";
 import { enrichOrderAccess } from "../../services/customerOrderEnrichmentService.js";
+import { requireMiniapp } from "../../middleware/requireMiniapp.js";
 
 const router = express.Router();
+
+// Thin scope gate: delegates to requireMiniapp only when the caller requests
+// telegram-specific data (scope=telegram_purchases).  Requests that don't set
+// that scope pass through untouched so the main Orders page is unaffected.
+async function gateTelegramScope(req, res, next) {
+  if (req.query.scope === "telegram_purchases") {
+    return requireMiniapp(req, res, next);
+  }
+  return next();
+}
 
 const ORDER_SELECT = `
   *,
@@ -24,6 +35,7 @@ const ORDER_SELECT = `
     telegram_username,
     phone,
     customer_type,
+    protocol_preference,
     ssconf_token
   ),
   plan:vpn_plans (
@@ -107,7 +119,7 @@ async function getResellerAccessLabel(reseller) {
   return miniapp?.brand_name || reseller.name || "NovaNet MM";
 }
 
-router.get("/", async (req, res) => {
+router.get("/", gateTelegramScope, async (req, res) => {
   try {
     const reseller = req.reseller;
     const { page, limit, offset } = parsePagination(req.query);
@@ -205,6 +217,8 @@ router.get("/", async (req, res) => {
     // to not be worth the id-list scale risk (see search below) of resolving
     // it via a precomputed customer_id list instead.
     if (scope === "telegram_purchases") {
+      // gateTelegramScope (route-level middleware) already verified miniapp
+      // access before this handler ran — nothing to re-check here.
       query = query.eq("order_type", "purchase");
       if (source && source !== "all") {
         query = query.eq("source", String(source).trim());
@@ -258,6 +272,9 @@ router.get("/", async (req, res) => {
       query = query.or(orParts.join(","));
     }
 
+    // Sort by creation: each row is an immutable sale/subscription period. A
+    // renew inserts a NEW row (which sorts to the top by its own created_at)
+    // and leaves the old row frozen in place — so existing rows never move.
     query = query
       .order("created_at", { ascending: false })
       .range(offset, offset + limit - 1);
@@ -269,10 +286,32 @@ router.get("/", async (req, res) => {
       return res.status(500).json({ error: "Failed to load orders" });
     }
 
+    const rows = data ?? [];
+
+    // In the sale-record model a renewal inserts a new active row and leaves the
+    // old one frozen as expired/stopped. Only the customer's CURRENT order is
+    // renewable — a superseded (already-renewed) row must not offer Renew again,
+    // or it would try to create a second active purchase (blocked by the unique
+    // index anyway). Flag which rows belong to a customer that already has an
+    // active purchase so the UI can hide Renew on the frozen history.
+    const customerIds = [...new Set(rows.map((o) => o.customer_id).filter(Boolean))];
+    let activeCustomerIds = new Set();
+    if (customerIds.length > 0) {
+      const { data: activeRows } = await supabase
+        .from("vpn_orders")
+        .select("customer_id")
+        .eq("reseller_id", reseller.id)
+        .eq("status", "active")
+        .eq("order_type", "purchase")
+        .in("customer_id", customerIds);
+      activeCustomerIds = new Set((activeRows ?? []).map((r) => r.customer_id));
+    }
+
     return res.json({
-      data: (data ?? []).map((order) =>
-        enrichOrderAccess({ ...order, reseller: { name: accessLabel } }, req)
-      ),
+      data: rows.map((order) => ({
+        ...enrichOrderAccess({ ...order, reseller: { name: accessLabel } }, req),
+        customer_has_active_order: activeCustomerIds.has(order.customer_id),
+      })),
       total: count ?? 0,
       page,
       limit,
@@ -315,6 +354,7 @@ router.get("/counts", async (req, res) => {
       all: rows.length,
       pending: rows.filter((row) => row.status === "pending").length,
       active: rows.filter((row) => row.status === "active").length,
+      scheduled: rows.filter((row) => row.status === "scheduled").length,
       expiring: rows.filter(isExpiringRow).length,
       overdue: rows.filter((row) => row.status === "overdue").length,
       expired: rows.filter((row) => row.status === "expired").length,
@@ -351,6 +391,9 @@ router.post("/", async (req, res) => {
     const requestedPaymentStatus = normalizeNullableString(req.body.payment_status);
     const payment_note = normalizeNullableString(req.body.payment_note);
     const payment_screenshot_url = normalizeNullableString(req.body.payment_screenshot_url);
+    const protocol_preference = ["shadowsocks", "vless", "hysteria2"].includes(req.body.protocol_preference)
+      ? req.body.protocol_preference
+      : "shadowsocks";
 
     if (!full_name || !plan_id) {
       return res.status(400).json({ error: "full_name and plan_id are required" });
@@ -402,6 +445,7 @@ router.post("/", async (req, res) => {
           notes,
           status: "active",
           customer_type: "normal",
+          protocol_preference,
         })
         .select()
         .single();
@@ -419,6 +463,9 @@ router.post("/", async (req, res) => {
       if (!customer.telegram_username && telegram_username) patch.telegram_username = telegram_username;
       if (!customer.phone && phone) patch.phone = phone;
       if (notes) patch.notes = notes;
+      if (protocol_preference && protocol_preference !== customer.protocol_preference) {
+        patch.protocol_preference = protocol_preference;
+      }
 
       if (Object.keys(patch).length > 0) {
         const { data: updated, error: updateErr } = await supabase

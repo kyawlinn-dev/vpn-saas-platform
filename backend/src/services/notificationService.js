@@ -75,14 +75,39 @@ const DEEP_LINK_BUTTON_EVENTS = new Map([
   ["data_limit_warning", "Package ဝယ်ရန်"],
 ]);
 
-function buildDeepLinkButtonMarkup(eventType, deepLinkUrl) {
-  const label = DEEP_LINK_BUTTON_EVENTS.get(eventType);
-  if (!label || !deepLinkUrl) return null;
-  // web_app buttons require an https URL — buildDeepLink always returns one
-  // when TELEGRAM_MINIAPP_URL is configured; skip the button rather than
-  // let Telegram reject the whole send if it somehow isn't.
-  if (!/^https:\/\//i.test(deepLinkUrl)) return null;
-  return Markup.inlineKeyboard([[Markup.button.webApp(label, deepLinkUrl)]]);
+// Event types whose default template includes an "Admin / Support" contact
+// line — we show it as a URL button instead of a raw @username in text.
+// Mirrors OPTIONAL_SUPPORT_LINE_EVENTS in notificationTemplates.js.
+const SUPPORT_BUTTON_EVENTS = new Set([
+  "trial_expired",
+  "subscription_expired",
+  "payment_rejected",
+]);
+
+/**
+ * Build the inline keyboard for a notification message.
+ * Stacks up to two rows:
+ *   Row 1 — "Package ဝယ်ရန်" WebApp button (when the event has one and a
+ *            deep-link URL is available).
+ *   Row 2 — "👤 Admin / Support" URL button (when the event has a support
+ *            contact line and the reseller has a support_username configured).
+ *
+ * Returns null if no buttons are needed (so callers can spread the result
+ * safely with `...(markup || {})`).
+ */
+function buildNotificationMarkup(eventType, deepLinkUrl, supportUsername) {
+  const rows = [];
+
+  const deepLinkLabel = DEEP_LINK_BUTTON_EVENTS.get(eventType);
+  if (deepLinkLabel && deepLinkUrl && /^https:\/\//i.test(deepLinkUrl)) {
+    rows.push([Markup.button.webApp(deepLinkLabel, deepLinkUrl)]);
+  }
+
+  if (SUPPORT_BUTTON_EVENTS.has(eventType) && supportUsername) {
+    rows.push([Markup.button.url("👤 Admin / Support", `https://t.me/${supportUsername}`)]);
+  }
+
+  return rows.length > 0 ? Markup.inlineKeyboard(rows) : null;
 }
 
 async function sendAndRecord({
@@ -467,6 +492,7 @@ async function sendSingleOrderNotification(orderId, eventType, extraData = {}) {
     brand_name: miniapp?.brand_name || "",
     plan_name: order.plan?.name || "",
     deep_link_url: buildDeepLink(miniapp),
+    support_username: miniapp?.support_username || "",
     ...extraData,
   };
 
@@ -482,7 +508,7 @@ async function sendSingleOrderNotification(orderId, eventType, extraData = {}) {
     eventType,
     orderId: order.id,
     text,
-    replyMarkup: buildDeepLinkButtonMarkup(eventType, data.deep_link_url),
+    replyMarkup: buildNotificationMarkup(eventType, data.deep_link_url, data.support_username),
   });
 }
 
@@ -542,7 +568,7 @@ export async function runNotificationPass({ force = false } = {}) {
         eventType: type,
         orderId: row.orderId,
         text,
-        replyMarkup: buildDeepLinkButtonMarkup(type, row.data.deep_link_url),
+        replyMarkup: buildNotificationMarkup(type, row.data.deep_link_url, row.data.support_username),
       });
       if (result.sent) sent += 1;
       else skipped += 1;

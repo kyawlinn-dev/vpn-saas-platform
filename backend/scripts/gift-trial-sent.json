@@ -1,0 +1,491 @@
+{
+  "gifts": [
+    {
+      "customer_id": "5adeb287-8ee2-4ad9-b3d7-d3098d416dde",
+      "reseller_id": "8ab549f7-34f1-45a4-85b2-157c7d8e9b9d",
+      "order_id": "9adcc311-5e03-4c06-b647-b2aa9d99479c",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "65",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:07:57.459Z"
+    },
+    {
+      "customer_id": "f7a68046-4a45-4e10-9cc2-a7865dc8e007",
+      "reseller_id": "8ab549f7-34f1-45a4-85b2-157c7d8e9b9d",
+      "order_id": "aeb85824-9e4e-4595-8e93-5f712e20d0e0",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "66",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:07:59.550Z"
+    },
+    {
+      "customer_id": "2597caab-73b8-4360-9d67-a3bcd0036a41",
+      "reseller_id": "8ab549f7-34f1-45a4-85b2-157c7d8e9b9d",
+      "order_id": "168a2071-5ae5-4352-ad2d-dfb864f9a6e7",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "67",
+      "dm_ok": false,
+      "dm_error": "ECONNRESET:request to https://api.telegram.org/bot8817064392:[REDACTED]/sendMessage failed, reason: read ECONNRESET",
+      "sent_at": "2026-08-15T00:08:41.191Z"
+    },
+    {
+      "customer_id": "bdcfd96c-1548-4e87-ad82-30dabb5af4f6",
+      "reseller_id": "8ab549f7-34f1-45a4-85b2-157c7d8e9b9d",
+      "order_id": "8d26f9f9-b5a7-48ce-b691-b88183ef9245",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "68",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:08:47.903Z"
+    },
+    {
+      "customer_id": "60a21dd2-05d8-4e58-b28a-331a38a5d7dc",
+      "reseller_id": "8ab549f7-34f1-45a4-85b2-157c7d8e9b9d",
+      "order_id": "a5d781d0-3a70-45fd-8043-fb3ca1e52141",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "69",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:08:52.025Z"
+    },
+    {
+      "customer_id": "8a0b7757-802d-43fd-b7ff-5f06a26fd8d2",
+      "reseller_id": "8ab549f7-34f1-45a4-85b2-157c7d8e9b9d",
+      "order_id": "323cee78-359c-46fb-ac54-107a11c98c9a",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "70",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:08:54.082Z"
+    },
+    {
+      "customer_id": "da61d4a6-9f7e-4412-bd79-29be1d06d5bc",
+      "reseller_id": "8ab549f7-34f1-45a4-85b2-157c7d8e9b9d",
+      "order_id": "0e3d1569-4838-43eb-8132-dda82ed6f6db",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "71",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:08:56.162Z"
+    },
+    {
+      "customer_id": "11176e02-10c3-4f4b-a4ef-1686c2661979",
+      "reseller_id": "8ab549f7-34f1-45a4-85b2-157c7d8e9b9d",
+      "order_id": "84c47b32-ff14-4e0f-9fb0-7ac81465d2cb",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "72",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:09:02.706Z"
+    },
+    {
+      "customer_id": "7127aa70-d28b-4f2d-b549-1b2224bbf277",
+      "reseller_id": "cc8409f8-7f5e-487b-aba9-f0ac9ed2721c",
+      "order_id": "2aed6270-f8a8-484c-ae44-36cdc1fe8576",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "73",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:09:42.491Z"
+    },
+    {
+      "customer_id": "c2c181b9-7b62-4507-9820-8c03944e911a",
+      "reseller_id": "5ef6681b-ca7c-427f-82c8-8e13ea3f808c",
+      "order_id": "eec8d50c-555c-42b0-a3da-528f4bf8508b",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "74",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:09:46.266Z"
+    },
+    {
+      "customer_id": "6528d499-e905-44b1-9803-d8fb3dddfc8b",
+      "reseller_id": "5ef6681b-ca7c-427f-82c8-8e13ea3f808c",
+      "order_id": "b9ddf87a-ad74-4255-8bd9-6613eb6e5993",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "75",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:09:59.113Z"
+    },
+    {
+      "customer_id": "089f7be1-d1d0-49ce-b659-7e10c24273b2",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "58f4e776-8450-4ffb-8bef-3953c8e3d937",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "76",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:03.428Z"
+    },
+    {
+      "customer_id": "c8f19c71-2767-4243-9b30-2864213bfcc6",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "24b6bceb-bdbc-4900-b379-dc105edc890d",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "77",
+      "dm_ok": false,
+      "dm_error": "400:Bad Request: chat not found",
+      "sent_at": "2026-08-15T00:10:06.979Z"
+    },
+    {
+      "customer_id": "12802f95-c760-434c-8bb7-ac1d148041c9",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "3b943a33-6a0a-42e7-bd88-066a88afd960",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "78",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:19.776Z"
+    },
+    {
+      "customer_id": "4154350c-4edb-4af0-a603-a6157a22e9b9",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "b334b5c0-9c87-4161-89d4-c6d1d51b5930",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "79",
+      "dm_ok": false,
+      "dm_error": "400:Bad Request: chat not found",
+      "sent_at": "2026-08-15T00:10:22.146Z"
+    },
+    {
+      "customer_id": "04067ca4-908f-4c2e-8325-ec6d80c07805",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "de2268b0-f76b-4dd1-9fdd-23e67d44c887",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "80",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:25.507Z"
+    },
+    {
+      "customer_id": "3751e75d-6981-47ac-8237-a0d0be086def",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "14408a9f-3c72-4b7e-b54e-2387b4fcfecc",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "81",
+      "dm_ok": false,
+      "dm_error": "403:Forbidden: bot was blocked by the user",
+      "sent_at": "2026-08-15T00:10:28.343Z"
+    },
+    {
+      "customer_id": "04d94709-90d7-4c43-acab-ae4067e87d80",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "bead58d0-72a1-4792-9221-5220ba4ffab3",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "82",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:30.423Z"
+    },
+    {
+      "customer_id": "8a9463c0-6199-41a5-b0de-6e6527d1d866",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "2098e2c7-4209-4dcd-bf8d-3369aafb104b",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "83",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:34.751Z"
+    },
+    {
+      "customer_id": "ad55fae7-9ed6-4ded-878c-11a01677d81c",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "6a3f8b64-e8d7-4cf6-8051-046fae77bad7",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "84",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:37.412Z"
+    },
+    {
+      "customer_id": "5e399a67-62ce-4cc4-bcd2-d7af7ea03160",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "826c0164-9004-4897-801d-3e8718350327",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "85",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:43.698Z"
+    },
+    {
+      "customer_id": "339d3ea3-fe57-40b1-9078-96b33404de29",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "beef4d6d-4c41-4834-b05b-23942b898267",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "86",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:45.914Z"
+    },
+    {
+      "customer_id": "0faefe1b-ddb3-4b74-a8c3-f9b79d2b18e2",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "dfc8d239-826a-40b5-a1ba-634cd40341db",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "87",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:48.566Z"
+    },
+    {
+      "customer_id": "d26578e1-0f15-4775-bdbb-999bf2fd468c",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "6e58bfd1-2b37-4505-9bd4-4eb5a3f2dc21",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "88",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:50.572Z"
+    },
+    {
+      "customer_id": "54ea22e5-88de-4107-a517-24c00e758308",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "38a8129d-d66b-40ca-8d6a-5ce18907fabe",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "89",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:52.682Z"
+    },
+    {
+      "customer_id": "3e98b1ed-5262-4957-917e-9abe14541e19",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "3a1f83d4-3d3b-46f4-8ecc-b3df65383081",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "90",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:10:55.216Z"
+    },
+    {
+      "customer_id": "a81ad6a3-22e5-4437-9249-196974709bca",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "e75d4861-de45-4305-a43e-4ad13b5467f2",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "91",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:11:00.542Z"
+    },
+    {
+      "customer_id": "00cbc56f-0263-472c-a59f-5d0fcc1b9233",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "79c15136-ec65-4d6f-adde-abde59a25b4c",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "92",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:11:09.305Z"
+    },
+    {
+      "customer_id": "89b0d80d-00f0-449d-b54c-c3f280dda78d",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "1c1b05dc-e394-46fe-80a4-5396f6cc6f93",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "93",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:11:14.936Z"
+    },
+    {
+      "customer_id": "5f2be1d8-a051-441e-9f6d-aa35693c2867",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "9f104801-caba-4685-9a3e-981859097445",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "94",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:11:17.159Z"
+    },
+    {
+      "customer_id": "ebd28f93-b547-4478-90e2-9ae1797c838d",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "55237d02-541b-4254-a91b-d79a69b6ebfb",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "95",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:11:19.662Z"
+    },
+    {
+      "customer_id": "81793fa0-4c0b-4653-aa50-5072d8d85953",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "bef9b507-0cc4-41a2-8bdc-23ad2dba8fb8",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "96",
+      "dm_ok": false,
+      "dm_error": "ECONNRESET:request to https://api.telegram.org/bot8838316587:[REDACTED]/sendMessage failed, reason: read ECONNRESET",
+      "sent_at": "2026-08-15T00:11:47.140Z"
+    },
+    {
+      "customer_id": "822c0eee-0468-427d-9479-3e5bbc2d9c30",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "ef51f1e0-2204-49f2-a035-33c332614806",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "97",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:11:51.183Z"
+    },
+    {
+      "customer_id": "d37d057c-dbb7-4317-968d-fbf5dd85e30f",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "6cf8c6a0-2970-41cb-9673-554f949cbfc1",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "98",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:11:55.499Z"
+    },
+    {
+      "customer_id": "9aa7ac8b-3f26-481e-9fae-7ad69937041b",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "0fe17a06-2193-490f-ad45-a0f9e003034d",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "99",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:12:06.571Z"
+    },
+    {
+      "customer_id": "678a358d-11f4-43ab-86f9-9c94b5a8752f",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "4954d88b-889f-43fe-8f45-1e4083432fa7",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "100",
+      "dm_ok": false,
+      "dm_error": "403:Forbidden: bot was blocked by the user",
+      "sent_at": "2026-08-15T00:12:09.307Z"
+    },
+    {
+      "customer_id": "dc749f76-6fff-43f5-9de7-8dc5b6560ba6",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "66e25764-2939-4610-a400-0b372bb3cf45",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "101",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:12:11.159Z"
+    },
+    {
+      "customer_id": "b027882d-ff35-443d-8209-82c9ceffbb79",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "c7b5d0a8-48fc-49fa-a09c-69a134668237",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "102",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:12:21.125Z"
+    },
+    {
+      "customer_id": "cfbcaa8f-2720-4f64-924b-3b561408181f",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "6092a36e-af02-4580-ab0f-7f12ab065558",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "103",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:12:24.394Z"
+    },
+    {
+      "customer_id": "f3a4c083-ce5b-4a44-b21c-36126020ad84",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "fdaf4284-f4e0-40cb-a8cb-d5105d6db81a",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "104",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:12:27.545Z"
+    },
+    {
+      "customer_id": "d0b19ad1-9a1a-4dd2-9031-b0ac5b0a5234",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "532e1ac6-b8f1-48ed-b450-26953ea125e2",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "105",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:12:31.669Z"
+    },
+    {
+      "customer_id": "16432102-2825-4e51-b6f3-4f2b27a40be4",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "76739d16-863d-486c-8340-17ed06a05b40",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "106",
+      "dm_ok": false,
+      "dm_error": "ECONNRESET:request to https://api.telegram.org/bot8838316587:[REDACTED]/sendMessage failed, reason: read ECONNRESET",
+      "sent_at": "2026-08-15T00:13:04.392Z"
+    },
+    {
+      "customer_id": "a02d547d-45e7-4a4c-ab29-c51324570edd",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "78499169-8760-4a62-a1bd-2127c8363740",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "107",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:13:16.502Z"
+    },
+    {
+      "customer_id": "7f305d0f-a4e5-4892-9e4c-ecc21cddd816",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "order_id": "35592884-6162-4d19-90ce-c3ce02265dbf",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "108",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:13:18.684Z"
+    },
+    {
+      "customer_id": "7a5610ae-6e22-4aed-89e1-339cd47f88d0",
+      "reseller_id": "0216d430-3874-43e3-b6c5-fcbe5e6c96c8",
+      "order_id": "91950a7b-1c2c-4283-801b-ab889d7126e9",
+      "server_id": "3a73fe58-a915-480b-baa3-64d15149c462",
+      "outline_key_id": "109",
+      "dm_ok": true,
+      "dm_error": null,
+      "sent_at": "2026-08-15T00:14:40.636Z"
+    }
+  ],
+  "nudges": [
+    {
+      "customer_id": "841f96d3-dac7-4c47-969a-2cf5b19d9fba",
+      "reseller_id": "e51b3a9f-dca4-450a-aeb4-147064420a88",
+      "sent_at": "2026-08-14T23:42:20.554Z"
+    },
+    {
+      "customer_id": "e6d632ba-76cd-43e1-b45c-f96261b334d3",
+      "reseller_id": "e51b3a9f-dca4-450a-aeb4-147064420a88",
+      "sent_at": "2026-08-14T23:42:21.212Z"
+    },
+    {
+      "customer_id": "23c220f7-5a9c-4418-b81a-d477ec3ffeb9",
+      "reseller_id": "e51b3a9f-dca4-450a-aeb4-147064420a88",
+      "sent_at": "2026-08-14T23:42:21.877Z"
+    },
+    {
+      "customer_id": "d7383ac9-8f0e-4566-a3f4-20a779695795",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "sent_at": "2026-08-15T00:13:40.591Z"
+    },
+    {
+      "customer_id": "f605db65-a121-4162-86d4-fd7eab0994e3",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "sent_at": "2026-08-15T00:14:08.490Z"
+    },
+    {
+      "customer_id": "146d9b38-b618-4db6-8f36-9d5c32433b68",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "sent_at": "2026-08-15T00:14:11.681Z"
+    },
+    {
+      "customer_id": "f688860b-afd7-4d9e-b4f0-54a1b4ee8ee4",
+      "reseller_id": "fa196cf9-3985-4145-8cc2-1f78a182f49a",
+      "sent_at": "2026-08-15T00:14:34.780Z"
+    }
+  ]
+}

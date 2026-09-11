@@ -78,6 +78,39 @@ The backend remains compatible with the existing:
 This keeps the first customer deployment safe while moving toward a cleaner
 `.env.production` layout.
 
+Monitoring / observability env (all optional — everything degrades gracefully
+if unset, but you lose the corresponding capability):
+
+```text
+# Sentry — error + performance reporting for backend
+SENTRY_DSN=https://<key>@<org>.ingest.<region>.sentry.io/<project>
+SENTRY_ENVIRONMENT=production
+
+# Telegram operator alerts — Ops-side chat when jobs/servers repeatedly fail
+ALERT_TELEGRAM_BOT_TOKEN=<bot-from-BotFather>
+ALERT_TELEGRAM_CHAT_ID=<your-personal-chat-id>
+
+# Axiom — structured log shipping (see backend/src/lib/logger.js)
+AXIOM_TOKEN=xaat-...
+AXIOM_DATASET=novanet-backend
+
+# app_events retention (min 7 enforced server-side)
+APP_EVENTS_RETENTION_DAYS=90
+```
+
+Frontends (`admin-dashboard`, `reseller-dashboard`, `miniapp`) each also
+accept `VITE_SENTRY_DSN` to enable their browser-side Sentry ErrorBoundary.
+Set at build time — a redeploy is required to change.
+
+Backend Node process must be launched with the Sentry preload flag so ESM
+auto-instrumentation of Express works. `package.json` already sets this in
+`start`/`dev`; PM2 will pick it up when Ansible re-templates the ecosystem
+file. If launching manually, the command is:
+
+```bash
+node --import ./src/lib/sentry.js src/server.js
+```
+
 Mini App build env:
 
 ```text
@@ -154,6 +187,10 @@ For this project, the current post-initial migration sequence is:
 0004_package_payment_events.sql
 0005_add_server_tier.sql
 0006_business_integrity_constraints.sql
+0007_add_app_events.sql
+0008_monitoring_query_indexes.sql
+0009_backend_health_monitoring.sql
+0010_app_events_retention.sql
 ```
 
 If production has ever been patched manually, first inventory the live schema

@@ -12,6 +12,8 @@ import { requireAuth } from "./middleware/requireAuth.js";
 import { requireAdmin } from "./middleware/requireAdmin.js";
 import { requireAdminAuth } from "./middleware/requireAdminAuth.js";
 import { requireActiveReseller } from "./middleware/requireActiveReseller.js";
+import { requireReseller } from "./middleware/requireReseller.js";
+import { requireMiniapp } from "./middleware/requireMiniapp.js";
 import { requireTrustedOrigin } from "./middleware/requireTrustedOrigin.js";
 import { startAutoStopJob } from "./jobs/autoStopJob.js";
 import { startSyncUsageJob } from "./jobs/syncUsageJob.js";
@@ -26,6 +28,7 @@ import adminSessionRouter from "./routes/admin/adminSessionRouter.js";
 import adminMeRouter from "./routes/admin/adminMeRouter.js";
 import adminServersRouter from "./routes/admin/adminServersRouter.js";
 import adminResellersRouter from "./routes/admin/adminResellersRouter.js";
+import adminPlatformSettingsRouter from "./routes/admin/adminPlatformSettingsRouter.js";
 import adminPlansRouter from "./routes/admin/adminPlansRouter.js";
 import adminSettlementsRouter from "./routes/admin/adminSettlementsRouter.js";
 import adminOrderActionsRouter from "./routes/admin/adminOrderActionsRouter.js";
@@ -56,6 +59,11 @@ validateEncryptionKey(); // fails loudly at boot if key is absent or wrong lengt
 const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === "production";
+
+// Disable automatic ETag generation so API GET responses are never served as
+// 304 Not Modified. All API routes return fresh JSON on every request.
+// (Static file serving should be handled by a CDN/Nginx, not Express.)
+app.set("etag", false);
 
 if (process.env.NODE_ENV === "development") {
   logger.warn(
@@ -247,6 +255,17 @@ const authLimiter = rateLimit({
   message: { error: "Too many authentication attempts. Please try again later." },
 });
 
+// Lenient limiter for session-check / token-refresh endpoints that are called
+// automatically on every page load — they don't validate passwords or sign up
+// new accounts, so brute-force risk is low and a strict limit causes UX pain.
+const sessionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Please try again later." },
+});
+
 const actionLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 60,
@@ -288,8 +307,22 @@ app.use(
 );
 
 /**
- * reseller auth routes
+ * reseller auth routes — session-check and refresh use a lenient limiter
+ * (called automatically on every page load); login/signup/logout use the
+ * strict limiter since those are the brute-force targets.
  */
+app.get(
+  "/api/auth/reseller/me",
+  sessionLimiter,
+  requireTrustedOrigin,
+  resellerSessionRouter
+);
+app.post(
+  "/api/auth/reseller/refresh",
+  sessionLimiter,
+  requireTrustedOrigin,
+  resellerSessionRouter
+);
 app.use(
   "/api/auth/reseller",
   authLimiter,
@@ -304,7 +337,10 @@ app.use(
   "/api/reseller/me",
   requireTrustedOrigin,
   requireAuth,
-  requireActiveReseller,
+  // Soft gate: a PENDING reseller must be able to read their own profile/status
+  // so the dashboard can show the pending-approval state. Provisioning routes
+  // still use requireActiveReseller (active only).
+  requireReseller,
   resellerMeRouter
 );
 
@@ -312,7 +348,10 @@ app.use(
   "/api/reseller/workspace",
   requireTrustedOrigin,
   requireAuth,
-  requireActiveReseller,
+  // Pending resellers may set up their brand/payment info while awaiting approval,
+  // but the Settings page is miniapp-only so non-miniapp resellers are blocked.
+  requireReseller,
+  requireMiniapp,
   resellerWorkspaceRouter
 );
 
@@ -321,6 +360,7 @@ app.use(
   requireTrustedOrigin,
   requireAuth,
   requireActiveReseller,
+  requireMiniapp,
   resellerNotificationTemplatesRouter
 );
 
@@ -424,6 +464,14 @@ app.use(
   requireAdminAuth,
   requireAdmin,
   adminResellersRouter
+);
+
+app.use(
+  "/api/admin/platform-settings",
+  requireTrustedOrigin,
+  requireAdminAuth,
+  requireAdmin,
+  adminPlatformSettingsRouter
 );
 
 // Must be mounted before the /api/admin catch-all so Express matches the specific path first

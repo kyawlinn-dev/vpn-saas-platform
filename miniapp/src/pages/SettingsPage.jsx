@@ -6,6 +6,7 @@ import {
   Languages,
   Send,
   ShieldCheck,
+  Zap,
 } from "lucide-react";
 import { createElement } from "react";
 import { Chip, GlassCard, PageHeader } from "../components/ui/primitives";
@@ -73,18 +74,28 @@ function ViewPackagesLink({ onTabChange }) {
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
+function protocolLabel(protocol) {
+  if (!protocol || protocol === "shadowsocks") return "Outline";
+  if (protocol === "vless") return "VLESS Reality";
+  if (protocol === "hysteria2") return "Hysteria2";
+  return protocol;
+}
+
 export default function SettingsPage({ data, onTabChange, prevTab }) {
   const { currentLanguage, language, setLanguage, t } = useLanguage();
   const sub = data?.subscription || null;
   const brand = data?.config?.brand || null;
   const recentRejection = data?.recent_rejection || null;
+  const activeProtocol = data?.vpn_key?.protocol || data?.protocol_preference || null;
 
   const isPurchase = sub?.type === "purchase";
+  const isTrial = sub?.type === "trial";
   const isPending = sub?.review_status === "pending_review";
 
-  // Priority: active > pending > rejected > none
+  // Priority: active (purchase or trial) > pending > rejected > none
   const planStatus =
-    isPurchase && !isPending ? "active"
+    isTrial && sub?.status === "active" ? "active"
+    : isPurchase && !isPending ? "active"
     : isPending ? "pending"
     : recentRejection ? "rejected"
     : "none";
@@ -126,6 +137,14 @@ export default function SettingsPage({ data, onTabChange, prevTab }) {
                 ? t("access.validUntil", { date: formatDate(sub.expiry_date) })
                 : t("common.active")}
             </p>
+            {activeProtocol && (
+              <div className="mt-2 flex items-center gap-1.5">
+                <Zap size={12} className="text-primary" />
+                <span className="text-[12px] font-medium text-primary">
+                  {protocolLabel(activeProtocol)}
+                </span>
+              </div>
+            )}
           </>
         )}
 

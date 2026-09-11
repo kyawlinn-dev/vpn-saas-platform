@@ -5,10 +5,6 @@
  * — kept separate so bot handlers never import from route files, and so changes to
  * the miniapp flow can't accidentally break the bot (and vice versa).
  *
- * URL builder note: buildDynamicAccessUrl accepts a plain backendBaseUrl string
- * instead of an Express req object, since bot handlers have no request context.
- * In bot handlers, pass process.env.WEBHOOK_BASE_URL as backendBaseUrl.
- *
  * Trial creation is NOT duplicated here — both the bot and the miniapp auth route
  * import from backend/src/services/trialService.js for that logic.
  */
@@ -32,7 +28,8 @@ export async function resolveCustomerByTelegram(telegramUserId, resellerId) {
       vpn_customers (
         id,
         full_name,
-        ssconf_token
+        ssconf_token,
+        protocol_preference
       )
     `)
     .eq("reseller_id", resellerId)
@@ -46,7 +43,26 @@ export async function resolveCustomerByTelegram(telegramUserId, resellerId) {
     customerId: link.customer_id,
     fullName: link.vpn_customers?.full_name || null,
     ssconfToken: link.vpn_customers?.ssconf_token || null,
+    protocolPreference: link.vpn_customers?.protocol_preference || "shadowsocks",
   };
+}
+
+// ── Trial eligibility ──────────────────────────────────────────────────────────
+
+/**
+ * Returns trial eligibility info for a Telegram user from telegram_links.
+ * Returns null if the user has never done /start (no link row).
+ * @returns {{ id: string, customer_id: string, trial_used_at: string|null }|null}
+ */
+export async function getCustomerTrialInfo(telegramUserId, resellerId) {
+  const { data: link, error } = await supabase
+    .from("telegram_links")
+    .select("id, customer_id, trial_used_at")
+    .eq("telegram_user_id", telegramUserId)
+    .eq("reseller_id", resellerId)
+    .maybeSingle();
+  if (error) throw new Error(`telegram_links trial lookup failed: ${error.message}`);
+  return link || null;
 }
 
 // ── Order resolution ───────────────────────────────────────────────────────────
@@ -87,16 +103,22 @@ export async function getBestActiveOrder(customerId, resellerId) {
 
 /**
  * Returns the customer's current active VPN key with its server details.
- * Mirrors the vpn_keys query in the miniapp auth endpoint.
+ * Includes server_id, outline_key_id, and protocol so the bot server-switch
+ * handler can call switchOrderServer without a second DB round-trip.
  *
- * @returns {{ id: string, vpn_servers: { name: string, flag_emoji: string } }|null}
+ * @returns {{ id: string, server_id: string, outline_key_id: string|null, protocol: string, vpn_servers: object }|null}
  */
 export async function resolveActiveKey(customerId, resellerId, orderId) {
   const { data: key, error } = await supabase
     .from("vpn_keys")
     .select(`
       id,
+      server_id,
+      outline_key_id,
+      access_url,
+      protocol,
       vpn_servers (
+        id,
         name,
         region,
         display_country,
@@ -115,6 +137,84 @@ export async function resolveActiveKey(customerId, resellerId, orderId) {
 
   if (error) throw new Error(`vpn_keys lookup failed: ${error.message}`);
   return key || null;
+}
+
+/**
+ * Like getBestActiveOrder but with plan + customer joins needed by
+ * switchOrderServer / migrateActiveOrderToServer.
+ *
+ * @returns {object|null}
+ */
+export async function getFullActiveOrder(customerId, resellerId) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { data: orders, error } = await supabase
+    .from("vpn_orders")
+    .select(`
+      id, order_type, review_status, status, expiry_date, plan_id,
+      customer_id, reseller_id,
+      customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name),
+      plan:vpn_plans(id, name, data_limit_gb, is_trial)
+    `)
+    .eq("customer_id", customerId)
+    .eq("reseller_id", resellerId)
+    .eq("status", "active")
+    .gte("expiry_date", today)
+    .order("created_at", { ascending: false });
+
+  if (error) throw new Error(`vpn_orders (full) lookup failed: ${error.message}`);
+
+  const rows = orders || [];
+  const purchaseOrder = rows.find(
+    (o) =>
+      o.order_type === "purchase" &&
+      ["pending_review", "confirmed"].includes(o.review_status)
+  );
+  if (purchaseOrder) return purchaseOrder;
+  return rows.find((o) => o.order_type === "trial") || null;
+}
+
+/**
+ * Fetches all active servers (both trial + premium) with display fields
+ * for building the bot server-picker keyboard.
+ * Ordered: trial servers first, then premium (so available servers appear at top).
+ *
+ * @returns {Array}
+ */
+export async function getAllActiveServersForDisplay() {
+  const { data, error } = await supabase
+    .from("vpn_servers")
+    .select(
+      "id, name, region, display_country, display_city, flag_emoji, " +
+        "server_tier, current_active_keys, max_active_keys"
+    )
+    .eq("status", "active")
+    .order("server_tier", { ascending: false })   // "trial" > "premium" alphabetically → trial first
+    .order("display_country", { ascending: true });
+
+  if (error) throw new Error(`vpn_servers list failed: ${error.message}`);
+  return data || [];
+}
+
+/**
+ * Fetches the full server row (credentials included) needed by switchOrderServer.
+ *
+ * @returns {object|null}
+ */
+export async function getFullServerById(serverId) {
+  const { data, error } = await supabase
+    .from("vpn_servers")
+    .select(
+      "id, name, region, server_tier, status, " +
+        "panel_url, panel_username, panel_password_encrypted, " +
+        "marzneshin_service_ids, marzneshin_vless_service_ids, marzneshin_vless_trial_service_ids, " +
+        "current_active_keys, max_active_keys"
+    )
+    .eq("id", serverId)
+    .maybeSingle();
+
+  if (error) throw new Error(`vpn_servers fetch failed: ${error.message}`);
+  return data || null;
 }
 
 // ── Customer upsert (bot /start) ──────────────────────────────────────────────
@@ -203,11 +303,11 @@ export async function ensureCustomerAndLink(telegramUserId, telegramUsername, fu
   };
 }
 
+// ── SS / Outline token ─────────────────────────────────────────────────────────
+
 /**
- * Ensures the customer has a permanent ssconf_token so dynamic access URLs can
- * be built. Race-safe: uses a conditional UPDATE then re-fetches.
- * Mirror of ensureCustomerSsconfToken() in resellerMiniappRoutes.js.
- *
+ * Ensures the customer has a permanent ssconf_token so the ssconf:// URL can be
+ * built for Outline. Race-safe: conditional UPDATE then re-fetch.
  * @returns {string} ssconf_token
  */
 export async function ensureCustomerSsconfToken(customerId) {
@@ -222,15 +322,13 @@ export async function ensureCustomerSsconfToken(customerId) {
 
   const newToken = crypto.randomUUID().replaceAll("-", "");
 
-  const { error: updateErr } = await supabase
+  await supabase
     .from("vpn_customers")
     .update({ ssconf_token: newToken })
     .eq("id", customerId)
     .is("ssconf_token", null);
 
-  if (updateErr) throw new Error(updateErr.message);
-
-  // Re-fetch in case a concurrent request won the race and set a different token
+  // Re-fetch in case a concurrent request won the race
   const { data: updated, error: refetchErr } = await supabase
     .from("vpn_customers")
     .select("ssconf_token")
@@ -240,14 +338,5 @@ export async function ensureCustomerSsconfToken(customerId) {
   if (refetchErr || !updated?.ssconf_token) {
     throw new Error("Failed to ensure customer ssconf token");
   }
-
   return updated.ssconf_token;
 }
-
-// ── URL builders ───────────────────────────────────────────────────────────────
-// Standalone versions of buildSsconfHttpUrl / buildDynamicAccessUrl from
-// resellerMiniappRoutes.js — accept backendBaseUrl instead of Express req.
-
-/**
- * @param {string} backendBaseUrl  e.g. process.env.WEBHOOK_BASE_URL (no trailing slash)
- */
