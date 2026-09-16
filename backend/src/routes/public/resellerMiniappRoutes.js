@@ -192,12 +192,15 @@ const orderLimiter = rateLimit({
   message: { error: "Too many order attempts. Please try again later." },
 });
 
+// Short window so rapid ping-ponging between servers can't stack overlapping
+// 30s background-cleanup grace periods (the race that could leave an order
+// keyless). Legitimate "try a few servers to find a working one" still fits.
 const serverLinkLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
+  windowMs: 60 * 1000,
+  max: 3,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Too many server switch attempts. Please try again later." },
+  message: { error: "Too many server switches. Please wait a minute and try again." },
 });
 
 const EXT_MAP = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
@@ -1652,7 +1655,21 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     if (!insertedKey) {
       // New key's Outline limit = remaining order balance, so Outline throttles at the
       // real cap even between hourly usage syncs. null plan limit = unlimited.
-      const remainingBytes = quota.isUnlimited ? null : quota.remainingBytes;
+      // Guard: quota.remainingBytes is null when the order has no active key to
+      // anchor the allowance (can happen mid-switch / after a keyless state).
+      // Falling through with null would mint an UNLIMITED key (no data cap), so
+      // fall back to the plan limit minus lifetime used. Only a genuinely
+      // unlimited plan (isUnlimited) yields a null (uncapped) limit.
+      let remainingBytes;
+      if (quota.isUnlimited) {
+        remainingBytes = null;
+      } else if (quota.remainingBytes != null) {
+        remainingBytes = quota.remainingBytes;
+      } else {
+        const planBytes = gbToBytes(plan?.data_limit_gb);
+        remainingBytes =
+          planBytes != null ? Math.max(1, planBytes - Number(quota.totalUsedBytes || 0)) : null;
+      }
 
       let outlineKey;
       try {
@@ -1814,6 +1831,30 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
       Promise.allSettled(
         oldKeysToClean.map(async (oldKey) => {
           await new Promise((resolve) => setTimeout(resolve, OLD_KEY_GRACE_MS));
+
+          // Concurrency guard: a switch that ran AFTER this one may have
+          // re-selected (reused) this exact key as the order's current server
+          // during the 30s grace. Deleting it here would leave the order
+          // keyless. Re-check at deletion time: skip if the key was already
+          // retired elsewhere, or if it is now the order's most-recent active
+          // key (i.e. a later switch made it current again).
+          const { data: freshOld } = await supabase
+            .from("vpn_keys")
+            .select("id, status, deleted_at")
+            .eq("id", oldKey.id)
+            .maybeSingle();
+          if (!freshOld || freshOld.status !== "active" || freshOld.deleted_at) return;
+
+          const { data: currentActive } = await supabase
+            .from("vpn_keys")
+            .select("id")
+            .eq("order_id", activeOrder.id)
+            .eq("status", "active")
+            .is("deleted_at", null)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (currentActive?.id === oldKey.id) return;
 
           if (
             oldKey.outline_key_id &&
