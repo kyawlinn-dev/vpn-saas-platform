@@ -34,6 +34,11 @@ import {
 } from "../../services/appEventService.js";
 import { verifyTelegramInitData } from "../../utils/telegramInitData.js";
 import { businessDateOnly } from "../../utils/businessTime.js";
+import {
+  resellerNotifyCaption,
+  NOTIFY_CONFIRM_BTN,
+  NOTIFY_REJECT_BTN,
+} from "../../bot/strings.js";
 
 const router = express.Router();
 
@@ -2195,7 +2200,8 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
         miniapp_slug,
         brand_name,
         is_enabled,
-        bot_token_encrypted
+        bot_token_encrypted,
+        admin_telegram_user_id
       `)
       .eq("miniapp_slug", slug)
       .maybeSingle();
@@ -2485,6 +2491,69 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
       status: "active",
       expiry_date: activation.expiry_date,
     };
+
+    // Notify reseller via Telegram (non-fatal — mirrors bot purchase flow)
+    if (miniapp.admin_telegram_user_id && miniapp.bot_token_encrypted) {
+      (async () => {
+        try {
+          const botToken = decrypt(miniapp.bot_token_encrypted);
+          const tgBase = `https://api.telegram.org/bot${botToken}`;
+          const orderId = activatedOrder.id || createdOrder.id;
+          const caption = resellerNotifyCaption({
+            customerName: customer.full_name || customer.telegram_username || `User ${telegramUserId}`,
+            planName: plan.name,
+            priceMmk: Number(plan.price_mmk),
+            durationDays: plan.duration_days,
+            dataLimitGb: plan.data_limit_gb,
+            orderId,
+          });
+          const replyMarkup = JSON.stringify({
+            inline_keyboard: [[
+              { text: NOTIFY_CONFIRM_BTN, callback_data: `pay_ok:${orderId}` },
+              { text: NOTIFY_REJECT_BTN,  callback_data: `pay_no:${orderId}` },
+            ]],
+          });
+          const chatId = String(miniapp.admin_telegram_user_id);
+
+          // Screenshot is stored as a private-bucket path → generate a signed URL
+          // so Telegram can fetch it. Fall back to text-only if signing fails.
+          let photoUrl = null;
+          if (payment_screenshot_url) {
+            const { data: signed } = await supabase.storage
+              .from("payment-screenshots")
+              .createSignedUrl(payment_screenshot_url, 60 * 60 * 24 * 7); // 7 days
+            photoUrl = signed?.signedUrl || null;
+          }
+
+          if (photoUrl) {
+            await fetch(`${tgBase}/sendPhoto`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                photo: photoUrl,
+                caption,
+                parse_mode: "HTML",
+                reply_markup: replyMarkup,
+              }),
+            });
+          } else {
+            await fetch(`${tgBase}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: caption,
+                parse_mode: "HTML",
+                reply_markup: replyMarkup,
+              }),
+            });
+          }
+        } catch (notifyErr) {
+          console.warn(`[miniapp:${miniapp.miniapp_slug}] reseller notify failed (non-fatal):`, notifyErr.message);
+        }
+      })();
+    }
 
     const { data: insertedKey, error: insertKeyError } = await supabase
       .from("vpn_keys")
