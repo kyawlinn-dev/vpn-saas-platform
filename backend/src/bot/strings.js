@@ -52,7 +52,7 @@ export const START_CTA_TEXT = "📲 ဘာများ ကူညီပေးရ�
 /** Inline button labels on /start */
 export const START_BTN_ADMIN        = "👤 Admin / Support";
 export const START_BTN_TRIAL_KEY    = "🎁 အစမ်းသုံး 5GB ရယူရန်";
-export const START_BTN_GET_KEY      = "🔑 VPN Key ရယူရန်";
+export const START_BTN_GET_KEY      = "🎁 Trial Key ရယူရန်";
 export const START_BTN_BUY_PACKAGE  = "🛒 Package ဝယ်ရန်";
 
 /** Callback data for the /start inline buttons. */
