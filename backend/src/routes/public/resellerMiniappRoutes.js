@@ -1176,7 +1176,7 @@ async function handleMiniAppServers(
 
     const { data: servers, error: serversError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, region_code, display_country, display_city, flag_emoji, status, is_default, server_tier")
+      .select("id, name, region, region_code, display_country, display_city, flag_emoji, status, is_default, server_tier, marzneshin_vless_service_ids")
       .eq("status", "active")
       .order("created_at", { ascending: true });
 
@@ -1188,6 +1188,12 @@ async function handleMiniAppServers(
       });
     }
 
+    // VLESS subscriptions cover ALL nodes in the global service — detect by
+    // checking if the customer's active key is on a server with VLESS service IDs.
+    // If so, mark every VLESS-enabled server as current (not just the provisioned one).
+    const activeKeyServer = (servers || []).find(s => s.id === currentServerId);
+    const isVlessKey = (activeKeyServer?.marzneshin_vless_service_ids || []).length > 0;
+
     const mappedServers = (servers || []).map((server) => {
       const access = getMiniAppServerAccessState({
         activeOrder,
@@ -1195,8 +1201,12 @@ async function handleMiniAppServers(
         allowedRegions,
       });
 
+      const isCurrent = isVlessKey
+        ? (server.marzneshin_vless_service_ids || []).length > 0
+        : currentServerId === server.id;
+
       return {
-        ...mapServerForMiniApp(server, currentServerId === server.id),
+        ...mapServerForMiniApp(server, isCurrent),
         can_access: access.canAccess,
         access_reason: access.reason,
         required_server_tier: access.requiredTier,

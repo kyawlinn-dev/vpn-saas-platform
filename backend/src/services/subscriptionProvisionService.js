@@ -93,13 +93,15 @@ export async function getOrderQuotaSnapshot(orderId) {
   return buildOrderQuotaSnapshot(keys || []);
 }
 
-function buildKeyName({ customer, server, order, plan }) {
-  return [
-    customer?.full_name || "Customer",
-    server?.name || "Server",
-    plan?.name || "Plan",
-    `ORD-${order.id}`,
-  ].join(" | ");
+function buildKeyName({ customer, server, order, plan, protocol = "shadowsocks" }) {
+  // VLESS/Hysteria2 subscriptions cover ALL servers (not server-specific), so
+  // don't include server name — it would appear in the Marzneshin username and
+  // therefore in the subscription URL, which is confusing for users.
+  const isGlobal = protocol === "vless" || protocol === "hysteria2";
+  const parts = [customer?.full_name || "Customer"];
+  if (!isGlobal) parts.push(server?.name || "Server");
+  parts.push(plan?.name || "Plan", `ORD-${order.id}`);
+  return parts.join(" | ");
 }
 
 function normalizeKeyStatus(status) {
@@ -377,7 +379,7 @@ export async function provisionServersForToken({
 
       const createdKey = await createKey({
         server,
-        name: buildKeyName({ customer, server, order, plan }),
+        name: buildKeyName({ customer, server, order, plan, protocol }),
         dataLimitBytes,
         protocol,
       });
