@@ -88,17 +88,18 @@ async function run() {
 
   // ── VLESS Global (#5) deep audit ─────────────────────────────────────────
   console.log("\n=== VLESS Global Service #5 — Detailed Audit ===");
+  let vlessInboundIds = [];
   try {
     const { data: vless } = await api.get("/api/services/5");
-    const ids = vless.inbound_ids || [];
-    console.log(`  Current inbound_ids: ${JSON.stringify(ids)}`);
-    const stale   = ids.filter(id => {
+    vlessInboundIds = vless.inbound_ids || [];
+    console.log(`  Current inbound_ids: ${JSON.stringify(vlessInboundIds)}`);
+    const stale   = vlessInboundIds.filter(id => {
       const ib = inboundById[id];
       if (!ib) return true;
       const node = nodeById[ib.node_id ?? ib.node?.id];
       return !node || node.status !== "healthy";
     });
-    const healthy = ids.filter(id => {
+    const healthy = vlessInboundIds.filter(id => {
       const ib = inboundById[id];
       if (!ib) return false;
       const node = nodeById[ib.node_id ?? ib.node?.id];
@@ -114,6 +115,34 @@ async function run() {
     }
   } catch (e) {
     console.error("  Failed to fetch service #5:", e.message);
+  }
+
+  // ── Host records for every inbound in VLESS Global ────────────────────────
+  // This reveals whether each inbound has a correct public IP in its host config.
+  // A missing or localhost address here causes "127.0.0.1" in the subscription
+  // and prevents clients from connecting to that node.
+  console.log("\n=== Host Records for VLESS Global Inbounds ===");
+  for (const ibId of vlessInboundIds) {
+    const ib = inboundById[ibId];
+    const nodeId = ib?.node_id ?? ib?.node?.id;
+    const node = nodeById[nodeId];
+    console.log(`\n  Inbound #${ibId} [${ib?.protocol || "?"}] "${ib?.tag || "?"}" → ${node?.name || "unknown"} (${node?.address || "?"})`);
+    try {
+      const { data: hostsData } = await api.get(`/api/inbounds/${ibId}/hosts`);
+      const hosts = hostsData?.items || (Array.isArray(hostsData) ? hostsData : []);
+      if (hosts.length === 0) {
+        console.log("    ❌ NO HOST RECORDS — subscription will use fallback/internal address");
+      } else {
+        for (const h of hosts) {
+          const addr = h.address || h.host || "(empty)";
+          const isBad = !addr || addr === "(empty)" || addr.startsWith("127.") || addr.startsWith("{");
+          const flag = isBad ? "❌ BAD" : "✅";
+          console.log(`    ${flag} Host #${h.id}: address=${addr} | port=${h.port ?? "inherited"} | sni=${h.sni || "(none)"} | remark=${h.remark || "(none)"}`);
+        }
+      }
+    } catch (e) {
+      console.error(`    ✗ Failed to fetch hosts for inbound #${ibId}: ${e.message}`);
+    }
   }
 }
 
