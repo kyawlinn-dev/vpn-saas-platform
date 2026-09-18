@@ -3,6 +3,7 @@ import { logger } from "../lib/logger.js";
 import { getTransferMetrics } from "../services/vpnProviderService.js";
 import { stopOrder } from "../services/orderLifecycleService.js";
 import { notifyDataLimitReached, notifyDataLimitWarning } from "../services/notificationService.js";
+import { getOrderQuotaSnapshot } from "../services/subscriptionProvisionService.js";
 import {
   markJobFailure,
   markJobStarted,
@@ -15,11 +16,6 @@ const INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const WARNING_THRESHOLD = 0.8; // 80% of the plan's data limit
 const log = logger.child({ job: "syncUsage" });
 
-function planLimitToBytes(gb) {
-  if (!gb || Number(gb) <= 0) return null;
-  return Math.floor(Number(gb) * 1024 * 1024 * 1024);
-}
-
 // Advance warning at 80% usage — the data-limit side's equivalent of
 // trial_ending_24h / subscription_expiring_3d, so customers get a heads-up
 // before a hard cutoff either way (by date or by data), not just the
@@ -30,7 +26,7 @@ function planLimitToBytes(gb) {
 async function warnOrdersNearDataLimit() {
   const { data: orders, error } = await supabase
     .from("vpn_orders")
-    .select("id, reseller_id, vpn_plans ( data_limit_gb )")
+    .select("id, reseller_id")
     .eq("status", "active");
 
   if (error) {
@@ -39,26 +35,28 @@ async function warnOrdersNearDataLimit() {
   }
 
   for (const order of orders || []) {
-    const limitGb = Number(order.vpn_plans?.data_limit_gb || 0);
-    const limitBytes = planLimitToBytes(limitGb);
-    if (!limitBytes) continue;
+    // Warn at 80% of the order's TRUE allowance (plan base + any applied
+    // extend/top-up, reconstructed from the order's key history) — the same
+    // getOrderQuotaSnapshot autoStopJob uses. The raw plan data_limit_gb
+    // ignores extends, so an extended customer would be warned/stopped at
+    // their base plan limit instead of their real entitlement.
+    let quota;
+    try {
+      quota = await getOrderQuotaSnapshot(order.id);
+    } catch (err) {
+      log.error({ err, order_id: order.id }, "near-limit quota snapshot failed");
+      continue;
+    }
+    if (quota.isUnlimited) continue;
+    const allowance = Number(quota.totalAllowanceBytes || 0);
+    if (allowance <= 0) continue;
+    const total = Number(quota.totalUsedBytes || 0);
+    // Strictly in [80%, 100%). At/over the allowance it gets stopped +
+    // data_limit_reached (stopOrdersOverDataLimit, right after), not warned.
+    if (total < allowance * WARNING_THRESHOLD || total >= allowance) continue;
 
-    const { data: keys, error: keysErr } = await supabase
-      .from("vpn_keys")
-      .select("used_bytes")
-      .eq("order_id", order.id)
-      .in("status", ["active", "deleted"]);
-
-    if (keysErr) continue;
-
-    const total = (keys || []).reduce((sum, k) => sum + Number(k.used_bytes || 0), 0);
-    // Strictly below the limit — an order at or over it gets stopped and
-    // gets data_limit_reached instead (stopOrdersOverDataLimit, right after
-    // this function), not this warning.
-    if (total < limitBytes * WARNING_THRESHOLD || total >= limitBytes) continue;
-
-    const percentUsed = Math.floor((total / limitBytes) * 100);
-    const remainingGb = Math.max(0, (limitBytes - total) / 1024 / 1024 / 1024).toFixed(2);
+    const percentUsed = Math.floor((total / allowance) * 100);
+    const remainingGb = Math.max(0, (allowance - total) / 1024 / 1024 / 1024).toFixed(2);
 
     try {
       await notifyDataLimitWarning(order.id, { percentUsed, remainingGb });
@@ -71,7 +69,7 @@ async function warnOrdersNearDataLimit() {
 async function stopOrdersOverDataLimit() {
   const { data: orders, error } = await supabase
     .from("vpn_orders")
-    .select("id, reseller_id, vpn_plans ( data_limit_gb )")
+    .select("id, reseller_id")
     .eq("status", "active");
 
   if (error) {
@@ -80,19 +78,21 @@ async function stopOrdersOverDataLimit() {
   }
 
   for (const order of orders || []) {
-    const limitBytes = planLimitToBytes(order.vpn_plans?.data_limit_gb);
-    if (!limitBytes) continue;
-
-    const { data: keys, error: keysErr } = await supabase
-      .from("vpn_keys")
-      .select("used_bytes")
-      .eq("order_id", order.id)
-      .in("status", ["active", "deleted"]);
-
-    if (keysErr) continue;
-
-    const total = (keys || []).reduce((sum, k) => sum + Number(k.used_bytes || 0), 0);
-    if (total < limitBytes) continue;
+    // Stop only when the order's TRUE remaining allowance (plan base + applied
+    // extend/top-up, reconstructed from the order's key history) is exhausted —
+    // the same getOrderQuotaSnapshot autoStopJob uses. Checking the raw plan
+    // data_limit_gb instead wrongly stopped extended customers at their base
+    // plan limit (e.g. a 100 GB plan + 100 GB extend stopped at 100 GB).
+    let quota;
+    try {
+      quota = await getOrderQuotaSnapshot(order.id);
+    } catch (err) {
+      log.error({ err, order_id: order.id }, "over-limit quota snapshot failed");
+      continue;
+    }
+    const exhausted =
+      !quota.isUnlimited && quota.remainingBytes !== null && quota.remainingBytes <= 0;
+    if (!exhausted) continue;
 
     try {
       await stopOrder({ orderId: order.id, resellerId: order.reseller_id });
