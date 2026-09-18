@@ -2063,10 +2063,14 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
             .maybeSingle();
           if (currentActive?.id === oldKey.id) return;
 
+          // Marzneshin: panel_url + panel_username identify a provisioned user.
+          // (Previously this checked outline_api_url / outline_cert_sha256, which
+          //  are Outline-only fields — always null on Marzneshin servers, so the
+          //  deleteKey call was never reached.)
           if (
             oldKey.outline_key_id &&
-            oldKey.vpn_servers?.outline_api_url &&
-            oldKey.vpn_servers?.outline_cert_sha256
+            oldKey.vpn_servers?.panel_url &&
+            oldKey.vpn_servers?.panel_username
           ) {
             // Snapshot live usage before deleting the key
             const oldServer = oldKey.vpn_servers;
