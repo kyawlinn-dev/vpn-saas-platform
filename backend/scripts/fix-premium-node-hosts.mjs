@@ -115,7 +115,7 @@ async function fixInboundConfig(api, inbound) {
 }
 
 // ── 2. Fix host record (client-side address + sni in subscription) ─────────
-async function fixHostRecord(api, inbound, serverAddress) {
+async function fixHostRecord(api, inbound, serverAddress, serverName = "Server") {
   if (inbound.protocol !== "vless") return; // SS hosts don't use SNI
 
   const ibId = inbound.id;
@@ -128,8 +128,11 @@ async function fixHostRecord(api, inbound, serverAddress) {
     return;
   }
 
+  // Remark MUST be unique per node (Hiddify/sing-box uses it as the outbound
+  // tag; duplicates across nodes break the whole profile).
+  const label = String(serverName).replace(/#/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
   const payload = {
-    remark: `NovaNet ({USERNAME}) [VLESS Reality]`,
+    remark: `NovaNet ${label} ({USERNAME}) [VLESS Reality]`,
     address: serverAddress,
     sni: CORRECT_SNI,
   };
@@ -227,7 +230,7 @@ async function run() {
       console.log(`  -- Xray config (server-side SNI) --`);
       await fixInboundConfig(api, ib);
       console.log(`  -- Host record (client subscription SNI) --`);
-      await fixHostRecord(api, ib, t.address);
+      await fixHostRecord(api, ib, t.address, t.name);
     }
   }
 

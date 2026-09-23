@@ -124,7 +124,7 @@ async function createService(api, name, inboundIds) {
   }
 }
 
-async function fixHostAddress(api, inboundId, address, proto) {
+async function fixHostAddress(api, inboundId, address, proto, serverName = "Server") {
   try {
     const { data: hostsData } = await api.get(`/api/inbounds/${inboundId}/hosts`);
     const hosts = hostsData.items || hostsData || [];
@@ -133,11 +133,15 @@ async function fixHostAddress(api, inboundId, address, proto) {
       return;
     }
     const host = hosts[0];
+    // Remark MUST include the server name: Hiddify (sing-box) uses it as the
+    // outbound tag, and duplicate tags across nodes break the whole profile.
+    const label = String(serverName).replace(/#/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
     const payload = {
-      remark: `NovaNet ({USERNAME}) [${proto}]`,
+      remark: `NovaNet ${label} ({USERNAME}) [${proto}]`,
       address,
     };
-    if (proto === "VLESS Reality") payload.sni = "www.yahoo.com";
+    // Reality SNI must match the inbound's serverNames (www.tiktok.com).
+    if (proto === "VLESS Reality") payload.sni = "www.tiktok.com";
     await api.put(`/api/inbounds/hosts/${host.id}`, payload);
     console.log(`    ✓ Host #${host.id} → address=${address} [${proto}]`);
   } catch (e) {
@@ -261,8 +265,8 @@ async function run() {
 
     // Fix host addresses
     console.log("  Fixing host addresses...");
-    if (ssInboundId)    await fixHostAddress(api, ssInboundId,    server.address, "Shadowsocks");
-    if (vlessInboundId) await fixHostAddress(api, vlessInboundId, server.address, "VLESS Reality");
+    if (ssInboundId)    await fixHostAddress(api, ssInboundId,    server.address, "Shadowsocks",   server.name);
+    if (vlessInboundId) await fixHostAddress(api, vlessInboundId, server.address, "VLESS Reality", server.name);
 
     // Per-server SS service
     if (ssInboundId) {

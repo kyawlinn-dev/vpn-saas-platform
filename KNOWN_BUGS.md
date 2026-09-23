@@ -47,3 +47,40 @@ relying on this in production.
   asked for yet.
 - The proper renew/top-up business logic itself is deferred to a future
   version — this is a placeholder until that's designed.
+
+## Order protocol shown inconsistently: bot ssconf vs dashboard VLESS (found 2026-09-19)
+
+**Status: RESOLVED 2026-09-19.**
+
+**Symptom:** the bot served a Shadowsocks `ssconf://` link while the reseller
+dashboard showed the same order as VLESS. Root cause: the order's `protocol`
+was derived from `vpn_customers.protocol_preference` (intent for the *next*
+provision) instead of the active key's own `vpn_keys.protocol` (ground truth).
+When a customer's preference was switched to `vless` but the live key stayed
+Shadowsocks (e.g. on a trial order that isn't re-provisioned), the two diverged.
+
+**Fix:** `customerOrderEnrichmentService.js` now derives `protocol` from the
+active key first, falling back to `protocol_preference` only when no key exists.
+At the model level, migration `0023` `order_view` makes this the single canonical
+derivation for all three frontends.
+
+## Premium VLESS fails to add/connect in Hiddify on SG#2 & Tokyo (found 2026-09-23)
+
+**Status: RESOLVED 2026-09-24.** Three separate causes, fixed in order:
+
+1. **Import fails — "duplicate outbound/endpoint tag".** SG#2 and Tokyo VLESS
+   host records had the generic remark `NovaNet ({USERNAME})` (no server name),
+   so both rendered the same sing-box tag and Hiddify rejected the whole premium
+   subscription. Fixed by `backend/scripts/fix-vless-host-remarks.mjs` (unique
+   server-named remarks + `fingerprint=chrome`). Origin scripts
+   (`setup-premium-services.mjs`, `fix-premium-node-hosts.mjs`) now write unique
+   remarks. Note: clients cache subs — must refresh/re-import after the fix.
+2. **IPv6 egress inconsistency.** SG#2/Tokyo are dual-stack and egressed IPv6 by
+   default, unlike the IPv4-only working nodes. Disabled IPv6 at the OS; Xray
+   config is now identical to the working fleet.
+3. **"Timeout in any client" on SG#2 (the real blocker).** A `docker compose
+   restart` hit a marznode asyncio bug that left Xray running without re-syncing
+   users → `rejected proxy/vless/encoding: invalid request user id`. A clean
+   `docker compose down && up -d` re-synced the users; SG#2 now accepts and
+   forwards. **Rule: never `restart` marznode — always `down`+`up`.** (See
+   DEPLOYMENT.md → Marznode VPN Nodes.)

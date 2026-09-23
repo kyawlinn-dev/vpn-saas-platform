@@ -191,7 +191,28 @@ For this project, the current post-initial migration sequence is:
 0008_monitoring_query_indexes.sql
 0009_backend_health_monitoring.sql
 0010_app_events_retention.sql
+0011_customer_notifications.sql
+0012_reseller_notification_templates.sql
+0013_xray_protocol_support.sql
+0014_scheduled_order_status.sql
+0015_reseller_pending_status.sql
+0016_platform_settings.sql
+0017_trial_protocol.sql
+0018_bot_admin_telegram.sql
+0019_vless_trial_service_ids.sql
+0020_acid_purchase_rpcs.sql
+0021_server_counter_trigger.sql
+0022_apply_confirmed_payment_rpc.sql
+0023_canonical_read_views.sql
 ```
+
+> **Final Data Model (migrations 0020–0023):** the ACID/consistency layer —
+> transactional provisioning RPCs, the `current_active_keys` trigger, the
+> `apply_confirmed_payment` RPC, and the canonical `order_view`/`customer_view`/
+> `server_view` read layer. See `FINAL_DATA_MODEL.md` for the design. After
+> applying any migration that adds functions or views, run
+> `NOTIFY pgrst, 'reload schema';` so PostgREST picks them up. Each migration has
+> a dev validator in `backend/scripts/validate-*.mjs`.
 
 If production has ever been patched manually, first inventory the live schema
 instead of assuming every migration was applied in order. A partially applied
@@ -215,6 +236,46 @@ Minimum production order:
 5. Deploy Mini App with Ansible if Mini App code changed.
 6. Deploy dashboards manually after backend health checks pass.
 ```
+
+## Marznode VPN Nodes (Marzneshin fleet)
+
+Each VPN server runs `dawsh/marznode` in Docker (`/opt/marznode`), with Xray
+config at `/var/lib/marznode/xray_config.json`, gRPC to the panel on `:62050`,
+Shadowsocks on `:1080`, and VLESS Reality on `:443`. The Marzneshin panel
+(`panel.novanetmm.com`) pushes user configs to each node over gRPC.
+
+**Provisioning a new premium node:** `backend/scripts/setup-marznode-premium.sh`
+(needs a fresh per-node Reality keypair — never reuse). It disables IPv6, writes
+the Xray config, and starts marznode. Then register + wire services with
+`add-premium-nodes.mjs` → `setup-premium-services.mjs` → `update-dev-db-premium-nodes.mjs`.
+
+**Fleet-consistency rules (all nodes must match):**
+
+- **IPv4-only egress.** Dual-stack droplets otherwise egress IPv6 by default
+  (Xray freedom outbound with no `domainStrategy`), which is inconsistent and
+  breaks strict clients. Disable IPv6 at the OS
+  (`sysctl net.ipv6.conf.all.disable_ipv6=1` + `/etc/sysctl.d/99-disable-ipv6.conf`).
+  Normalize an existing node with `backend/scripts/fix-premium-ipv4-egress.sh`.
+- **Unique VLESS host remarks.** Hiddify (sing-box) uses each config's remark as
+  the outbound *tag*; duplicate remarks across nodes make the whole premium
+  subscription fail to import ("duplicate outbound/endpoint tag"). Every node's
+  host remark must include its server name. Fix with
+  `backend/scripts/fix-vless-host-remarks.mjs`.
+- **Consistent Reality params:** `sni=www.tiktok.com`, `fingerprint=chrome`,
+  `flow=xtls-rprx-vision`, host record `address` = the node's public IPv4.
+
+> **CRITICAL — never `docker compose restart` a marznode.** It can hit a marznode
+> asyncio bug that leaves Xray running WITHOUT re-syncing users → the node
+> rejects every client with `invalid request user id` and clients time out
+> (`tail /var/lib/marznode/access.log` shows `rejected`). Always
+> `docker compose down && docker compose up -d` — a clean recreate re-pushes all
+> users (access.log then shows `accepted ... [VLESS TCP REALITY >> direct]`).
+
+> **Diagnostics:** `openssl s_client -connect <ip>:443 -servername www.tiktok.com`
+> should return the real tiktok cert (proves camouflage, not user sync). Panel
+> node `msg=timeout` with `status=healthy` is a cosmetic remote-node health-check
+> artifact, not an outage. Clients (Hiddify/Streisand) cache subscriptions —
+> refresh/re-import after any host-record change.
 
 ## Secret Management
 

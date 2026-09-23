@@ -12,7 +12,8 @@ Designing or changing the Supabase schema, writing migration SQL, seeding data, 
 
 Read before making schema decisions:
 
-- `SCHEMA.md` — authoritative column reference (auto-generated from live Supabase)
+- `SCHEMA.md` — authoritative column reference (see its "Final Data Model Additions" section for the RPCs, `sync_server_active_keys` trigger, and canonical views)
+- `FINAL_DATA_MODEL.md` — ACID/3NF design + phased migration plan (0020–0023); after applying function/view DDL run `NOTIFY pgrst, 'reload schema';`
 - `SYSTEM_DESIGN.md` — tenancy model and data isolation rules
 - `backend/supabase/migrations/` — version-controlled schema history
 
@@ -70,7 +71,9 @@ These three tables use different name columns — this has caused bugs:
 | `vpn_orders.order_type` | `trial`, `purchase` |
 | `vpn_orders.review_status` | `pending_review`, `confirmed`, `rejected` |
 | `vpn_orders.source` | `miniapp`, `dashboard` |
-| `vpn_keys.status` | `active`, `deleted` |
+| `vpn_keys.status` | `active`, `deleted`, `pending` (transient reservation, migration 0020) |
+| `vpn_keys.protocol` | `shadowsocks`, `vless`, `hysteria2` (authoritative protocol of the key) |
+| `vpn_customers.protocol_preference` | `shadowsocks`, `vless`, `hysteria2` (intent for the NEXT provision; not the live key) |
 | `access_tokens.status` | `active`, `expired`, `revoked` |
 | `commission_ledger.status` | `pending`, `paid` |
 | `monthly_settlements.status` | `draft`, `submitted`, `confirmed`, `reopened` |
@@ -107,7 +110,10 @@ platform_due = gross_paid - reseller_commission
 
 `vpn_orders.total_paid_mmk` and `vpn_orders.commission_amount_mmk` are cached
 summaries for dashboard compatibility. Do not calculate settlements from plan
-price alone.
+price alone. Since migration 0022 the `apply_confirmed_payment(...)` RPC keeps
+these atomic with the confirm; `order_view` (migration 0023) is the canonical
+derived read (same confirmed+applied filter). New read paths should prefer
+`order_view` for money/protocol rather than re-deriving.
 
 Package events are recorded as separate rows:
 
