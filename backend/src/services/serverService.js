@@ -163,89 +163,36 @@ export async function getActiveServers({ regions = [], limit = 1, serverTier = "
 }
 
 export async function incrementServerUsage(serverId) {
-  // optimistic concurrency loop:
-  // read -> conditional update where current_active_keys still equals previous value
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const { data: row, error: readErr } = await supabase
-      .from("vpn_servers")
-      .select("id, current_active_keys, max_active_keys")
-      .eq("id", serverId)
-      .single();
+  // Since migration 0021, the DB trigger trg_sync_server_active_keys OWNS
+  // vpn_servers.current_active_keys and enforces max_active_keys atomically on
+  // every vpn_keys write. This helper no longer writes the counter; it performs
+  // only a read-only early capacity check so callers can reject a full server
+  // before doing external panel work. The authoritative guarantee is the trigger.
+  const { data: row, error } = await supabase
+    .from("vpn_servers")
+    .select("current_active_keys, max_active_keys")
+    .eq("id", serverId)
+    .single();
 
-    if (readErr || !row) {
-      throw new Error(readErr?.message || "Server not found");
-    }
-
-    const current = toNumber(row.current_active_keys, 0);
-    const max = toNumber(row.max_active_keys, 0);
-
-    if (max > 0 && current >= max) {
-      throw new ServerAvailabilityError("Server is full", "SERVER_FULL");
-    }
-
-    const next = current + 1;
-
-    const { data: updatedRows, error: updateErr } = await supabase
-      .from("vpn_servers")
-      .update({
-        current_active_keys: next,
-        last_error: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", serverId)
-      .eq("current_active_keys", current)
-      .select("id");
-
-    if (updateErr) {
-      throw new Error(updateErr.message || "Failed to update server usage");
-    }
-
-    if (updatedRows && updatedRows.length > 0) {
-      return true;
-    }
+  if (error || !row) {
+    throw new Error(error?.message || "Server not found");
   }
 
-  throw new ServerAvailabilityError(
-    "Server usage changed concurrently. Please retry activation.",
-    "SERVER_USAGE_RACE"
-  );
+  const current = toNumber(row.current_active_keys, 0);
+  const max = toNumber(row.max_active_keys, 0);
+
+  if (max > 0 && current >= max) {
+    throw new ServerAvailabilityError("Server is full", "SERVER_FULL");
+  }
+
+  return true;
 }
 
-export async function decrementServerUsage(serverId) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const { data: row, error: readErr } = await supabase
-      .from("vpn_servers")
-      .select("id, current_active_keys")
-      .eq("id", serverId)
-      .single();
-
-    if (readErr || !row) {
-      throw new Error(readErr?.message || "Server not found");
-    }
-
-    const current = toNumber(row.current_active_keys, 0);
-    const next = Math.max(0, current - 1);
-
-    const { data: updatedRows, error: updateErr } = await supabase
-      .from("vpn_servers")
-      .update({
-        current_active_keys: next,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", serverId)
-      .eq("current_active_keys", current)
-      .select("id");
-
-    if (updateErr) {
-      throw new Error(updateErr.message || "Failed to update server usage");
-    }
-
-    if (updatedRows && updatedRows.length > 0) {
-      return true;
-    }
-  }
-
-  throw new Error("Failed to decrement server usage due to concurrent updates");
+export async function decrementServerUsage() {
+  // No-op since migration 0021: the DB trigger recomputes current_active_keys
+  // whenever a key is soft-deleted/changed, so releasing a reservation needs no
+  // app-side write. Kept for call-site compatibility.
+  return true;
 }
 
 export async function setServerError(serverId, message) {

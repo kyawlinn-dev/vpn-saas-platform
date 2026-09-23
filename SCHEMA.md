@@ -1,7 +1,14 @@
 # NovaNet MM — Database Schema Reference
 
 **Source:** Live Supabase project (`huqmzvlzfcexycdrsxpn`), queried via PostgREST OpenAPI spec.  
-**Last updated:** 2026-08-10
+**Last updated:** 2026-09-23
+
+> **Final Data Model in progress:** the sections below the "Final Data Model Additions"
+> heading at the bottom of this file document (a) columns/tables that were live but
+> undocumented as of the 2026-09-23 re-introspection, and (b) the new functions,
+> trigger, and views added by migrations `0020`–`0023`. See `FINAL_DATA_MODEL.md`
+> for the design and rationale. Migrations `0020`–`0022` are applied to dev, not yet
+> to production.
 
 > **NOT NULL semantics:** The `Required` column below means the column is `NOT NULL` in Postgres.  
 > Many required columns have server-side defaults (UUIDs, timestamps, booleans) — they don't need to be  
@@ -596,3 +603,72 @@ document accepted application values.
 | `server_health_status.outline_api_status` | `unknown`, `healthy`, `degraded`, `failed`, `stale` |
 | `vpn_servers.provider` | `digitalocean` |
 | `vpn_servers.panel_type` | `marzneshin` |
+
+---
+
+# Final Data Model Additions
+
+Documents live-but-previously-undocumented objects (found in the 2026-09-23
+re-introspection) and the new objects from migrations `0020`–`0023`. See
+`FINAL_DATA_MODEL.md` for design/rationale.
+
+## Previously undocumented tables (live since migrations 0011/0012/0016)
+
+- **`notifications_sent`** — dedup ledger for customer notifications. Columns:
+  `id` (uuid PK), `customer_id` (uuid, NOT NULL), `event_type` (text, NOT NULL),
+  `order_id` (uuid), `channel` (text, NOT NULL), `sent_at` (timestamptz, NOT NULL).
+- **`reseller_notification_templates`** — per-reseller custom notification copy.
+  `id` (uuid PK), `reseller_id` (uuid, NOT NULL), `event_type` (text, NOT NULL),
+  `custom_text` (text, NOT NULL), `updated_at` (timestamptz, NOT NULL).
+- **`platform_settings`** — singleton (boolean PK `id` always true). `payment_accounts`
+  (jsonb, NOT NULL), `settlement_instructions` (text), `updated_at` (timestamptz, NOT NULL).
+
+## Previously undocumented columns
+
+| Table | Column | Type | Notes |
+|-------|--------|------|-------|
+| `vpn_customers` | `protocol_preference` | text NOT NULL `'shadowsocks'` | Intent for the NEXT provision; CHECK in (`shadowsocks`,`vless`,`hysteria2`). NOT the live key's protocol. |
+| `vpn_keys` | `protocol` | text NOT NULL `'shadowsocks'` | Authoritative protocol of THIS key; CHECK in (`shadowsocks`,`vless`,`hysteria2`). Bot + views read this. |
+| `vpn_keys` | `key_credentials` | jsonb | Marzneshin `{ username, subscription_key, service_ids }`. |
+| `vpn_servers` | `server_tier` | text NOT NULL `'premium'` | `trial` \| `premium`. |
+| `reseller_miniapps` | `admin_telegram_user_id` | bigint | Reseller admin's Telegram id for purchase notifications. |
+| `resellers` | `notifications_paused` | boolean NOT NULL | Pauses reseller Telegram notifications. |
+
+## Enum corrections
+
+- `vpn_keys.status` — now `active` \| `deleted` \| `pending` (migration 0020 added
+  `pending`, a transient reservation state during provisioning).
+- `vpn_servers.status` CHECK — live constraint is stricter than the docs above:
+  it rejects `inactive`. Use `active` \| `provisioning` \| `error` for new rows.
+
+## Functions / RPCs (service_role only)
+
+Provisioning saga (0020, redefined by 0021):
+- **`reserve_pending_key(order,customer,reseller,server,key_name,data_limit_bytes,protocol) → uuid`**
+  Tenant-guarded; inserts a `pending` vpn_key. Capacity enforced by the trigger below.
+- **`activate_vpn_key(key,reseller,outline_key_id,access_url,key_credentials) → void`**
+  Flips a reserved key to `active` with the panel result.
+- **`fail_pending_key(key,reseller) → void`** Idempotent soft-delete releasing the reservation.
+
+Payments (0022):
+- **`apply_confirmed_payment(order,reseller,reviewer_reseller,reviewer_admin) → void`**
+  Atomically confirm+apply all pending `order_payments` for an order and recompute
+  the order's cached summary. Mirrors `confirmOrderPayments()`/`summarizePayments()`.
+
+## Trigger (0021)
+
+- **`sync_server_active_keys()`** on `vpn_keys` (AFTER INSERT/UPDATE/DELETE) — sole owner
+  of `vpn_servers.current_active_keys`: recomputes `count(status in ('active','pending'))`
+  per affected server and enforces `max_active_keys` race-free (locks the server row,
+  raises `capacity exceeded`). App-side `incrementServerUsage`/`decrementServerUsage` are
+  now a read-only check / no-op respectively.
+
+## Views (0023, service_role only)
+
+- **`order_view`** — canonical order read model. Derived `protocol` (from the active key,
+  falling back to `protocol_preference`), derived `total_paid_mmk`/`commission_amount_mmk`/
+  `platform_due_mmk` (summed from `order_payments` where `review_status='confirmed' AND
+  (apply_status is null or 'applied')`), `customer_display_name`/`reseller_display_name`
+  aliases, and the active-key surface. All frontends should read money+protocol from here.
+- **`customer_view`** — customer + `display_name` alias + `active_order_id`.
+- **`server_view`** — server + health + `live_active_key_count` cross-check for the counter.

@@ -231,34 +231,29 @@ export async function confirmOrderPayments({ order, reviewerResellerId, reviewer
     });
   }
 
-  const pending = await loadOrderPayments(order.id);
-  const now = new Date().toISOString();
+  // 0022: confirm + apply all pending payments AND recompute the order's cached
+  // summary in one transaction (replaces the per-payment updates + a separate
+  // syncOrderPaymentSummary write). Mirrors the JS formula exactly.
+  const { error: rpcErr } = await supabase.rpc("apply_confirmed_payment", {
+    p_order_id: order.id,
+    p_reseller_id: order.reseller_id,
+    p_reviewer_reseller_id: reviewerResellerId || null,
+    p_reviewer_admin_id: reviewerAdminId || null,
+  });
+  if (rpcErr) throw new Error(rpcErr.message || "Failed to apply confirmed payment");
 
-  for (const payment of pending.filter((row) => row.review_status === "pending_review")) {
-    const amounts = calculatePaymentAmounts({
-      amountMmk: payment.amount_mmk,
-      commissionPercent: payment.commission_percent ?? order.commission_percent,
-    });
+  // Re-read for the same return contract syncOrderPaymentSummary produced (the
+  // RPC already wrote the cached summary atomically).
+  const payments = await loadOrderPayments(order.id);
+  const summary = summarizePayments(payments);
+  const { data: refreshed, error: readErr } = await supabase
+    .from("vpn_orders")
+    .select("*")
+    .eq("id", order.id)
+    .single();
+  if (readErr) throw new Error(readErr.message);
 
-    const { error } = await supabase
-      .from("order_payments")
-      .update({
-        ...amounts,
-        review_status: "confirmed",
-        apply_status: "applied",
-        applied_at: now,
-        apply_error: null,
-        reviewed_at: now,
-        reviewed_by_reseller_id: reviewerResellerId || null,
-        reviewed_by_admin_id: reviewerAdminId,
-        updated_at: now,
-      })
-      .eq("id", payment.id);
-
-    if (error) throw new Error(error.message);
-  }
-
-  return syncOrderPaymentSummary(order.id);
+  return { order: refreshed, payments, summary };
 }
 
 export async function rejectOrderPayments({ order, reviewerResellerId, reviewerAdminId = null }) {

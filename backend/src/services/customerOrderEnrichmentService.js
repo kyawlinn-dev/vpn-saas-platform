@@ -30,7 +30,15 @@ export function enrichOrderAccess(order, req) {
   // ssconf token portal (ssconf/dynamic URL); VLESS & Hysteria2 customers use
   // the Marzneshin subscription URL directly (key.access_url). Showing an
   // ssconf link to a VLESS customer is wrong — the app can't import it.
-  const protocol = order?.customer?.protocol_preference || "shadowsocks";
+  //
+  // Derive protocol from the active key's own field first. protocol_preference
+  // can diverge from the key when switch-protocol is called while a trial order
+  // is active (trial keys are never re-provisioned, only the preference is saved
+  // for the next paid purchase). The key's protocol is the ground truth.
+  const _activeKeyForProtocol =
+    (order?.keys ?? []).find((k) => k.status === "active") || (order?.keys ?? [])[0] || null;
+  const protocol =
+    _activeKeyForProtocol?.protocol || order?.customer?.protocol_preference || "shadowsocks";
   const pickUrls = (subscriptionUrl) =>
     buildAccessUrlForProtocol({ protocol, ssconfToken: customerToken, subscriptionUrl, label, req });
   const preferredOf = (urls, fallbackAccessUrl) =>

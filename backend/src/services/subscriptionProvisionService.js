@@ -12,6 +12,7 @@ import {
   setServerError,
   clearServerError,
   getServerById,
+  ServerAvailabilityError,
 } from "./serverService.js";
 import { trackAppEvent } from "./appEventService.js";
 import { getTokenByOrderId } from "./tokenService.js";
@@ -334,6 +335,70 @@ export async function updateProvisionedKeyLimitsForOrder({ orderId, plan }) {
   }
 }
 
+// ── ACID provisioning RPCs (migration 0020) ─────────────────────────────────
+// Thin wrappers over the transactional plpgsql saga functions. Each DB write
+// unit is atomic; the external panel call sits between reserve and activate.
+// See FINAL_DATA_MODEL.md §6/§8.
+
+async function reservePendingKey({
+  orderId,
+  customerId,
+  resellerId,
+  serverId,
+  keyName,
+  dataLimitBytes,
+  protocol,
+}) {
+  const { data, error } = await supabase.rpc("reserve_pending_key", {
+    p_order_id: orderId,
+    p_customer_id: customerId,
+    p_reseller_id: resellerId,
+    p_server_id: serverId,
+    p_key_name: keyName,
+    p_data_limit_bytes: dataLimitBytes,
+    p_protocol: protocol,
+  });
+
+  if (error) {
+    // Preserve the SERVER_FULL contract the buy/activation flow already handles.
+    // Since 0021 the capacity guard is the DB trigger, which raises
+    // 'capacity exceeded'; keep the older phrasing as a fallback.
+    if (/capacity exceeded|full or missing|is full/i.test(error.message || "")) {
+      throw new ServerAvailabilityError("Server is full", "SERVER_FULL");
+    }
+    throw new Error(error.message || "Failed to reserve provisioning capacity");
+  }
+
+  return data; // new vpn_keys.id (uuid)
+}
+
+async function activateVpnKey({
+  keyId,
+  resellerId,
+  outlineKeyId,
+  accessUrl,
+  keyCredentials,
+}) {
+  const { error } = await supabase.rpc("activate_vpn_key", {
+    p_key_id: keyId,
+    p_reseller_id: resellerId,
+    p_outline_key_id: outlineKeyId,
+    p_access_url: accessUrl,
+    p_key_credentials: keyCredentials,
+  });
+
+  if (error) throw new Error(error.message || "Failed to activate vpn key");
+}
+
+async function failPendingKey({ keyId, resellerId }) {
+  const { error } = await supabase.rpc("fail_pending_key", {
+    p_key_id: keyId,
+    p_reseller_id: resellerId,
+  });
+
+  if (error) throw new Error(error.message || "Failed to release pending key");
+}
+
 export async function provisionServersForToken({
   token,
   order,
@@ -347,17 +412,17 @@ export async function provisionServersForToken({
   const dataLimitBytes = gbToBytes(plan?.data_limit_gb);
 
   for (const server of servers) {
-    let vpnKeyRow = null;
-    let assignmentId = null;
-    let incremented = false;
+    let keyId = null;
     let outlineKeyId = null;
+    let reserved = false;
+    let assignmentId = null;
 
     try {
       const existingKeys = await getOrderServerKeys(order.id, server.id);
       const reusableKey = pickReusableVpnKey(existingKeys);
 
       // Idempotent retry path:
-      // if order+server already has a usable key, reuse it instead of creating a new Outline key
+      // if order+server already has a usable key, reuse it instead of creating a new panel key.
       if (reusableKey) {
         const reusedConfig = await reactivateExistingVpnKey({
           token,
@@ -374,49 +439,43 @@ export async function provisionServersForToken({
         continue;
       }
 
-      await incrementServerUsage(server.id);
-      incremented = true;
+      const keyName = buildKeyName({ customer, server, order, plan, protocol });
 
+      // ACID step 1 — reserve server capacity AND insert a pending key, atomically.
+      keyId = await reservePendingKey({
+        orderId: order.id,
+        customerId: customer.id,
+        resellerId: reseller.id,
+        serverId: server.id,
+        keyName,
+        dataLimitBytes,
+        protocol,
+      });
+      reserved = true;
+
+      // External panel step — cannot live inside a DB transaction.
       const createdKey = await createKey({
         server,
-        name: buildKeyName({ customer, server, order, plan, protocol }),
+        name: keyName,
         dataLimitBytes,
         protocol,
       });
 
       outlineKeyId = createdKey.outline_key_id;
 
-      const { data: vpnKey, error: keyErr } = await supabase
-        .from("vpn_keys")
-        .insert({
-          order_id: order.id,
-          customer_id: customer.id,
-          reseller_id: reseller.id,
-          server_id: server.id,
-          outline_key_id: createdKey.outline_key_id,
-          key_name: createdKey.key_name,
-          access_url: createdKey.access_url,
-          key_credentials: createdKey._marzneshin_meta || null,
-          data_limit_bytes: dataLimitBytes,
-          used_bytes: 0,
-          status: "active",
-          is_used: true,
-          used_at: new Date().toISOString(),
-          protocol,                              // ← persist the actual protocol so sendActiveKey routes SS vs VLESS correctly
-        })
-        .select()
-        .single();
-
-      if (keyErr || !vpnKey) {
-        throw new Error(keyErr?.message || "Failed to store vpn key");
-      }
-
-      vpnKeyRow = vpnKey;
+      // ACID step 2 — flip the reserved key to active with the panel result, atomically.
+      await activateVpnKey({
+        keyId,
+        resellerId: reseller.id,
+        outlineKeyId: createdKey.outline_key_id,
+        accessUrl: createdKey.access_url,
+        keyCredentials: createdKey._marzneshin_meta || null,
+      });
 
       assignmentId = await ensureAssignmentForToken({
         tokenId: token.id,
         serverId: server.id,
-        vpnKeyId: vpnKey.id,
+        vpnKeyId: keyId,
       });
 
       await clearServerError(server.id);
@@ -440,13 +499,15 @@ export async function provisionServersForToken({
 
       created.push(formatServerConfig(server, createdKey.access_url));
     } catch (err) {
-      // rollback local state as much as possible
-      if (incremented) {
+      // ACID compensation — release the reservation + soft-delete the pending
+      // key in one atomic RPC (replaces the old multi-step manual rollback).
+      if (reserved && keyId) {
         try {
-          await decrementServerUsage(server.id);
+          await failPendingKey({ keyId, resellerId: reseller.id });
         } catch {}
       }
 
+      // Legacy token assignment (retired in Phase 4) — best-effort deactivate.
       if (assignmentId) {
         try {
           await supabase
@@ -456,19 +517,8 @@ export async function provisionServersForToken({
         } catch {}
       }
 
-      if (vpnKeyRow?.id) {
-        try {
-          await supabase
-            .from("vpn_keys")
-            .update({
-              status: "deleted",
-              deleted_at: new Date().toISOString(),
-            })
-            .eq("id", vpnKeyRow.id);
-        } catch {}
-      }
-
-      // if VPN key was created but DB failed, clean it up so retries do not duplicate infra keys
+      // If the panel key was created before the failure, remove it so retries
+      // do not duplicate infra keys.
       await cleanupNewKey({ server, keyId: outlineKeyId });
       await setServerError(server.id, err.message);
 
