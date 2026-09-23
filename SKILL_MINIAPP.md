@@ -38,6 +38,21 @@ Production Mini App hosting is **Droplet Nginx**, not Cloudflare Pages.
 `VITE_MINIAPP_SLUG` is local fallback only. Production slug source is runtime
 Telegram `start_param`.
 
+## Purchase Flow
+
+Packages → **Protocol** → Checkout (tab keys in `src/constants/routes.js`;
+navigation in `AppShell.jsx`).
+
+1. `PackagesPage` "Buy" → `onNavigateToProtocol(plan)` sets the plan and opens
+   the **Protocol** step.
+2. `ProtocolPage` (`src/pages/ProtocolPage.jsx`) shows two logo cards — Outline
+   (Shadowsocks) and VLESS Reality (with the compatible app logos in
+   `public/apps/`) — and `onConfirmProtocol(protocol)` carries the choice to
+   checkout. Protocol is chosen here, **not** on the checkout page.
+3. `CheckoutPage` receives `checkoutProtocol` as a prop (no in-page protocol
+   selector), collects payment method + screenshot, and submits with
+   `protocol_preference`. Its Back button returns to the Protocol step.
+
 ## Key Delivery
 
 - Customer config is served by `GET /k/:ssconf_token.json`.

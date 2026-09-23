@@ -281,6 +281,7 @@ export default function CheckoutPage({
   data,
   initData: initDataProp = "",
   checkoutPlan,
+  checkoutProtocol,
   onToast,
   onTabChange,
   onRefreshAuth,
@@ -290,15 +291,15 @@ export default function CheckoutPage({
   const telegramUserId = data?.user?.telegram_user_id;
   const initData = initDataProp || data?.init_data || "";
 
+  // Protocol is chosen on the previous (Protocol) step.
+  const selectedProtocol = checkoutProtocol || data?.protocol_preference || "shadowsocks";
+
   const [selectedMethodIdx, setSelectedMethodIdx] = useState(0);
   const [uploadedPath, setUploadedPath] = useState(null);
   const [previewSrc, setPreviewSrc] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [paymentNote, setPaymentNote] = useState("");
-  const [selectedProtocol, setSelectedProtocol] = useState(
-    data?.protocol_preference || "shadowsocks"
-  );
 
   // Guard: no plan selected → bounce back to packages
   const selectedMethod = paymentMethods[selectedMethodIdx] ?? null;
@@ -358,47 +359,10 @@ export default function CheckoutPage({
 
   return (
     <div className="flex flex-col gap-3 px-4 pt-4 pb-8">
-      <PageHeader title={t("payment.checkout")} onBack={() => onTabChange(TAB_KEYS.PACKAGES)} centerTitle />
+      <PageHeader title={t("payment.checkout")} onBack={() => onTabChange(TAB_KEYS.PROTOCOL)} centerTitle />
 
       {/* 1 — Plan summary */}
       <PlanSummaryCard plan={checkoutPlan} />
-
-      {/* 1.5 — Protocol choice */}
-      <div className="flex flex-col gap-2">
-        <SectionLabel>{t("protocol.choose")}</SectionLabel>
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            {
-              id: "shadowsocks",
-              label: "Outline",
-              desc: t("protocol.ssDesc"),
-              icon: "🛡️",
-            },
-            {
-              id: "vless",
-              label: "VLESS Reality",
-              desc: t("protocol.vlessDesc"),
-              icon: "⚡",
-            },
-          ].map((proto) => (
-            <button
-              key={proto.id}
-              type="button"
-              onClick={() => setSelectedProtocol(proto.id)}
-              className={cn(
-                "flex flex-col gap-1.5 rounded-xl border p-3 text-left transition-all",
-                selectedProtocol === proto.id
-                  ? "border-primary bg-primary/10 ring-1 ring-primary/30"
-                  : "border-border bg-secondary/30 hover:bg-secondary/50",
-              )}
-            >
-              <span className="text-xl">{proto.icon}</span>
-              <span className="text-[13px] font-semibold text-foreground">{proto.label}</span>
-              <span className="text-[11px] leading-snug text-muted-foreground">{proto.desc}</span>
-            </button>
-          ))}
-        </div>
-      </div>
 
       {/* 2 — Payment method selector */}
       {paymentMethods.length > 0 ? (

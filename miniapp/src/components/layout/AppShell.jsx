@@ -13,6 +13,7 @@ import { renderPage } from "../../app/router";
 
 // Sub-screens hide the BottomNav and take full page height.
 const SUB_SCREENS = new Set([
+  TAB_KEYS.PROTOCOL,
   TAB_KEYS.CHECKOUT,
   TAB_KEYS.PAYMENT_STATUS,
   TAB_KEYS.SETTINGS,
@@ -23,6 +24,7 @@ export default function AppShell() {
   const [prevTab, setPrevTab] = useState(DEFAULT_TAB);
   const [toast, setToast] = useState({ open: false, message: "", severity: "info" });
   const [checkoutPlan, setCheckoutPlan] = useState(null);
+  const [checkoutProtocol, setCheckoutProtocol] = useState("shadowsocks");
 
   const {
     data,
@@ -53,8 +55,15 @@ export default function AppShell() {
   const closeToast = () =>
     setToast((prev) => ({ ...prev, open: false }));
 
-  const navigateToCheckout = (plan) => {
+  // Purchase flow: Packages → Protocol → Checkout.
+  const navigateToProtocol = (plan) => {
     setCheckoutPlan(plan);
+    setCheckoutProtocol(data?.protocol_preference || "shadowsocks");
+    setTab(TAB_KEYS.PROTOCOL);
+  };
+
+  const confirmProtocol = (protocol) => {
+    setCheckoutProtocol(protocol);
     setTab(TAB_KEYS.CHECKOUT);
   };
 
@@ -78,11 +87,13 @@ export default function AppShell() {
       hasActiveAccess,
       initData,
       checkoutPlan,
+      checkoutProtocol,
       prevTab,
       onToast: showToast,
       onTabChange: setTab,
       onRefreshAuth: refreshAuth,
-      onNavigateToCheckout: navigateToCheckout,
+      onNavigateToProtocol: navigateToProtocol,
+      onConfirmProtocol: confirmProtocol,
       onOpenSettings: openSettings,
     });
   }

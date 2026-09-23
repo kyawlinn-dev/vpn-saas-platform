@@ -151,7 +151,7 @@ export default function PackagesPage({
   data,
   initData,
   onToast,
-  onNavigateToCheckout,
+  onNavigateToProtocol,
   onOpenSettings,
 }) {
   const { t } = useLanguage();
@@ -212,7 +212,7 @@ export default function PackagesPage({
       onToast(t("packages.activePackageWarning"), "warning");
       return;
     }
-    onNavigateToCheckout(plan);
+    onNavigateToProtocol(plan);
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
