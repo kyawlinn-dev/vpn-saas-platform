@@ -26,6 +26,7 @@ import {
 import {
   buildDynamicAccessUrl,
   buildSsconfHttpUrl,
+  buildAccessUrlForProtocol,
 } from "./publicAccessUrlService.js";
 import { businessDateOnly } from "../utils/businessTime.js";
 
@@ -106,17 +107,38 @@ async function buildOrderAccessLinks({ order, reseller }) {
     order.customer?.ssconf_token
   );
   const label = await getAccessLabel({ order, reseller });
-  const ssconfUrl = buildSsconfHttpUrl(ssconfToken);
-  const dynamicAccessUrl = buildDynamicAccessUrl(ssconfToken, label);
+
+  // Protocol-aware: Shadowsocks uses the ssconf token portal; VLESS/Hysteria2
+  // use the Marzneshin subscription URL (the active key's access_url). Derive
+  // the protocol from the active key (ground truth) — otherwise a VLESS order's
+  // activation response would return the ssconf link, which apps can't import.
+  const { data: activeKey } = await supabase
+    .from("vpn_keys")
+    .select("access_url, protocol")
+    .eq("order_id", order.id)
+    .eq("status", "active")
+    .is("deleted_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const protocol =
+    activeKey?.protocol || order.customer?.protocol_preference || "shadowsocks";
+  const urls = buildAccessUrlForProtocol({
+    protocol,
+    ssconfToken,
+    subscriptionUrl: activeKey?.access_url || null,
+    label,
+  });
+  const preferred =
+    urls.dynamic_access_url || urls.subscription_url || urls.ssconf_url || null;
 
   return {
     ssconf_token: ssconfToken,
-    ssconf_url: ssconfUrl,
-    dynamic_access_url: dynamicAccessUrl,
-    preferred_access_url: dynamicAccessUrl || ssconfUrl,
-    // Backward-compatible field name for dashboard clients while the old
-    // /t and /sub token portal routes are retired.
-    subscription_url: dynamicAccessUrl || ssconfUrl,
+    ssconf_url: urls.ssconf_url,
+    dynamic_access_url: urls.dynamic_access_url,
+    subscription_url: urls.subscription_url,
+    preferred_access_url: preferred,
   };
 }
 
