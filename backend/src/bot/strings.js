@@ -19,7 +19,7 @@ export const BTN = {
 };
 
 /** Persistent keyboard button label for one-time trial — must match bot.hears(). */
-export const BTN_TRIAL = "🎁 Trial Key ရယူရန်";
+export const BTN_TRIAL = "🎁 အစမ်းသုံး ရယူရန်";
 
 // ── /start ─────────────────────────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ export function startWelcome(brandName) {
     "",
     `${b(brandName)} မှ VPN ဝန်ဆောင်မှုဖြင့် လုံခြုံ၊ မြန်ဆန်စွာ internet ကို ကမ္ဘာ့မည်သည့်နေရာမှမဆို ချိတ်ဆက်နိုင်ပါပြီ။`,
     "",
-    `🎁 User အသစ်များ <b>Trial Key ရယူရန်</b> ကို နှိပ်၍ အခမဲ့ trial ရယူနိုင်ပါသည်။`,
+    `🎁 User အသစ်များ <b>အစမ်းသုံး ရယူရန်</b> ကို နှိပ်၍ အခမဲ့ trial ရယူနိုင်ပါသည်။`,
     "",
     `📌 Menu ကို အသုံးပြု၍ —`,
     `   • 🎁 Trial Key ရယူနိုင်သည် (တစ်ကြိမ်သာ)`,
@@ -51,9 +51,9 @@ export const START_CTA_TEXT = "📲 ဘာများ ကူညီပေးရ�
 
 /** Inline button labels on /start */
 export const START_BTN_ADMIN        = "👤 Admin / Support";
-export const START_BTN_TRIAL_KEY    = "🎁 အစမ်းသုံး 5GB ရယူရန်";
-export const START_BTN_GET_KEY      = "🎁 Trial Key ရယူရန်";
-export const START_BTN_BUY_PACKAGE  = "🛒 Package ဝယ်ရန်";
+export const START_BTN_TRIAL_KEY    = "🎁 အစမ်းသုံး ရယူရန်";
+export const START_BTN_GET_KEY      = "🔑 VPN Key ရယူရန်";
+export const START_BTN_BUY_PACKAGE  = "🛒 ပက်ကေ့ဂျ် ဝယ်ရန်";
 
 /** Callback data for the /start inline buttons. */
 export const START_CB_GET_KEY   = "start:get_key";
@@ -111,7 +111,7 @@ export const KEY_BTN_DOWNLOAD = "📥 App ဒေါင်းလုပ်";
 /** Shown when the customer has no active order or no provisioned key */
 export const KEY_NO_ACTIVE =
   "❌ လက်ရှိ active package မရှိပါ။\n\n" +
-  "• Trial စမ်းသုံးရန် 🎁 <b>Trial Key ရယူရန်</b> ကို နှိပ်ပါ\n" +
+  "• Trial စမ်းသုံးရန် 🎁 <b>အစမ်းသုံး ရယူရန်</b> ကို နှိပ်ပါ\n" +
   "• Package ဝယ်ယူရန် 🛒 <b>ပက်ကေ့ဂျ် ဝယ်ရန်</b> ကို နှိပ်ပါ";
 
 /** Generic error shown when the DB/network lookup fails */
@@ -165,7 +165,7 @@ export const SERVER_NO_ACCOUNT =
 /** Shown when the customer has no active order. */
 export const SERVER_NO_ACTIVE =
   "❌ လက်ရှိ active package မရှိပါ။\n\n" +
-  "• Trial စမ်းသုံးရန် 🎁 <b>Trial Key ရယူရန်</b> ကို နှိပ်ပါ\n" +
+  "• Trial စမ်းသုံးရန် 🎁 <b>အစမ်းသုံး ရယူရန်</b> ကို နှိပ်ပါ\n" +
   "• Package ဝယ်ယူရန် 🛒 <b>ပက်ကေ့ဂျ် ဝယ်ရန်</b> ကို နှိပ်ပါ";
 
 /** Shown when a PREMIUM customer's active key uses VLESS — subscription covers all nodes. */
@@ -179,7 +179,7 @@ export const SERVER_VLESS_EXPLAIN =
 /** Shown when a TRIAL customer's active key uses VLESS — trial node only. */
 export const SERVER_VLESS_TRIAL =
   "⚡ <b>VLESS Trial · Trial Server သာ</b>\n\n" +
-  "Trial VLEOutline key သည် <b>Trial server တစ်ခုသာ</b> ချိတ်ဆက်နိုင်သည်။\n\n" +
+  "Trial VLESS key သည် <b>Trial server တစ်ခုသာ</b> ချိတ်ဆက်နိုင်သည်။\n\n" +
   "🔓 <b>Server အားလုံးသို့ ချိတ်ဆက်ရန်</b> Premium package ဝယ်ယူပါ —\n" +
   "Premium VLESS subscription ဖြင့် မြန်နှုန်းမြင့် server များ အားလုံးကို Hiddify / Xray app " +
   "ထဲတွင် တစ်ချက်နှိပ်၍ ရွေးချယ်နိုင်မည်ဖြစ်သည်။";
@@ -549,7 +549,7 @@ export const TRIAL_ERROR =
   "⚠️ Trial Key ဖန်တီးရာတွင် အမှားဖြစ်သွားသည်။\n" +
   "ခဏကြာပြီးနောက် ထပ်ကြိုးစားပါ သို့မဟုတ် Admin ကို ဆက်သွယ်ပါ။";
 
-// ── VLEOutline key display ─────────────────────────────────────────────────────────
+// ── VLESS key display ─────────────────────────────────────────────────────────
 
 /**
  * Instructions shown alongside the VLESS QR code image.
