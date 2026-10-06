@@ -120,13 +120,11 @@ The customer chooses Shadowsocks or VLESS before Mini App checkout. The active
 `vpn_keys.protocol` describes the current access; `protocol_preference` is only
 the intent for future provisioning. Shadowsocks uses a per-server key and
 supports switching locations. A VLESS subscription includes its configured
-nodes; customers choose the node in their VPN client. During the provider
-transition, `vpnProviderService.js` dispatches by `vpn_servers.panel_type`:
-existing Outline keys stay on Outline, while new Marzneshin server rows use the
-panel. Do not relabel a server row while it still owns active keys; create a
-separate Marzneshin row for the new provider. The `outline_key_id` column also
-stores Marzneshin usernames for panel-backed rows. Production new provisioning
-defaults to Outline until a reseller is canaried or the provider flag changes.
+nodes; customers choose the node in their VPN client. All active access is
+managed by Marzneshin. Historical Outline server rows remain for order and key
+history, without API credentials or selectable capacity. The `outline_key_id`
+column stores Marzneshin usernames on active keys; do not drop it. New
+provisioning always selects Marzneshin.
 
 Every new Marzneshin user has `expire_strategy = fixed_date` and an expiry at
 the start of the day after `vpn_orders.expiry_date` in Asia/Bangkok. The panel

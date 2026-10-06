@@ -9,13 +9,8 @@ export class ServerAvailabilityError extends Error {
   }
 }
 
-export function providerForNewAccess(resellerId, env = process.env) {
-  const canaries = String(env.VPN_MARZNESHIN_CANARY_RESELLER_IDS || "")
-    .split(",").map((id) => id.trim()).filter(Boolean);
-  if (resellerId && canaries.includes(String(resellerId))) return "marzneshin";
-  const configured = String(env.VPN_NEW_ACCESS_PROVIDER || "").trim().toLowerCase();
-  if (configured === "outline" || configured === "marzneshin") return configured;
-  return env.NODE_ENV === "production" ? "outline" : "marzneshin";
+export function providerForNewAccess() {
+  return "marzneshin";
 }
 
 function toNumber(value, fallback = 0) {
@@ -37,16 +32,11 @@ function isServerReady(server) {
     return false;
   }
 
-  let provider;
   try {
-    provider = providerForServer(server);
+    providerForServer(server);
   } catch {
     return false;
   }
-  if (provider === "outline") {
-    return Boolean(server.outline_api_url && server.outline_cert_sha256);
-  }
-
   return (
     typeof server.panel_url === "string" &&
     server.panel_url.trim().length > 0 &&

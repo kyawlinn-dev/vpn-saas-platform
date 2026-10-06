@@ -9,13 +9,13 @@ import {
 const GB = 1024 * 1024 * 1024;
 
 describe("subscription quota calculations", () => {
-  it("keeps a legacy Outline key intact when VLESS is requested", async () => {
+  it("rejects protocol changes on retired provider rows", async () => {
     await expect(switchOrderProtocol({
       order: { id: "legacy-order" },
       oldKey: { id: "legacy-key", outline_key_id: "42" },
       server: { id: "legacy", panel_type: "outline" },
       protocol: "vless",
-    })).rejects.toMatchObject({ code: "PROTOCOL_REQUIRES_MARZNESHIN" });
+    })).rejects.toThrow("not a Marzneshin server");
   });
   it("adds a purchased package to the current active key limit", () => {
     expect(calculateExtendedDataLimitBytes(50 * GB, 50 * GB)).toBe(100 * GB);

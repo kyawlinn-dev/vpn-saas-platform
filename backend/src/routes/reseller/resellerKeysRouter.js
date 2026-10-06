@@ -11,10 +11,6 @@
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import {
-  buildKeyUsageView,
-  getOutlineMetricsForServer,
-} from "../../services/outlineMetricsService.js";
-import {
   buildDynamicAccessUrl,
   buildSsconfHttpUrl,
 } from "../../services/publicAccessUrlService.js";
@@ -28,9 +24,7 @@ function bytesToGb(bytes) {
 }
 
 function usageBytesForOrderTotal(key) {
-  const storedBytes = Number(key?.used_bytes || 0);
-  const liveBytes = Number(key?.used_bytes_30d || 0);
-  return Math.max(storedBytes, liveBytes, 0);
+  return Math.max(Number(key?.used_bytes || 0), 0);
 }
 
 // ─── GET /api/reseller/keys ───────────────────────────────────────────────────
@@ -84,45 +78,25 @@ router.get("/", async (req, res) => {
     if (serverIds.length > 0) {
       const { data: servers, error: serverError } = await supabase
         .from("vpn_servers")
-        .select("id, name, host_ip, status, outline_api_url")
+        .select("id, name, host_ip, status")
         .in("id", serverIds);
 
       if (serverError) {
         console.error("Failed to load servers for keys:", serverError);
-        // Non-fatal — keys are still returned, just without metrics
+        // Non-fatal — keys are still returned without server labels.
       } else {
         serversById = Object.fromEntries((servers ?? []).map((s) => [s.id, s]));
       }
     }
 
-    // Fetch Outline metrics concurrently for each active server
-    const metricsByServerId = Object.fromEntries(
-      await Promise.all(
-        Object.values(serversById)
-          .filter((s) => s?.status === "active" && s?.host_ip)
-          .map(async (s) => {
-            const metrics = await getOutlineMetricsForServer(s.host_ip);
-            return [s.id, metrics];
-          })
-      )
-    );
-
     const enrichedBase = keys.map((key) => {
       const server = key.server_id ? serversById[key.server_id] : null;
-      const metrics =
-        server?.id && key?.outline_key_id
-          ? (metricsByServerId?.[server.id]?.[String(key.outline_key_id)] ?? {})
-          : {};
-
-      return buildKeyUsageView(
-        {
-          ...key,
-          server: server
-            ? { id: server.id, name: server.name, status: server.status, host_ip: server.host_ip }
-            : null,
-        },
-        metrics
-      );
+      return {
+        ...key,
+        server: server
+          ? { id: server.id, name: server.name, status: server.status, host_ip: server.host_ip }
+          : null,
+      };
     });
 
     const keysByOrderId = {};

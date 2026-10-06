@@ -765,11 +765,7 @@ export async function switchOrderServer({ order, newServer, oldKey }) {
 // Marzneshin subscription URL for VLESS/Hysteria2 — never an ssconf link for a
 // non-SS protocol).
 export async function switchOrderProtocol({ order, server, oldKey, protocol }) {
-  if (providerForServer(server) === "outline") {
-    const error = new Error("Move this customer to a Marzneshin server before changing protocol");
-    error.code = "PROTOCOL_REQUIRES_MARZNESHIN";
-    throw error;
-  }
+  providerForServer(server);
   // Before touching anything, snapshot the live Marzneshin usage for the old
   // key. The old Marzneshin user will be deleted after the new key is created,
   // so any unsynced traffic would be silently lost. Writing it now means

@@ -4,6 +4,15 @@
 
 All JSON API routes are under `/api`. Local backend runs on port 3000.
 
+`POST /api/admin/servers/provision` and
+`POST /api/admin/servers/:serverId/decommission` return HTTP 410 until safe
+Marzneshin-native lifecycle operations are implemented. The old automatic
+Outline provisioning and droplet-deletion workflows are retired.
+
+`GET /api/admin/servers` omits legacy Outline API credentials. The reseller
+keys response uses database-synced `used_bytes` and order-total usage rather
+than Outline Prometheus-only 30-day usage/connection fields.
+
 ## Mini App Routes
 
 Mounted at `/api/miniapp/:slug`.

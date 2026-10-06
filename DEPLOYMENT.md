@@ -7,14 +7,18 @@ This repository is aligned around the current production shape:
 - Admin dashboard: Cloudflare Pages
 - Reseller dashboard: Cloudflare Pages
 - Database: Supabase
-- VPN nodes: production backend still manages Outline keys; Marznode/Xray is
-  installed alongside Outline and tested, but the backend/database cutover is pending
+- VPN nodes: Marznode/Xray managed by Marzneshin for Shadowsocks and VLESS;
+  Outline containers were retired on 2026-10-06
 
 Do not use DO App Platform or Cloudflare Workers for customer-facing production
 traffic. Those paths were retired because customer networks may block Cloudflare
 IPs.
 
-## Provider Coexistence Gate
+## Archived Provider Coexistence Gate
+
+The following gate records the pre-cutover rollout. It is not the current
+deployment procedure. All active production keys now use Marzneshin; legacy
+Outline server rows are retained only for historical foreign-key references.
 
 The `feature/marzneshin` branch is **not** a drop-in backend deployment over the
 current Outline production database. Existing active keys store Outline `ss://`

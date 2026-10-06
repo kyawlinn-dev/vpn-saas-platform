@@ -486,9 +486,9 @@ VPN servers (DigitalOcean droplets). Managed by Marzneshin panel.
 | `region_code` | text | | — | Display code e.g. `SG` |
 | `droplet_id` | bigint | | — | DigitalOcean droplet ID |
 | `host_ip` | text | | — | |
-| `outline_api_url` | text | | — | Outline API URL for legacy servers during coexistence |
-| `outline_cert_sha256` | text | | — | Outline API certificate fingerprint for legacy servers |
-| `panel_type` | text | ✓ | `'outline'` after `0025` | `outline` \| `marzneshin`; provider identity is tied to the server row |
+| `outline_api_url` | text | | — | Legacy column; credentials cleared after Outline retirement |
+| `outline_cert_sha256` | text | | — | Legacy column; credentials cleared after Outline retirement |
+| `panel_type` | text | ✓ | `'outline'` after `0025` | Historical rows may be `outline`; active rows must be `marzneshin` |
 | `panel_url` | text | | — | Marzneshin panel API URL (e.g. `http://127.0.0.1:8000`) |
 | `panel_public_url` | text | | — | Public HTTPS URL for subscription links |
 | `panel_username` | text | | — | Marzneshin admin username |

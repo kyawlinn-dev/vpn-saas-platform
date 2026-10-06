@@ -10,9 +10,7 @@ import {
   Loader2,
   MapPin,
   Network,
-  Plus,
   Server as ServerIcon,
-  Trash2,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -45,10 +43,6 @@ function regionMeta(slug?: string | null) {
 function regionLabel(slug?: string | null) {
   if (!slug) return 'Unknown region';
   return regionMeta(slug)?.label ?? slug;
-}
-
-function suggestName(region: string) {
-  return region ? `${region}-${String(Date.now()).slice(-4)}` : '';
 }
 
 function formatDate(value?: string | null) {
@@ -86,19 +80,6 @@ function ServerTierBadge({ tier }: { tier?: string | null }) {
 function copyValue(value?: string | number | null) {
   if (value === null || value === undefined || value === '') return;
   void navigator.clipboard?.writeText(String(value));
-}
-
-function computeRegionStats(servers: Server[]) {
-  const map = new Map<string, { count: number; capacity: number; used: number }>();
-  for (const server of servers) {
-    if (server.status === 'decommissioned' || !server.region) continue;
-    const current = map.get(server.region) ?? { count: 0, capacity: 0, used: 0 };
-    current.count += 1;
-    current.capacity += server.max_active_keys;
-    current.used += server.current_active_keys;
-    map.set(server.region, current);
-  }
-  return map;
 }
 
 function CapacityBar({ current, max, compact = false }: { current: number; max: number; compact?: boolean }) {
@@ -176,268 +157,6 @@ function StatCard({
   );
 }
 
-interface ProvisionDialogProps {
-  servers: Server[];
-  onClose: () => void;
-  onSuccess: () => Promise<void>;
-}
-
-function ProvisionDialog({ servers, onClose, onSuccess }: ProvisionDialogProps) {
-  const [region, setRegion] = useState('');
-  const [name, setName] = useState('');
-  const [serverTier, setServerTier] = useState<'trial' | 'premium'>('premium');
-  const [nameTouched, setNameTouched] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const regionStats = computeRegionStats(servers);
-
-  const handlePickRegion = (slug: string) => {
-    setRegion(slug);
-    if (!nameTouched) setName(suggestName(slug));
-  };
-
-  const handleSubmit = async () => {
-    if (!region) {
-      setError('Please select a region.');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      await api.post('/admin/servers/provision', {
-        region: region.trim(),
-        name: name.trim() || undefined,
-        server_tier: serverTier,
-      });
-      await onSuccess();
-      onClose();
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? err.message ?? 'Provisioning failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const areas = [...new Set(DO_REGIONS.map((item) => item.area))];
-
-  return (
-    <Dialog open onClose={onClose} size="lg">
-      <DialogHeader>
-        <DialogTitle>Provision New Server</DialogTitle>
-        <DialogClose onClose={onClose} />
-      </DialogHeader>
-      <DialogBody className="space-y-5">
-        {error ? (
-          <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="space-y-4">
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Server tier</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(['premium', 'trial'] as const).map((tier) => (
-                <button
-                  key={tier}
-                  type="button"
-                  onClick={() => setServerTier(tier)}
-                  className={cn(
-                    'rounded-lg border px-3 py-2 text-left transition-colors',
-                    serverTier === tier
-                      ? 'border-primary bg-primary/10 ring-1 ring-primary/25'
-                      : 'border-border bg-secondary/30 hover:bg-secondary/60',
-                  )}
-                >
-                  <p className="text-sm font-semibold text-foreground">{tier === 'trial' ? 'Trial' : 'Premium'}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {tier === 'trial' ? 'Free users only' : 'Paid customers only'}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {areas.map((area) => (
-            <div key={area}>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{area}</p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {DO_REGIONS.filter((item) => item.area === area).map((item) => {
-                  const stats = regionStats.get(item.slug);
-                  const free = stats ? Math.max(stats.capacity - stats.used, 0) : null;
-                  const pct = stats && stats.capacity > 0 ? (stats.used / stats.capacity) * 100 : 0;
-                  const selected = region === item.slug;
-                  const statusColor =
-                    !stats ? 'text-muted-foreground' :
-                    pct >= 90 ? 'text-destructive' :
-                    pct >= 70 ? 'text-warning' : 'text-success';
-                  const statusText =
-                    !stats ? 'No servers' :
-                    pct >= 90 ? 'Near full' :
-                    pct >= 70 ? 'Getting full' : 'Available';
-
-                  return (
-                    <button
-                      key={item.slug}
-                      type="button"
-                      onClick={() => handlePickRegion(item.slug)}
-                      className={cn(
-                        'flex flex-col gap-1.5 rounded-lg border p-3 text-left transition-colors',
-                        selected
-                          ? 'border-primary bg-primary/10 ring-1 ring-primary/30'
-                          : 'border-border bg-secondary/30 hover:border-border/80 hover:bg-secondary/60',
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="rounded bg-background px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                          {item.code}
-                        </span>
-                        <span className={cn('text-[10px] font-medium', statusColor)}>{statusText}</span>
-                      </div>
-                      <p className="text-[13px] font-semibold leading-tight text-foreground">{item.label}</p>
-                      <p className="font-mono text-[10px] text-muted-foreground">{item.slug}</p>
-                      {stats ? (
-                        <div className="space-y-1">
-                          <div className="h-1 w-full overflow-hidden rounded-full bg-border">
-                            <div
-                              className={cn('h-full rounded-full', pct >= 90 ? 'bg-destructive' : pct >= 70 ? 'bg-warning' : 'bg-success')}
-                              style={{ width: `${Math.min(pct, 100)}%` }}
-                            />
-                          </div>
-                          <p className="text-[10px] text-muted-foreground">
-                            {stats.count} server{stats.count !== 1 ? 's' : ''}, {free} free slot{free !== 1 ? 's' : ''}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-muted-foreground">No servers yet</p>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {region ? (
-          <FormField label="Server Name" hint="Auto-suggested; change if needed">
-            <Input
-              value={name}
-              onChange={(event) => {
-                setName(event.target.value);
-                setNameTouched(true);
-              }}
-              placeholder={suggestName(region)}
-              autoFocus
-            />
-          </FormField>
-        ) : null}
-
-        <p className="text-xs text-muted-foreground">
-          DigitalOcean size and image are read from <code className="text-foreground">DIGITALOCEAN_SIZE</code> and{' '}
-          <code className="text-foreground">DIGITALOCEAN_IMAGE</code>.
-        </p>
-      </DialogBody>
-      <DialogFooter>
-        <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
-        <Button variant="primary" loading={loading} disabled={!region} onClick={() => void handleSubmit()}>
-          {region ? `Provision in ${regionLabel(region)}` : 'Select a Region'}
-        </Button>
-      </DialogFooter>
-    </Dialog>
-  );
-}
-
-function DecommissionDialog({ server, onClose, onSuccess }: { server: Server; onClose: () => void; onSuccess: () => Promise<void> }) {
-  const [force, setForce] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleConfirm = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      await api.post(`/admin/servers/${server.id}/decommission`, { force });
-      await onSuccess();
-      onClose();
-    } catch (err: any) {
-      setError(err?.response?.data?.error ?? err.message ?? 'Decommission failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const hasDroplet = Boolean(server.droplet_id);
-  const activeKeys = server.current_active_keys;
-
-  return (
-    <Dialog open onClose={onClose} size="sm">
-      <DialogHeader>
-        <DialogTitle>Decommission Server?</DialogTitle>
-        <DialogClose onClose={onClose} />
-      </DialogHeader>
-      <DialogBody className="space-y-4">
-        {error ? (
-          <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="flex items-start gap-3 rounded-md border border-warning/25 bg-warning/10 px-3 py-3">
-          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
-          <div className="space-y-1 text-sm text-warning">
-            <p className="font-semibold">This cannot be undone.</p>
-            <p className="text-warning/80">
-              Active keys on this server will be deleted, active orders will be migrated when capacity exists, and the droplet will be destroyed unless skipped.
-            </p>
-          </div>
-        </div>
-
-        <div className="space-y-1 rounded-md border border-border bg-secondary/40 px-3 py-2.5 text-sm">
-          <div className="flex justify-between gap-3">
-            <span className="text-muted-foreground">Server</span>
-            <span className="font-medium">{server.name}</span>
-          </div>
-          <div className="flex justify-between gap-3">
-            <span className="text-muted-foreground">Region</span>
-            <span>{regionLabel(server.region)} ({server.region})</span>
-          </div>
-          <div className="flex justify-between gap-3">
-            <span className="text-muted-foreground">Active keys</span>
-            <span className={activeKeys > 0 ? 'font-medium text-warning' : 'text-muted-foreground'}>{activeKeys}</span>
-          </div>
-          {hasDroplet ? (
-            <div className="flex justify-between gap-3">
-              <span className="text-muted-foreground">Droplet ID</span>
-              <span className="font-mono text-xs">{String(server.droplet_id)}</span>
-            </div>
-          ) : null}
-        </div>
-
-        {hasDroplet ? (
-          <label className="flex cursor-pointer items-start gap-2.5">
-            <input
-              type="checkbox"
-              className="mt-0.5 rounded"
-              checked={force}
-              onChange={(event) => setForce(event.target.checked)}
-            />
-            <div>
-              <p className="text-sm font-medium">Skip droplet deletion</p>
-              <p className="text-xs text-muted-foreground">Use this if the server is already banned, unreachable, or manually removed.</p>
-            </div>
-          </label>
-        ) : null}
-      </DialogBody>
-      <DialogFooter>
-        <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
-        <Button variant="destructive" loading={loading} onClick={() => void handleConfirm()}>
-          {activeKeys > 0 ? `Decommission and Delete ${activeKeys} Key${activeKeys !== 1 ? 's' : ''}` : 'Decommission'}
-        </Button>
-      </DialogFooter>
-    </Dialog>
-  );
-}
 
 function EditCapacityDialog({ server, onClose, onSuccess }: { server: Server; onClose: () => void; onSuccess: () => Promise<void> }) {
   const [value, setValue] = useState(String(server.max_active_keys));
@@ -575,8 +294,6 @@ function ServerDetailsDialog({ server, onClose }: { server: Server; onClose: () 
         <div className="grid gap-2 md:grid-cols-2">
           <DetailField label="Host IP" value={server.host_ip} copyable />
           <DetailField label="Droplet ID" value={server.droplet_id} copyable />
-          <DetailField label="Outline API URL" value={server.outline_api_url} copyable />
-          <DetailField label="Outline Cert SHA256" value={server.outline_cert_sha256} copyable />
           <DetailField label="Created" value={formatDate(server.created_at)} />
           <DetailField label="Updated" value={formatDate(server.updated_at)} />
         </div>
@@ -594,9 +311,7 @@ interface Props {
 }
 
 export function ServersPage({ servers, onSuccess }: Props) {
-  const [showProvision, setShowProvision] = useState(false);
   const [editTarget, setEditTarget] = useState<Server | null>(null);
-  const [decommissionTarget, setDecommissionTarget] = useState<Server | null>(null);
   const [detailTarget, setDetailTarget] = useState<Server | null>(null);
   const [tierUpdatingId, setTierUpdatingId] = useState<string | null>(null);
   const [serverError, setServerError] = useState('');
@@ -681,13 +396,6 @@ export function ServersPage({ servers, onSuccess }: Props) {
         tierUpdatingId === server.id,
       onSelect: () => void updateServerTier(server, 'premium'),
     },
-    {
-      label: 'Decommission',
-      icon: <Trash2 size={14} />,
-      destructive: true,
-      disabled: server.status === 'provisioning' || server.status === 'decommissioned',
-      onSelect: () => setDecommissionTarget(server),
-    },
   ];
 
   return (
@@ -696,7 +404,7 @@ export function ServersPage({ servers, onSuccess }: Props) {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-foreground">Server Management</h1>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Capacity, region placement, provisioning state, and Outline host health.
+            Capacity, region placement, and Marzneshin node health.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -706,9 +414,6 @@ export function ServersPage({ servers, onSuccess }: Props) {
               Auto-refreshing
             </Badge>
           ) : null}
-          <Button variant="primary" leftIcon={<Plus size={15} />} onClick={() => setShowProvision(true)}>
-            Provision Server
-          </Button>
         </div>
       </div>
 
@@ -886,18 +591,8 @@ export function ServersPage({ servers, onSuccess }: Props) {
         </details>
       ) : null}
 
-      {showProvision ? (
-        <ProvisionDialog servers={servers} onClose={() => setShowProvision(false)} onSuccess={onSuccess} />
-      ) : null}
       {editTarget ? (
         <EditCapacityDialog server={editTarget} onClose={() => setEditTarget(null)} onSuccess={onSuccess} />
-      ) : null}
-      {decommissionTarget ? (
-        <DecommissionDialog
-          server={decommissionTarget}
-          onClose={() => setDecommissionTarget(null)}
-          onSuccess={onSuccess}
-        />
       ) : null}
       {detailTarget ? (
         <ServerDetailsDialog server={detailTarget} onClose={() => setDetailTarget(null)} />

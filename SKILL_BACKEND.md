@@ -138,13 +138,10 @@ Provisioning must also respect `vpn_servers.server_tier`:
 - paid purchases/renewals/migrations -> `serverTier: "premium"`
 
 Use `getActiveServers({ serverTier, regions, limit, resellerId })` for server
-selection. Provider identity comes from `vpn_servers.panel_type`. Production
-new provisioning defaults to Outline during coexistence; only UUIDs in
-`VPN_MARZNESHIN_CANARY_RESELLER_IDS` use Marzneshin until the global
-`VPN_NEW_ACCESS_PROVIDER` flag changes. Existing key operations always use
-their server's provider, regardless of the new-provisioning flag. Outline
-supports Shadowsocks only; set a canary's trial protocol to VLESS only after
-its Marzneshin trial server and trial-only VLESS service are ready.
+selection. Active server rows must use `panel_type = marzneshin`; retired
+Outline rows exist only for history. Shadowsocks and VLESS both provision
+through Marzneshin. A trial VLESS order requires its trial server and
+trial-only VLESS service.
 Pass the order expiry date to every Marzneshin user creation path (activation,
 trial, Mini App link, switch, and migration). The panel's `fixed_date` cutoff
 is the start of the next Asia/Bangkok business day. Trial VLESS orders must use

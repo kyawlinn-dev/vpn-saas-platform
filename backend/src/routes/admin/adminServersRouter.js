@@ -1,10 +1,6 @@
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
-import { startProvisionOutlineServer } from "../../services/serverProvisionService.js";
-import { getServerInventorySummary, getActiveServers } from "../../services/serverService.js";
-import { destroyDroplet } from "../../services/digitalOceanService.js";
-import { deleteKey } from "../../services/vpnProviderService.js";
-import { getOrderQuotaSnapshot, migrateActiveOrderToServer } from "../../services/subscriptionProvisionService.js";
+import { getServerInventorySummary } from "../../services/serverService.js";
 
 const router = express.Router();
 
@@ -27,8 +23,6 @@ function toServerResponse(server) {
     status: server.status,
     panel_type: server.panel_type || null,
     server_tier: server.server_tier || "premium",
-    outline_api_url: server.outline_api_url || null,
-    outline_cert_sha256: server.outline_cert_sha256 || null,
     current_active_keys: currentActiveKeys,
     max_active_keys: maxActiveKeys,
     remaining_capacity: Math.max(maxActiveKeys - currentActiveKeys, 0),
@@ -106,30 +100,9 @@ router.get("/:serverId", async (req, res) => {
   }
 });
 
-// ─── Provision new server ─────────────────────────────────────────────────────
-// Accepts optional body: { region, name, size, server_tier }
-// Falls back to env vars DIGITALOCEAN_REGION / DIGITALOCEAN_SIZE if not provided.
-
-router.post("/provision", async (req, res) => {
-  try {
-    const { region, name, size, server_tier } = req.body ?? {};
-
-    const server = await startProvisionOutlineServer({
-      region: region?.trim() || undefined,
-      name: name?.trim() || undefined,
-      size: size?.trim() || undefined,
-      serverTier: server_tier?.trim() || undefined,
-    });
-
-    return res.status(202).json({
-      success: true,
-      message: "Server provisioning started",
-      server: toServerResponse(server),
-    });
-  } catch (error) {
-    console.error("Admin provision server crash:", error);
-    return res.status(500).json({ error: error.message, code: "SERVER_PROVISION_START_FAILED" });
-  }
+// Automated server provisioning is unavailable until the Marzneshin flow is implemented.
+router.post("/provision", (_req, res) => {
+  return res.status(410).json({ error: "Automatic server provisioning is unavailable", code: "PROVISIONING_UNAVAILABLE" });
 });
 
 // ─── Decommission server ──────────────────────────────────────────────────────
@@ -191,139 +164,9 @@ router.patch("/:serverId/tier", async (req, res) => {
   }
 });
 
-router.post("/:serverId/decommission", async (req, res) => {
-  const { serverId } = req.params;
-  const force = req.body?.force === true;
-
-  try {
-    // 1. Fetch the server row
-    const { data: server, error: serverErr } = await supabase
-      .from("vpn_servers")
-      .select("*")
-      .eq("id", serverId)
-      .maybeSingle();
-
-    if (serverErr) return res.status(500).json({ error: serverErr.message });
-    if (!server) return res.status(404).json({ error: "Server not found" });
-    if (server.status === "decommissioned") {
-      return res.status(400).json({ error: "Server is already decommissioned", code: "ALREADY_DECOMMISSIONED" });
-    }
-
-    // Read current keys and remaining quotas before changing server state.
-    const { data: activeKeys, error: keysErr } = await supabase
-      .from("vpn_keys")
-      .select("id, outline_key_id, order_id, protocol")
-      .eq("server_id", serverId)
-      .eq("status", "active");
-
-    if (keysErr) return res.status(500).json({ error: keysErr.message });
-
-    const keys = activeKeys || [];
-    const orderIds = [...new Set(keys.map((k) => k.order_id).filter(Boolean))];
-    const quotaSnapshots = new Map();
-    for (const orderId of orderIds) {
-      quotaSnapshots.set(orderId, await getOrderQuotaSnapshot(orderId));
-    }
-
-    // Exclude this server when selecting replacement targets.
-    const { error: decommissionErr } = await supabase
-      .from("vpn_servers")
-      .update({
-        status: "decommissioned",
-        current_active_keys: 0,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", serverId);
-    if (decommissionErr) return res.status(500).json({ error: decommissionErr.message });
-
-    // 4. Delete each VPN key from the server API (best-effort)
-    for (const key of keys) {
-      if (!key.outline_key_id) continue;
-      try {
-        await deleteKey({ server, keyId: key.outline_key_id });
-      } catch (err) {
-        console.warn(`[decommission] VPN key ${key.outline_key_id} deletion failed:`, err.message);
-      }
-    }
-
-    // 5. Mark all active keys on this server as deleted in DB
-    if (keys.length > 0) {
-      await supabase
-        .from("vpn_keys")
-        .update({ status: "deleted", deleted_at: new Date().toISOString() })
-        .eq("server_id", serverId)
-        .eq("status", "active");
-    }
-
-    // 6. Migrate every active order to the least-loaded available server.
-    //    The decommissioned server (step 2) is already excluded from candidates.
-    let ordersMigrated = 0;
-    let ordersFailed = 0;
-
-    if (orderIds.length > 0) {
-      const { data: orders } = await supabase
-        .from("vpn_orders")
-        .select(`
-          id, customer_id, reseller_id, status, order_type, expiry_date,
-          customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, protocol_preference),
-          plan:vpn_plans(id, name, data_limit_gb, allowed_regions, is_trial)
-        `)
-        .in("id", orderIds)
-        .eq("status", "active");
-
-      for (const order of orders || []) {
-        try {
-          // Respect the plan's region restrictions; NULL / empty = any region
-          const allowedRegions = Array.isArray(order.plan?.allowed_regions)
-            ? order.plan.allowed_regions.filter(Boolean)
-            : [];
-
-          const serverTier = order.order_type === "trial" || order.plan?.is_trial ? "trial" : "premium";
-          const [newServer] = await getActiveServers({ regions: allowedRegions, limit: 1, serverTier, provider: "any" });
-
-          if (!newServer) {
-            console.warn(`[decommission] No available server for order ${order.id} — no migration possible`);
-            ordersFailed++;
-            continue;
-          }
-
-          const activeKey = keys.find((key) => key.order_id === order.id);
-          const protocol = activeKey?.protocol || order.customer?.protocol_preference || "shadowsocks";
-          await migrateActiveOrderToServer({
-            order, newServer, oldServerId: serverId, protocol,
-            quotaSnapshot: quotaSnapshots.get(order.id),
-          });
-          console.log(`[decommission] Migrated order ${order.id} → server ${newServer.name} (${newServer.id})`);
-          ordersMigrated++;
-        } catch (err) {
-          console.error(`[decommission] Failed to migrate order ${order.id}:`, err.message);
-          ordersFailed++;
-        }
-      }
-    }
-
-    // 7. Destroy the DigitalOcean droplet (skipped when force=true, e.g. IP already banned)
-    let dropletDestroyed = false;
-    if (server.droplet_id && !force) {
-      try {
-        await destroyDroplet(server.droplet_id);
-        dropletDestroyed = true;
-      } catch (err) {
-        console.warn(`[decommission] Droplet ${server.droplet_id} destruction failed:`, err.message);
-      }
-    }
-
-    return res.json({
-      success: true,
-      keys_deleted: keys.length,
-      orders_migrated: ordersMigrated,
-      orders_failed: ordersFailed,
-      droplet_destroyed: dropletDestroyed,
-    });
-  } catch (error) {
-    console.error("Admin decommission server crash:", error);
-    return res.status(500).json({ error: error.message });
-  }
+// Retiring a provider must not destroy a droplet that also runs Marznode.
+router.post("/:serverId/decommission", (_req, res) => {
+  return res.status(410).json({ error: "Automatic decommissioning is unavailable", code: "DECOMMISSION_UNAVAILABLE" });
 });
 
 // ─── Edit capacity ────────────────────────────────────────────────────────────

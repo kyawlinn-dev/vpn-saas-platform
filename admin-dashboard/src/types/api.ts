@@ -444,8 +444,6 @@ export interface Server {
   status: string;
   host_ip: string | null;
   server_tier?: 'trial' | 'premium' | string;
-  outline_api_url?: string | null;
-  outline_cert_sha256?: string | null;
   current_active_keys: number;
   max_active_keys: number;
   remaining_capacity: number;
