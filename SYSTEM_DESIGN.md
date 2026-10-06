@@ -2,7 +2,13 @@
 
 NovaNet MM is a multi-tenant VPN reseller platform. One platform owner manages
 servers, plans, resellers, and oversight. Each reseller owns a branded Telegram
-Mini App workspace and sells Outline VPN access to their own customers.
+Mini App workspace and sells Marzneshin-backed VPN access to their customers.
+
+This document describes the target `feature/marzneshin` implementation. As of
+2026-10-03, the deployed backend still manages existing customers through the
+Outline Manager API; Marznode is installed and client-tested alongside it.
+The provider/database cutover has not been deployed. See the cutover gate in
+`DEPLOYMENT.md` before releasing this branch.
 
 ## Tenancy Model
 
@@ -22,7 +28,7 @@ MINI APP
        |
        v
 CUSTOMER
-  trial, buy, pay, receive key, connect through Outline
+  trial, buy, pay, receive key, connect through a supported client
 ```
 
 Every reseller-owned record must be scoped by `reseller_id`. A customer of
@@ -64,13 +70,13 @@ Core tables:
 | `admins` | Platform owner accounts |
 | `resellers` | Tenants |
 | `reseller_miniapps` | Per-reseller Mini App/bot/brand/payment config |
-| `vpn_servers` | Outline servers and capacity |
+| `vpn_servers` | Marzneshin node/service assignments and capacity |
 | `vpn_plans` | Shared plan catalogue |
 | `vpn_customers` | Customers scoped to resellers |
 | `telegram_links` | Telegram user to customer links |
 | `vpn_orders` | Subscription periods and payment review state |
 | `order_payments` | Payment ledger and source of truth for gross paid, commission, and platform due |
-| `vpn_keys` | Active/historical Outline keys |
+| `vpn_keys` | Active/historical VPN credentials and protocol |
 | `commission_ledger` | Reseller commission records |
 | `monthly_settlements` | Month-end reseller transfer snapshots and platform-owner confirmation |
 | `access_tokens` | Retired token portal data; not exposed by public routes |
@@ -84,8 +90,9 @@ tables remain only until the provisioning internals can be migrated safely.
 
 ### Immediate Key Delivery
 
-Mini App purchases create access immediately. Resellers review payment
-screenshots afterward and can confirm or reject.
+Initial Mini App purchases create access immediately. Resellers review payment
+screenshots afterward and can confirm or reject. A purchase made during an
+active paid package is queued without a new key until the current package ends.
 
 Money is ledger-driven: each payment/recharge is stored in `order_payments`.
 For confirmed and applied payments, reseller commission is calculated from the
@@ -95,11 +102,12 @@ Package lifecycle:
 
 - Initial purchase creates a `vpn_orders` subscription container and an
   `order_payments` row with `payment_type = initial`.
-- Extend is a top-up on an active subscription. It creates an
-  `order_payments` row with `payment_type = extend`, then adds the bought plan's
-  duration and data limit to the existing active key. Dashboard/admin trusted
-  actions apply immediately; Mini App customer top-ups stay pending until the
-  reseller confirms the screenshot.
+- Extend creates a separate `vpn_orders` purchase in `scheduled` state with an
+  `order_payments` row of `payment_type = extend`. The old key and remaining
+  allowance are untouched. The scheduled plan starts with fresh dates, quota,
+  and keys when the active plan ends by time or data. At most one scheduled
+  purchase per customer/reseller is allowed. Customer-initiated payments remain
+  pending review until the reseller confirms them.
 - Renew is a new package event for stopped or expired subscriptions. It creates
   an `order_payments` row with `payment_type = renew`, then provisions or
   reactivates customer access.
@@ -107,6 +115,25 @@ Package lifecycle:
 `vpn_orders` keeps the current subscription snapshot for fast dashboards.
 `order_payments` is the source of truth for accounting, monthly settlement, and
 commission history.
+
+The customer chooses Shadowsocks or VLESS before Mini App checkout. The active
+`vpn_keys.protocol` describes the current access; `protocol_preference` is only
+the intent for future provisioning. Shadowsocks uses a per-server key and
+supports switching locations. A VLESS subscription includes its configured
+nodes; customers choose the node in their VPN client. During the provider
+transition, `vpnProviderService.js` dispatches by `vpn_servers.panel_type`:
+existing Outline keys stay on Outline, while new Marzneshin server rows use the
+panel. Do not relabel a server row while it still owns active keys; create a
+separate Marzneshin row for the new provider. The `outline_key_id` column also
+stores Marzneshin usernames for panel-backed rows. Production new provisioning
+defaults to Outline until a reseller is canaried or the provider flag changes.
+
+Every new Marzneshin user has `expire_strategy = fixed_date` and an expiry at
+the start of the day after `vpn_orders.expiry_date` in Asia/Bangkok. The panel
+therefore enforces the same inclusive expiry day as the backend and publishes
+an expiry timestamp in the subscription metadata. Extending an existing order
+updates its panel user deadline along with the traffic limit. Trial VLESS
+users receive the trial-only service IDs, never the global premium service.
 
 ### Trial vs Premium Server Capacity
 
@@ -158,12 +185,21 @@ The backend runs one bot manager inside the PM2 backend process. It loads all
 configured reseller bot tokens from `reseller_miniapps`, registers Telegram
 webhooks, and carries `reseller_id` through handlers.
 
+Each bot advertises `/start`, `/app`, `/key`, `/balance`, `/buy`, and `/help`;
+`/trial` is advertised only when that reseller enables trials. Commands reuse
+the inline bot flows. The chat menu button opens the command list; `/app` and
+inline WebApp buttons open the reseller-specific Mini App. Existing per-chat
+WebApp menu buttons are changed to commands when the customer next uses
+`/start` or another command. Customer actions other than `/app` and `/help`
+require the customer to have linked their account with `/start` first.
+
 Bot webhook updates are accepted only when Telegram sends the registered
 `X-Telegram-Bot-Api-Secret-Token`.
 
-### Backend-Hosted Outline Bridge
+### Backend-Hosted Shadowsocks Bridge
 
-The backend serves `/k/:ssconf_token.json` and `/open-key` from the Droplet.
+The backend serves `/k/:ssconf_token.json` and `/open-key` for Shadowsocks
+subscriptions from the Droplet. VLESS uses its panel subscription URL.
 The old Cloudflare Worker and legacy token portal routes are retired.
 
 ## Current Built State
@@ -187,7 +223,7 @@ Built:
 Remaining important work:
 
 - Keep Supabase migrations aligned with live schema
-- Add/verify DB constraint for duplicate active purchase prevention
+- Verify production migrations against the live schema before each release
 - Remove legacy token-table dependence from provisioning internals
 - Ansible Vault scaffold is in place (`ansible/env.yml`,
   `ansible/group_vars/novanet/vault.yml.example`); still needs someone to run

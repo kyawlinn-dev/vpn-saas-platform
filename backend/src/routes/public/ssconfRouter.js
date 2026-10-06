@@ -1,6 +1,6 @@
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
-import { fetchSubscriptionConfigs } from "../../services/marzneshinService.js";
+import { resolveShadowsocksConfig } from "../../services/shadowsocksConfigService.js";
 import { getOrderQuotaSnapshot } from "../../services/subscriptionProvisionService.js";
 import { businessDateOnly } from "../../utils/businessTime.js";
 
@@ -109,18 +109,18 @@ router.get("/:token", async (req, res) => {
     }
     if (!key?.access_url) return res.status(410).json({ error: "No active VPN key" });
 
-    // Fetch live SS config from Marzneshin subscription URL
-    const configs = await fetchSubscriptionConfigs(key.access_url);
-    if (!configs.ss) {
+    // Existing Outline keys store ss://; migrated keys store panel subscriptions.
+    const config = await resolveShadowsocksConfig(key.access_url);
+    if (!config) {
       console.error("[ssconf] no SS config found in subscription for key", key.id);
       return res.status(502).json({ error: "SS configuration unavailable" });
     }
 
     return res.set("Cache-Control", "no-store").json({
-      server: configs.ss.server,
-      server_port: configs.ss.port,
-      password: configs.ss.password,
-      method: configs.ss.method,
+      server: config.server,
+      server_port: config.port,
+      password: config.password,
+      method: config.method,
     });
   } catch (err) {
     console.error("[ssconf] exception:", err);

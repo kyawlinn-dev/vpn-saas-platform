@@ -21,6 +21,7 @@
         delete: yes
         rsync_opts:
           - "--exclude=node_modules"
+          - "--exclude=scripts/"
           - "--exclude=.env"
           - "--exclude=.env.*"
           - "--exclude=*.log"

@@ -7,8 +7,8 @@
 > heading at the bottom of this file document (a) columns/tables that were live but
 > undocumented as of the 2026-09-23 re-introspection, and (b) the new functions,
 > trigger, and views added by migrations `0020`–`0023`. See `FINAL_DATA_MODEL.md`
-> for the design and rationale. Migrations `0020`–`0022` are applied to dev, not yet
-> to production.
+> for the design and rationale. Live production migration state must be
+> verified independently before deploying migrations `0020`–`0024`.
 
 > **NOT NULL semantics:** The `Required` column below means the column is `NOT NULL` in Postgres.  
 > Many required columns have server-side defaults (UUIDs, timestamps, booleans) — they don't need to be  
@@ -486,9 +486,9 @@ VPN servers (DigitalOcean droplets). Managed by Marzneshin panel.
 | `region_code` | text | | — | Display code e.g. `SG` |
 | `droplet_id` | bigint | | — | DigitalOcean droplet ID |
 | `host_ip` | text | | — | |
-| `outline_api_url` | text | | — | ⚠️ LEGACY — not used by Marzneshin |
-| `outline_cert_sha256` | text | | — | ⚠️ LEGACY — not used by Marzneshin |
-| `panel_type` | text | ✓ | `'marzneshin'` | `marzneshin` |
+| `outline_api_url` | text | | — | Outline API URL for legacy servers during coexistence |
+| `outline_cert_sha256` | text | | — | Outline API certificate fingerprint for legacy servers |
+| `panel_type` | text | ✓ | `'outline'` after `0025` | `outline` \| `marzneshin`; provider identity is tied to the server row |
 | `panel_url` | text | | — | Marzneshin panel API URL (e.g. `http://127.0.0.1:8000`) |
 | `panel_public_url` | text | | — | Public HTTPS URL for subscription links |
 | `panel_username` | text | | — | Marzneshin admin username |
@@ -500,7 +500,7 @@ VPN servers (DigitalOcean droplets). Managed by Marzneshin panel.
 | `is_active` | boolean | | — | |
 | `is_default` | boolean | ✓ | — | One server is the default for new mini-app orders |
 | `max_active_keys` | integer | ✓ | — | Capacity ceiling |
-| `current_active_keys` | integer | ✓ | — | Managed with optimistic-concurrency loop |
+| `current_active_keys` | integer | ✓ | — | Database-owned after `0021`; legacy production uses app-side updates until cutover |
 | `last_error` | text | | — | |
 | `display_country` | text | | — | e.g. `Singapore` |
 | `display_city` | text | | — | e.g. `Singapore` |
@@ -586,11 +586,11 @@ document accepted application values.
 | `admins.status` | `active`, `disabled` |
 | `vpn_customers.status` | `active`, `inactive` |
 | `vpn_servers.status` | `active`, `provisioning`, `error`, `inactive` |
-| `vpn_orders.status` | `pending`, `active`, `expired`, `stopped` |
+| `vpn_orders.status` | `pending`, `active`, `expired`, `stopped`, `scheduled` |
 | `vpn_orders.payment_status` | `unpaid`, `paid`, `overdue` |
 | `vpn_orders.order_type` | `trial`, `purchase` |
 | `vpn_orders.review_status` | `pending_review`, `confirmed`, `rejected` |
-| `vpn_orders.source` | `miniapp`, `dashboard` |
+| `vpn_orders.source` | `miniapp`, `dashboard`, `bot`, `admin` |
 | `vpn_keys.status` | `active`, `deleted` |
 | `access_tokens.status` | `active`, `expired`, `revoked` |
 | `commission_ledger.status` | `pending`, `paid` |
@@ -672,3 +672,10 @@ Payments (0022):
   aliases, and the active-key surface. All frontends should read money+protocol from here.
 - **`customer_view`** — customer + `display_name` alias + `active_order_id`.
 - **`server_view`** — server + health + `live_active_key_count` cross-check for the counter.
+
+## Queued purchase uniqueness (0024)
+
+- **`idx_vpn_orders_one_scheduled_purchase`** — unique on
+  `(reseller_id, customer_id)` for `status = 'scheduled' AND order_type = 'purchase'`.
+  A customer can hold one active and one queued purchase. Migration `0024`
+  refuses to run when existing duplicate scheduled purchases need review.

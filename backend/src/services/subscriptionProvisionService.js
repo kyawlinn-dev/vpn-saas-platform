@@ -4,6 +4,8 @@ import {
   deleteKey,
   getKey,
   updateKeyDataLimit,
+  serviceIdsForOrder,
+  providerForServer,
 } from "./vpnProviderService.js";
 // parseSsUrl no longer needed — Marzneshin returns subscription URLs, not ss:// links
 import {
@@ -81,6 +83,28 @@ export function buildOrderQuotaSnapshot(keys = []) {
     totalAllowanceBytes,
     remainingBytes: Math.max(totalAllowanceBytes - totalUsedBytes, 0),
   };
+}
+
+export function resolveRemainingKeyLimitBytes({ quota, planDataLimitGb }) {
+  if (planDataLimitGb === undefined && quota?.remainingBytes == null) {
+    throw new Error("PLAN_QUOTA_UNKNOWN");
+  }
+  const planBytes = gbToBytes(planDataLimitGb);
+  if (planDataLimitGb !== undefined && planBytes == null) return null;
+
+  // A null limit on an existing key may be bad historical data, not an
+  // unlimited plan. Use the finite plan allowance when that happens.
+  const usedBytes = Math.max(0, Number(quota?.totalUsedBytes) || 0);
+  const remainingBytes = quota?.isUnlimited || quota?.remainingBytes == null
+    ? planBytes - usedBytes
+    : Number(quota.remainingBytes);
+
+  if (!Number.isFinite(remainingBytes) || remainingBytes <= 0) {
+    const error = new Error("DATA_LIMIT_REACHED");
+    error.code = "DATA_LIMIT_REACHED";
+    throw error;
+  }
+  return Math.floor(remainingBytes);
 }
 
 export async function getOrderQuotaSnapshot(orderId) {
@@ -214,7 +238,14 @@ async function reactivateExistingVpnKey({
   plan,
   vpnKey,
   dataLimitBytes,
+  expiryDate,
 }) {
+  await updateKeyDataLimit({
+    server,
+    keyId: vpnKey.outline_key_id,
+    dataLimitBytes,
+    expiryDate,
+  });
   const patch = {
     customer_id: customer.id,
     reseller_id: reseller.id,
@@ -300,7 +331,7 @@ export async function deleteProvisionedKeysForOrder(orderId) {
   }
 }
 
-export async function updateProvisionedKeyLimitsForOrder({ orderId, plan }) {
+export async function updateProvisionedKeyLimitsForOrder({ orderId, plan, expiryDate }) {
   const packageLimitBytes = gbToBytes(plan?.data_limit_gb);
 
   const { data: keys, error } = await supabase
@@ -324,6 +355,7 @@ export async function updateProvisionedKeyLimitsForOrder({ orderId, plan }) {
       server,
       keyId: key.outline_key_id,
       dataLimitBytes,
+      expiryDate,
     });
 
     await supabase
@@ -407,6 +439,7 @@ export async function provisionServersForToken({
   plan,
   servers,
   protocol = "shadowsocks",
+  expiryDate = order?.expiry_date,
 }) {
   const created = [];
   const dataLimitBytes = gbToBytes(plan?.data_limit_gb);
@@ -433,6 +466,7 @@ export async function provisionServersForToken({
           plan,
           vpnKey: reusableKey,
           dataLimitBytes,
+          expiryDate,
         });
 
         created.push(reusedConfig);
@@ -459,6 +493,8 @@ export async function provisionServersForToken({
         name: keyName,
         dataLimitBytes,
         protocol,
+        serviceIds: serviceIdsForOrder({ server, protocol, orderType: order.order_type }),
+        expiryDate,
       });
 
       outlineKeyId = createdKey.outline_key_id;
@@ -554,8 +590,12 @@ export async function provisionServersForToken({
 // Migrate a single active order from a decommissioned server to `newServer`.
 // Creates a fresh Outline key, stores it, wires up token/miniapp assignments.
 // The order stays active with its existing expiry — only the key location changes.
-export async function migrateActiveOrderToServer({ order, newServer, oldServerId, protocol = "shadowsocks" }) {
-  const dataLimitBytes = gbToBytes(order.plan?.data_limit_gb);
+export async function migrateActiveOrderToServer({ order, newServer, oldServerId, protocol = "shadowsocks", quotaSnapshot }) {
+  const quota = quotaSnapshot || await getOrderQuotaSnapshot(order.id);
+  const dataLimitBytes = resolveRemainingKeyLimitBytes({
+    quota,
+    planDataLimitGb: order.plan?.data_limit_gb,
+  });
   const keyName = [
     order.customer?.full_name || "Customer",
     newServer.name,
@@ -572,6 +612,8 @@ export async function migrateActiveOrderToServer({ order, newServer, oldServerId
       name: keyName,
       dataLimitBytes,
       protocol,
+      serviceIds: serviceIdsForOrder({ server: newServer, protocol, orderType: order.order_type }),
+      expiryDate: order.expiry_date,
     });
     outlineKeyId = createdKey.outline_key_id;
 
@@ -723,6 +765,11 @@ export async function switchOrderServer({ order, newServer, oldKey }) {
 // Marzneshin subscription URL for VLESS/Hysteria2 — never an ssconf link for a
 // non-SS protocol).
 export async function switchOrderProtocol({ order, server, oldKey, protocol }) {
+  if (providerForServer(server) === "outline") {
+    const error = new Error("Move this customer to a Marzneshin server before changing protocol");
+    error.code = "PROTOCOL_REQUIRES_MARZNESHIN";
+    throw error;
+  }
   // Before touching anything, snapshot the live Marzneshin usage for the old
   // key. The old Marzneshin user will be deleted after the new key is created,
   // so any unsynced traffic would be silently lost. Writing it now means

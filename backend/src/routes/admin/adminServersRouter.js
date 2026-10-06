@@ -4,7 +4,7 @@ import { startProvisionOutlineServer } from "../../services/serverProvisionServi
 import { getServerInventorySummary, getActiveServers } from "../../services/serverService.js";
 import { destroyDroplet } from "../../services/digitalOceanService.js";
 import { deleteKey } from "../../services/vpnProviderService.js";
-import { migrateActiveOrderToServer } from "../../services/subscriptionProvisionService.js";
+import { getOrderQuotaSnapshot, migrateActiveOrderToServer } from "../../services/subscriptionProvisionService.js";
 
 const router = express.Router();
 
@@ -25,6 +25,7 @@ function toServerResponse(server) {
     droplet_id: server.droplet_id || null,
     host_ip: server.host_ip || null,
     status: server.status,
+    panel_type: server.panel_type || null,
     server_tier: server.server_tier || "premium",
     outline_api_url: server.outline_api_url || null,
     outline_cert_sha256: server.outline_cert_sha256 || null,
@@ -208,21 +209,10 @@ router.post("/:serverId/decommission", async (req, res) => {
       return res.status(400).json({ error: "Server is already decommissioned", code: "ALREADY_DECOMMISSIONED" });
     }
 
-    // 2. Mark server decommissioned FIRST so getActiveServers() excludes it
-    //    when picking a migration target for customers on this server.
-    await supabase
-      .from("vpn_servers")
-      .update({
-        status: "decommissioned",
-        current_active_keys: 0,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", serverId);
-
-    // 3. Fetch all active VPN keys on this server
+    // Read current keys and remaining quotas before changing server state.
     const { data: activeKeys, error: keysErr } = await supabase
       .from("vpn_keys")
-      .select("id, outline_key_id, order_id")
+      .select("id, outline_key_id, order_id, protocol")
       .eq("server_id", serverId)
       .eq("status", "active");
 
@@ -230,6 +220,21 @@ router.post("/:serverId/decommission", async (req, res) => {
 
     const keys = activeKeys || [];
     const orderIds = [...new Set(keys.map((k) => k.order_id).filter(Boolean))];
+    const quotaSnapshots = new Map();
+    for (const orderId of orderIds) {
+      quotaSnapshots.set(orderId, await getOrderQuotaSnapshot(orderId));
+    }
+
+    // Exclude this server when selecting replacement targets.
+    const { error: decommissionErr } = await supabase
+      .from("vpn_servers")
+      .update({
+        status: "decommissioned",
+        current_active_keys: 0,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", serverId);
+    if (decommissionErr) return res.status(500).json({ error: decommissionErr.message });
 
     // 4. Delete each VPN key from the server API (best-effort)
     for (const key of keys) {
@@ -259,7 +264,7 @@ router.post("/:serverId/decommission", async (req, res) => {
       const { data: orders } = await supabase
         .from("vpn_orders")
         .select(`
-          id, customer_id, reseller_id, status, order_type,
+          id, customer_id, reseller_id, status, order_type, expiry_date,
           customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, protocol_preference),
           plan:vpn_plans(id, name, data_limit_gb, allowed_regions, is_trial)
         `)
@@ -274,7 +279,7 @@ router.post("/:serverId/decommission", async (req, res) => {
             : [];
 
           const serverTier = order.order_type === "trial" || order.plan?.is_trial ? "trial" : "premium";
-          const [newServer] = await getActiveServers({ regions: allowedRegions, limit: 1, serverTier });
+          const [newServer] = await getActiveServers({ regions: allowedRegions, limit: 1, serverTier, provider: "any" });
 
           if (!newServer) {
             console.warn(`[decommission] No available server for order ${order.id} — no migration possible`);
@@ -282,8 +287,12 @@ router.post("/:serverId/decommission", async (req, res) => {
             continue;
           }
 
-          const protocol = order.customer?.protocol_preference || "shadowsocks";
-          await migrateActiveOrderToServer({ order, newServer, oldServerId: serverId, protocol });
+          const activeKey = keys.find((key) => key.order_id === order.id);
+          const protocol = activeKey?.protocol || order.customer?.protocol_preference || "shadowsocks";
+          await migrateActiveOrderToServer({
+            order, newServer, oldServerId: serverId, protocol,
+            quotaSnapshot: quotaSnapshots.get(order.id),
+          });
           console.log(`[decommission] Migrated order ${order.id} → server ${newServer.name} (${newServer.id})`);
           ordersMigrated++;
         } catch (err) {

@@ -28,6 +28,8 @@ Body:
 
 Production requires valid Telegram init data. Local development may use the
 dev fallback only when `NODE_ENV=development` and no init data is sent.
+The response includes `queued_subscription` (or `null`) for the customer's
+next scheduled package.
 
 ### `GET /api/miniapp/:slug/plans`
 
@@ -132,6 +134,7 @@ Body:
   "plan_id": "uuid",
   "payment_screenshot_url": "private/storage/path.jpg",
   "payment_note": "optional",
+  "protocol_preference": "shadowsocks",
   "init_data": "telegram initData string"
 }
 ```
@@ -142,23 +145,28 @@ Behavior:
   `vpn_orders` row, creates an `order_payments` row with
   `payment_type = initial`, and provisions pending-review premium access
   immediately.
-- If the customer already has an active paid purchase and no other payment is
-  waiting for review, the route creates an `order_payments` row with
-  `payment_type = extend` and `apply_status = pending`. It does not add duration
-  or GB yet; reseller payment confirmation applies the top-up.
-- If the customer already has a pending payment review, the route returns `409`
-  to prevent stacked screenshots.
+- If the customer has an active paid purchase, the route creates a separate
+  `vpn_orders` row with `status = scheduled` and a pending-review
+  `order_payments` row with `payment_type = extend`. It does not change the
+  current key. The queued plan starts when the current one ends by time or data.
+- At most one scheduled purchase is allowed per customer and reseller. Another
+  attempt returns `409` with `code = QUEUED_PACKAGE_EXISTS`, including when
+  concurrent requests race at the database unique index.
+- `protocol_preference` is the selected protocol for a new purchase; a queued
+  purchase keeps the currently active protocol.
 
 ## ssconf And Portal Routes
 
 ### `GET /k/:ssconf_token.json`
 
-Customer permanent ssconf endpoint used by Outline. No Telegram auth; token is
-the secret.
+Customer permanent Shadowsocks config endpoint. No Telegram auth; token is the
+secret. During migration, the resolver accepts an existing Outline `ss://`
+`vpn_keys.access_url` or fetches the SS configuration from a Marzneshin
+subscription URL. VLESS customers use the Marzneshin subscription URL.
 
 ### `GET /open-key?url=ssconf://...`
 
-Backend-hosted "Add to Outline" bridge page for Mini App links.
+Backend-hosted Shadowsocks import bridge page for Mini App links.
 
 Order action and Mini App purchase responses must expose customer access using
 `ssconf_token`, `ssconf_url`, `dynamic_access_url`, and
@@ -207,6 +215,14 @@ change their own bot.
 - `POST /api/reseller/accounting/monthly/settlement-proof`
 - `GET /api/reseller/accounting/monthly/settlement-proof-url?month=YYYY-MM`
 - `POST /api/reseller/order-actions/:orderId/:action`
+
+During Outline/Marzneshin coexistence, switching an active Outline customer
+to VLESS on the same server returns `409 PROTOCOL_REQUIRES_MARZNESHIN` without
+retiring the working key. Move the customer to a Marzneshin server first.
+Mini App server selection returns `403 PROTOCOL_UNSUPPORTED_ON_SERVER` when a
+VLESS subscription targets a legacy Outline server.
+Admin server responses include `panel_type` (`outline` or `marzneshin`) so the
+operator can verify which provider owns each server row during coexistence.
 
 `GET /api/reseller/orders` query params: `status` (`pending`/`active`/
 `expiring`/`overdue`/`expired`/`stopped`; `expiring` is a derived window, not
@@ -273,8 +289,9 @@ Body:
 ```
 
 `extend` requires an active paid order with an active key. It records
-`order_payments.payment_type = extend`, applies the package duration to
-`expiry_date`, and adds the package data limit to the current key quota.
+`order_payments.payment_type = extend` on a separate scheduled purchase. The
+active order and key are unchanged until that queued purchase activates.
+Another scheduled purchase returns `409 QUEUED_PACKAGE_EXISTS`.
 
 `renew` requires a stopped or expired paid order. It records
 `order_payments.payment_type = renew`, provisions/reactivates access, and starts

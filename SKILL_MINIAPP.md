@@ -40,18 +40,24 @@ Telegram `start_param`.
 
 ## Purchase Flow
 
-Packages → **Protocol** → Checkout (tab keys in `src/constants/routes.js`;
-navigation in `AppShell.jsx`).
+Packages → **App choice dialog** → Checkout (navigation in `AppShell.jsx`).
 
 1. `PackagesPage` "Buy" → `onNavigateToProtocol(plan)` sets the plan and opens
-   the **Protocol** step.
-2. `ProtocolPage` (`src/pages/ProtocolPage.jsx`) shows two logo cards — Outline
-   (Shadowsocks) and VLESS Reality (with the compatible app logos in
-   `public/apps/`) — and `onConfirmProtocol(protocol)` carries the choice to
-   checkout. Protocol is chosen here, **not** on the checkout page.
+   `ProtocolDialog` over the packages page for a new purchase. Renewals keep
+   the active protocol and go straight to checkout.
+2. `ProtocolDialog` (`src/components/checkout/ProtocolDialog.jsx`) offers
+   Outline or Happ/Hiddify (VLESS Reality) with compatible app logos in
+   `public/apps/`. Nothing is selected by default; Continue requires a tap.
+   `onConfirmProtocol(protocol)` carries the choice to checkout.
 3. `CheckoutPage` receives `checkoutProtocol` as a prop (no in-page protocol
    selector), collects payment method + screenshot, and submits with
-   `protocol_preference`. Its Back button returns to the Protocol step.
+   `protocol_preference`. Its Back button returns to Packages; buying again
+   reopens the app choice with no selection.
+
+An initial paid purchase provisions immediately, pending screenshot review.
+With an active paid purchase, checkout creates one scheduled future package;
+the active key stays unchanged. Auth returns `queued_subscription` for the UI.
+A second queued purchase returns `409 QUEUED_PACKAGE_EXISTS`.
 
 ## Key Delivery
 
@@ -59,7 +65,11 @@ navigation in `AppShell.jsx`).
 - `ssconf_token` lives on `vpn_customers`.
 - The token is permanent per customer; server switching updates active key state.
 - Display label format is `#BrandName-FullName`.
-- The "Add to Outline" bridge is backend-hosted at `/open-key`.
+- The Shadowsocks import bridge is backend-hosted at `/open-key`; VLESS uses
+  the panel subscription URL. The live key's `protocol` controls link display.
+- For VLESS, `current_server` identifies the provisioning node, not the node
+  selected by the customer's client. Home does not present it as a connected
+  server; the Servers page shows subscription nodes as included instead.
 
 ## Build And Deploy
 

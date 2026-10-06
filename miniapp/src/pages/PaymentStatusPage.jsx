@@ -5,33 +5,16 @@ import { formatCurrencyMmk } from "../lib/format";
 import { openTelegramNativeLink } from "../lib/telegram";
 import { TAB_KEYS } from "../constants/routes";
 import { useLanguage } from "../i18n/language";
+import { resolvePaymentStatus } from "../lib/paymentStatus";
 
-export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
+export default function PaymentStatusPage({ data, checkoutPlan, paymentResult, onTabChange }) {
   const { language, t } = useLanguage();
-  const subscription = data?.subscription ?? null;
-  const recentRejection = data?.recent_rejection ?? null;
   const brand = data?.config?.brand ?? null;
-
-  // Derive plan info: prefer live subscription data (refreshed after submit),
-  // fall back to the checkoutPlan snapshot carried through navigation.
-  const planName =
-    subscription?.plan_name ?? checkoutPlan?.name ?? t("common.premiumPlan");
-  const priceMmk =
-    checkoutPlan?.price_mmk ?? null;
-  const durationDays =
-    subscription?.duration_days ?? checkoutPlan?.duration_days ?? null;
-
-  // "approved" vs "pending_review" — handle both gracefully.
-  const reviewStatus = subscription?.review_status || null;
-  const orderStatus = subscription?.status || null;
-  const isRejected = reviewStatus === "rejected" || (!subscription && Boolean(recentRejection));
-  const isStopped = ["stopped", "expired"].includes(orderStatus);
-  const isPending = !isRejected && !isStopped && reviewStatus === "pending_review";
-  const isApproved =
-    !isRejected &&
-    !isStopped &&
-    orderStatus === "active" &&
-    ["confirmed", "approved"].includes(reviewStatus);
+  const {
+    isQueued, isRejected, isStopped, isPending, isApproved, isQueuedConfirmed,
+    orderStatus, planName: submittedPlanName, priceMmk, durationDays,
+  } = resolvePaymentStatus(data, checkoutPlan, paymentResult);
+  const planName = submittedPlanName ?? t("common.premiumPlan");
   const tone = isRejected || isStopped ? "destructive" : isPending ? "warning" : "success";
   const title = isRejected
     ? t("payment.rejected.title")
@@ -39,6 +22,8 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
       ? t("payment.stopped")
       : isPending
         ? t("payment.pending.title")
+        : isQueuedConfirmed
+          ? t("payment.queuedNoticeTitle")
         : isApproved
           ? t("payment.approved.title")
           : t("payment.statusTitle");
@@ -47,7 +32,9 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
     : isStopped
       ? t("payment.stopped.description")
       : isPending
-        ? t("payment.pending.description")
+        ? isQueued ? t("payment.queuedPendingDescription") : t("payment.pending.description")
+        : isQueuedConfirmed
+          ? t("payment.queuedNoticeDesc")
         : isApproved
           ? t("payment.approved.description")
           : t("payment.noActiveOrder");
@@ -57,6 +44,8 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
       ? orderStatus === "expired" ? t("payment.expired") : t("payment.stopped")
       : isPending
         ? t("payment.pending")
+        : isQueuedConfirmed
+          ? t("settings.queuedBadge")
         : isApproved
           ? t("payment.confirmed")
           : t("payment.noActiveOrder");
@@ -152,7 +141,7 @@ export default function PaymentStatusPage({ data, checkoutPlan, onTabChange }) {
           )}
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
             {isPending
-              ? t("payment.pending.note")
+              ? isQueued ? t("payment.queuedPendingNote") : t("payment.pending.note")
               : t("payment.renewNote")}
           </p>
         </div>

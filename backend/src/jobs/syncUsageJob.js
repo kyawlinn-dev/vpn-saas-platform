@@ -176,7 +176,7 @@ async function syncUsage() {
   }
 }
 
-async function reconcileServerActiveKeyCounts() {
+async function auditServerActiveKeyCounts() {
   const { data: servers, error } = await supabase
     .from("vpn_servers")
     .select("id, current_active_keys")
@@ -192,8 +192,7 @@ async function reconcileServerActiveKeyCounts() {
       .from("vpn_keys")
       .select("id", { count: "exact", head: true })
       .eq("server_id", server.id)
-      .eq("status", "active")
-      .is("deleted_at", null);
+      .in("status", ["active", "pending"]);
 
     if (countError) {
       log.warn({ err: countError, server_id: server.id }, "failed to count active keys");
@@ -204,20 +203,10 @@ async function reconcileServerActiveKeyCounts() {
     const current = Number(server.current_active_keys || 0);
     if (expected === current) continue;
 
-    const { data: updatedServers, error: updateError } = await supabase
-      .from("vpn_servers")
-      .update({ current_active_keys: expected, updated_at: new Date().toISOString() })
-      .eq("id", server.id)
-      .eq("current_active_keys", current)
-      .select("id");
-
-    if (updateError) {
-      log.warn({ err: updateError, server_id: server.id }, "failed to reconcile server");
-    } else if (updatedServers?.length) {
-      log.info({ server_id: server.id, from: current, to: expected }, "reconciled server counter");
-    } else {
-      log.debug({ server_id: server.id }, "skipped stale counter update");
-    }
+    log.error(
+      { server_id: server.id, reported: current, actual: expected },
+      "server counter drift detected"
+    );
   }
 }
 
@@ -226,7 +215,7 @@ async function runSyncUsage() {
   await markJobStarted("usage_sync");
   try {
     await syncUsage();
-    await reconcileServerActiveKeyCounts();
+    await auditServerActiveKeyCounts();
     await warnOrdersNearDataLimit();
     await stopOrdersOverDataLimit();
     await markJobSuccess("usage_sync");

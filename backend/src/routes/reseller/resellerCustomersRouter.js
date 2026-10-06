@@ -317,7 +317,7 @@ router.post("/:customerId/switch-protocol", async (req, res) => {
     const { data: order, error: orderErr } = await supabase
       .from("vpn_orders")
       .select(`
-        id, customer_id, reseller_id, plan_id, status, order_type,
+        id, customer_id, reseller_id, plan_id, status, order_type, expiry_date,
         customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name),
         plan:vpn_plans(id, name, data_limit_gb, is_trial)
       `)
@@ -379,6 +379,9 @@ router.post("/:customerId/switch-protocol", async (req, res) => {
     return res.json({ ok: true, protocol, reprovisioned: true });
   } catch (err) {
     console.error("POST /api/reseller/customers/:customerId/switch-protocol error:", err);
+    if (err.code === "PROTOCOL_REQUIRES_MARZNESHIN") {
+      return res.status(409).json({ error: err.code, message: err.message });
+    }
     return res.status(500).json({ error: "Failed to switch protocol" });
   }
 });

@@ -2,18 +2,25 @@ import QRCode from "qrcode";
 import { Markup } from "telegraf";
 import {
   BTN,
+  LEGACY_BTN,
   BTN_TRIAL,
   BTN_BUY,
   startWelcome,
   START_CTA_TEXT,
+  MENU_MY_VPN,
+  MENU_HELP,
+  MENU_BACK,
+  MENU_HOME,
+  MENU_MY_VPN_TEXT,
+  MENU_HELP_TEXT,
   START_BTN_ADMIN,
   START_BTN_TRIAL_KEY,
-  START_BTN_GET_KEY,
   START_BTN_BUY_PACKAGE,
   START_CB_GET_KEY,
   START_CB_GET_TRIAL,
   APP_BTN_OPEN,
-  appOpenText,
+  APP_UNAVAILABLE,
+  COMMAND_START_REQUIRED,
   keyFoundHeader,
   keyServerLine,
   KEY_COPY_INSTRUCTIONS,
@@ -23,8 +30,8 @@ import {
   KEY_ERROR,
   BALANCE_TEXT,
   balanceText,
+  balanceQueuedOnlyText,
   BALANCE_BTN_OPEN,
-  SERVER_BTN_OPEN,
   SERVER_NO_ACCOUNT,
   SERVER_NO_ACTIVE,
   SERVER_VLESS_EXPLAIN,
@@ -47,6 +54,10 @@ import {
   howToUse,
   howToUseSS,
   howToUseVless,
+  HOWTO_BTN_SS,
+  HOWTO_BTN_VLESS,
+  HOWTO_CB,
+  howtoQueuedNotice,
   TRIAL_SELECT_PROTOCOL,
   TRIAL_PROCESSING,
   TRIAL_ALREADY_USED,
@@ -59,7 +70,9 @@ import {
   BUY_NO_PLANS,
   buyPaymentInstructions,
   BUY_PROCESSING,
+  BUY_ALREADY_QUEUED,
   BUY_ALREADY_ACTIVE,
+  buyExtendSuccessText,
   BUY_CANCELLED,
   BUY_ERROR,
   BUY_NO_SESSION,
@@ -71,6 +84,7 @@ import {
   CUSTOMER_PAYMENT_CONFIRMED,
   CUSTOMER_PAYMENT_REJECTED,
 } from "./strings.js";
+import { setCommandsMenu } from "./commandMenu.js";
 import {
   resolveCustomerByTelegram,
   getBestActiveOrder,
@@ -103,6 +117,8 @@ import {
   createBotPurchaseOrder,
   setCustomerProtocolPreference,
   getOrderCustomerTelegramId,
+  getCustomerOrderPurchaseState,
+  getCustomerQueuedOrder,
 } from "./botPurchaseService.js";
 import { confirmPayment, rejectPayment } from "../services/orderLifecycleService.js";
 
@@ -192,40 +208,111 @@ export function setupHandlers(bot, {
   let adminTelegramUserId = _adminTelegramUserId;
   const homeUrl = buildWebAppUrl(miniappBaseUrl, miniappSlug);
 
-  // ── Persistent reply keyboard ────────────────────────────────────────────────
-  // Sent on /start and persists in the user's chat. Layout: 2-2-1.
-  //
-  // is_persistent: true (Bot API 6.0+) — Telegram treats the keyboard as
-  // permanent. When the user taps the collapse icon it only hides for that
-  // session; on the next chat re-open the keyboard reappears automatically.
-  // Without this flag, a user who dismisses the keyboard never sees it again
-  // unless we send another reply_markup — which is exactly what the user
-  // reported ("5 buttons missing on chat re-open").
+  const homeButton = () => Markup.button.callback(MENU_HOME, "menu:home");
+  const backButton = (target) => Markup.button.callback(MENU_BACK, target);
 
-  function mainKeyboard() {
-    const markup = Markup.keyboard([
-      [BTN_TRIAL,  BTN_BUY     ],
-      [BTN.KEY,    BTN.BALANCE  ],
-      [BTN.SERVER, BTN.DOWNLOAD ],
-      [BTN.HOWTO                ],
-    ]).resize();
-    markup.reply_markup.is_persistent = true;
-    return markup;
+  async function repairChatMenu(ctx) {
+    if (ctx.chat?.type !== "private") return;
+    try {
+      await setCommandsMenu(ctx.telegram, ctx.chat.id);
+    } catch (err) {
+      console.warn(`[bot:${resellerId}] command menu repair warning:`, err.message);
+    }
+  }
+
+  async function runCommand(ctx, action, requiresCustomer = false) {
+    if (ctx.chat?.type !== "private") return;
+    await repairChatMenu(ctx);
+    try {
+      if (requiresCustomer) {
+        const customer = await resolveCustomerByTelegram(ctx.from?.id, resellerId);
+        if (!customer?.customerId) {
+          await ctx.replyWithHTML(COMMAND_START_REQUIRED);
+          return;
+        }
+      }
+      await action();
+    } catch (err) {
+      console.error(`[bot:${resellerId}] command error:`, err.message);
+      await ctx.replyWithHTML("⚠️ ယခု ဆောင်ရွက်၍ မရသေးပါ။ ခဏအကြာတွင် ထပ်မံကြိုးစားပါ။").catch(() => {});
+    }
+  }
+
+  async function showMenuMessage(ctx, text, keyboard, edit = false) {
+    if (edit) {
+      const updated = await ctx.editMessageText(text, {
+        parse_mode: "HTML",
+        reply_markup: keyboard.reply_markup,
+      }).then(() => true).catch((err) => err?.description?.includes("message is not modified") || false);
+      if (updated) return;
+    }
+    await ctx.replyWithHTML(text, keyboard);
+  }
+
+  async function showMainMenu(ctx, edit = false, trialUsed = null, messageText = START_CTA_TEXT) {
+    const telegramUserId = ctx.from?.id;
+    if (!telegramUserId) return;
+    const customer = await resolveCustomerByTelegram(telegramUserId, resellerId);
+    const [activeOrder, queuedOrder, trialInfo] = customer?.customerId
+      ? await Promise.all([
+          getBestActiveOrder(customer.customerId, resellerId),
+          getCustomerQueuedOrder(customer.customerId, resellerId).catch(() => null),
+          trialUsed === null ? getCustomerTrialInfo(telegramUserId, resellerId) : null,
+        ])
+      : [null, null, null];
+    const canTrial = trialEnabled && !(trialUsed ?? trialInfo?.trial_used_at);
+    let primary;
+    if (activeOrder) primary = Markup.button.callback(MENU_MY_VPN, "menu:vpn");
+    else if (queuedOrder) primary = Markup.button.callback(BTN.BALANCE, "menu:balance");
+    else if (canTrial) primary = Markup.button.callback(START_BTN_TRIAL_KEY, START_CB_GET_TRIAL);
+    else primary = Markup.button.callback(START_BTN_BUY_PACKAGE, "menu:buy");
+    const rows = [[primary]];
+    if ((activeOrder || canTrial) && !queuedOrder) {
+      rows.push([Markup.button.callback(START_BTN_BUY_PACKAGE, "menu:buy")]);
+    }
+    rows.push([Markup.button.callback(MENU_HELP, "menu:help")]);
+    if (homeUrl) rows.push([miniAppButton(APP_BTN_OPEN, homeUrl)]);
+    await showMenuMessage(ctx, messageText, Markup.inlineKeyboard(rows), edit);
+  }
+
+  function myVpnKeyboard(hasQueuedOrder) {
+    const rows = [
+      [Markup.button.callback(BTN.KEY, "menu:key")],
+      [Markup.button.callback(BTN.BALANCE, "menu:balance")],
+      [Markup.button.callback(BTN.SERVER, "menu:server")],
+      [Markup.button.callback(BTN.DOWNLOAD, "menu:download")],
+      [Markup.button.callback(BTN.HOWTO, "menu:howto")],
+    ];
+    if (!hasQueuedOrder) rows.push([Markup.button.callback(START_BTN_BUY_PACKAGE, "menu:buy")]);
+    rows.push([homeButton()]);
+    return Markup.inlineKeyboard(rows);
+  }
+
+  function helpKeyboard() {
+    const rows = [
+      [Markup.button.callback(BTN.HOWTO, "menu:howto")],
+      [Markup.button.callback(BTN.DOWNLOAD, "menu:download")],
+    ];
+    if (supportUsername) rows.push([Markup.button.url(START_BTN_ADMIN, `https://t.me/${supportUsername}`)]);
+    rows.push([homeButton()]);
+    return Markup.inlineKeyboard(rows);
+  }
+
+  function purchaseKeyboard() {
+    return Markup.inlineKeyboard([
+      [Markup.button.callback(START_BTN_BUY_PACKAGE, "menu:buy")],
+      [homeButton()],
+    ]);
   }
 
   // ── /start ───────────────────────────────────────────────────────────────────
-  // FIX A: upsert customer + telegram_links, then call the shared trialService
-  // to create a trial order and immediately provision a key on the default server.
-  // Idempotent — safe to call on every /start (existing users are no-ops).
+  // Upsert customer + telegram_links; trial provisioning happens only after
+  // the customer confirms an app choice.
   //
-  // Two messages: (1) branded Burmese welcome + persistent reply keyboard,
-  // (2) inline CTA buttons — Telegram only allows one reply_markup type per message.
+  // Remove the old persistent keyboard, then show the inline navigation.
   //
-  // Also FORCES this chat's menu button to our web_app URL. setChatMenuButton
-  // without chat_id sets the DEFAULT for new chats only; existing chats keep
-  // whatever they had at first open. Calling it here with chat_id repairs any
-  // chat where Telegram reverted to "Menu" (ngrok tunnel drift, older
-  // deployments, etc).
+  // Existing chats may retain the old per-chat WebApp menu button. /start and
+  // each command repair that chat gradually without a bulk Telegram API pass.
 
   bot.start(async (ctx) => {
     try {
@@ -238,69 +325,59 @@ export function setupHandlers(bot, {
         `Telegram User ${telegramUserId}`;
 
       // 1. Upsert vpn_customers + telegram_links (no-op for returning users)
-      const { customerId, trial_used_at } =
+      const { trial_used_at } =
         await ensureCustomerAndLink(telegramUserId, telegramUsername, fullName, resellerId);
 
-      // 2. Force-set the per-chat menu button so it always shows our brand +
-      //    web_app, even for chats that opened before the default was set.
-      //    Non-fatal — bot still works if this fails (e.g. Telegram rate limit).
-      if (homeUrl) {
-        try {
-          await ctx.telegram.setChatMenuButton({
-            chat_id: ctx.chat.id,
-            menu_button: {
-              type: "web_app",
-              text: "Open VPN",
-              web_app: { url: homeUrl },
-            },
-          });
-        } catch (menuErr) {
-          console.warn(`[bot:${resellerId}] setChatMenuButton warning:`, menuErr.message);
-        }
-      }
+      await repairChatMenu(ctx);
 
-      // 4. Welcome + persistent keyboard
-      await ctx.replyWithHTML(startWelcome(brandName), mainKeyboard());
-
-      // 5. CTA inline buttons (second message)
-      // New users (no trial yet) → point them to try the trial first.
-      // Returning users (trial already used) → show "Get VPN Key".
-      const hasUsedTrial = Boolean(trial_used_at);
-      const ctaButtons = [
-        [Markup.button.callback(
-          hasUsedTrial ? START_BTN_GET_KEY : START_BTN_TRIAL_KEY,
-          hasUsedTrial ? START_CB_GET_KEY  : START_CB_GET_TRIAL,
-        )],
-      ];
-      if (homeUrl) {
-        ctaButtons.push([miniAppButton(START_BTN_BUY_PACKAGE, homeUrl)]);
-      }
-      if (supportUsername) {
-        ctaButtons.push([
-          Markup.button.url(START_BTN_ADMIN, `https://t.me/${supportUsername}`),
-        ]);
-      }
-      const markup = Markup.inlineKeyboard(ctaButtons);
-      logInlineButtonPayload(resellerId, "/start", markup);
-      await ctx.reply(START_CTA_TEXT, markup);
+      await ctx.replyWithHTML(startWelcome(brandName), Markup.removeKeyboard());
+      await showMainMenu(ctx, false, trial_used_at);
     } catch (err) {
       console.error(`[bot:${resellerId}] /start error:`, err.message);
     }
   });
 
-  bot.command("app", async (ctx) => {
-    try {
-      if (!homeUrl) {
-        await ctx.reply("Mini App is not configured yet. Please contact support.");
-        return;
-      }
-
-      const markup = Markup.inlineKeyboard([[miniAppButton(APP_BTN_OPEN, homeUrl)]]);
-      logInlineButtonPayload(resellerId, "/app", markup);
-      await ctx.replyWithHTML(appOpenText(brandName), markup);
-    } catch (err) {
-      console.error(`[bot:${resellerId}] /app error:`, err.message);
+  bot.command("app", (ctx) => runCommand(ctx, async () => {
+    if (!homeUrl) {
+      await ctx.replyWithHTML(APP_UNAVAILABLE);
+      return;
     }
+    await ctx.replyWithHTML(
+      "Mini App ကို အောက်ပါခလုတ်မှ ဖွင့်ပါ။",
+      Markup.inlineKeyboard([[miniAppButton(APP_BTN_OPEN, homeUrl)], [homeButton()]]),
+    );
+  }));
+  bot.command("key", (ctx) => runCommand(ctx, () => sendActiveKey(ctx), true));
+  bot.command("balance", (ctx) => runCommand(ctx, () => showBalance(ctx), true));
+  bot.command("buy", (ctx) => runCommand(ctx, () => showBuyMenu(ctx), true));
+  bot.command("help", (ctx) => runCommand(ctx,
+    () => showMenuMessage(ctx, MENU_HELP_TEXT, helpKeyboard())));
+  if (trialEnabled) {
+    bot.command("trial", (ctx) => runCommand(ctx, () => showTrialMenu(ctx), true));
+  }
+
+  bot.action("menu:home", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await showMainMenu(ctx, true).catch((err) => console.error(`[bot:${resellerId}] menu error:`, err.message));
+  });
+
+  bot.action("menu:vpn", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const customer = await resolveCustomerByTelegram(ctx.from?.id, resellerId);
+    const queuedOrder = customer?.customerId
+      ? await getCustomerQueuedOrder(customer.customerId, resellerId).catch(() => null)
+      : null;
+    await showMenuMessage(ctx, MENU_MY_VPN_TEXT, myVpnKeyboard(Boolean(queuedOrder)), true);
+  });
+
+  bot.action("menu:help", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await showMenuMessage(ctx, MENU_HELP_TEXT, helpKeyboard(), true);
+  });
+
+  bot.action("menu:buy", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await showBuyMenu(ctx);
   });
 
   // ── Get Key flow ─────────────────────────────────────────────────────────────
@@ -315,40 +392,38 @@ export function setupHandlers(bot, {
       // 1. Telegram user → customer (reseller-scoped)
       const customer = await resolveCustomerByTelegram(telegramUserId, resellerId);
       if (!customer?.customerId) {
-        await ctx.reply(KEY_NO_ACTIVE);
+        await ctx.replyWithHTML(KEY_NO_ACTIVE, purchaseKeyboard());
         return;
       }
 
       // 2. Best active order for this customer + reseller
       const order = await getBestActiveOrder(customer.customerId, resellerId);
       if (!order) {
-        await ctx.reply(KEY_NO_ACTIVE);
+        await ctx.replyWithHTML(KEY_NO_ACTIVE, purchaseKeyboard());
         return;
       }
 
       // 3. Current active key + server
       const keyRow = await resolveActiveKey(customer.customerId, resellerId, order.id);
       if (!keyRow) {
-        await ctx.reply(KEY_NO_ACTIVE);
+        await ctx.replyWithHTML(KEY_NO_ACTIVE, purchaseKeyboard());
         return;
       }
 
-      const { flag, name: serverName } = resolveServerDisplay(keyRow.vpn_servers);
       const isVless = keyRow.protocol !== "shadowsocks";
 
       if (isVless) {
         // ── VLESS: Marzneshin subscription URL → QR + copyable URL ───────────
         const subUrl = keyRow.access_url;
         if (!subUrl) {
-          await ctx.reply(KEY_NO_ACTIVE);
+          await ctx.replyWithHTML(KEY_NO_ACTIVE, purchaseKeyboard());
           return;
         }
 
         const caption =
           `${keyFoundHeader(customer.fullName || "Customer")}\n\n` +
           `${KEY_COPY_INSTRUCTIONS}\n\n` +
-          `<code>${subUrl}</code>\n\n` +
-          `${keyServerLine(flag, serverName)}`;
+          `<code>${subUrl}</code>`;
 
         const qrBuffer = await QRCode.toBuffer(subUrl, { width: 512, errorCorrectionLevel: "M" });
         await ctx.replyWithPhoto(
@@ -356,11 +431,15 @@ export function setupHandlers(bot, {
           {
             caption,
             parse_mode: "HTML",
-            ...Markup.inlineKeyboard([[Markup.button.callback(KEY_BTN_DOWNLOAD, "key:download")]]),
+            ...Markup.inlineKeyboard([
+              [Markup.button.callback(KEY_BTN_DOWNLOAD, "key:download:vless")],
+              [homeButton()],
+            ]),
           }
         );
       } else {
         // ── Shadowsocks (Outline): ssconf:// URL served by our backend ────────
+        const { flag, name: serverName } = resolveServerDisplay(keyRow.vpn_servers);
         // Ensure the customer has a token; generate one on the fly if needed.
         const ssconfToken =
           customer.ssconfToken ||
@@ -384,7 +463,10 @@ export function setupHandlers(bot, {
 
         await ctx.replyWithHTML(
           text,
-          Markup.inlineKeyboard([[Markup.button.callback(KEY_BTN_DOWNLOAD, "key:download")]])
+          Markup.inlineKeyboard([
+            [Markup.button.callback(KEY_BTN_DOWNLOAD, "key:download:ss")],
+            [homeButton()],
+          ])
         );
       }
     } catch (err) {
@@ -393,7 +475,11 @@ export function setupHandlers(bot, {
     }
   }
 
-  bot.hears(BTN.KEY, sendActiveKey);
+  bot.hears([BTN.KEY, LEGACY_BTN.KEY], sendActiveKey);
+  bot.action("menu:key", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await sendActiveKey(ctx);
+  });
 
   // /start CTA inline button — same key-lookup flow as the reply-keyboard button.
   bot.action(START_CB_GET_KEY, async (ctx) => {
@@ -418,11 +504,24 @@ export function setupHandlers(bot, {
     }
   });
 
-  bot.hears(BTN.BALANCE, async (ctx) => {
+  bot.action("key:download:ss", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await ctx.replyWithHTML(DL_SS_TEXT,
+      dlOsKeyboard(DL_CB.SS_IOS, DL_CB.SS_AND, DL_CB.SS_MAC, DL_CB.SS_WIN));
+  });
+
+  bot.action("key:download:vless", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await ctx.replyWithHTML(DL_VLESS_TEXT,
+      dlOsKeyboard(DL_CB.VL_IOS, DL_CB.VL_AND, DL_CB.VL_MAC, DL_CB.VL_WIN));
+  });
+
+  async function showBalance(ctx) {
     try {
-      const markup = homeUrl
-        ? Markup.inlineKeyboard([[miniAppButton(BALANCE_BTN_OPEN, homeUrl)]])
-        : {};
+      const balanceRows = [];
+      if (homeUrl) balanceRows.push([miniAppButton(BALANCE_BTN_OPEN, homeUrl)]);
+      balanceRows.push([homeButton()]);
+      const markup = Markup.inlineKeyboard(balanceRows);
       logInlineButtonPayload(resellerId, "balance", markup);
 
       // Try to show real usage numbers — falls back to the generic text
@@ -432,27 +531,40 @@ export function setupHandlers(bot, {
       const telegramUserId = ctx.from?.id;
       if (telegramUserId) {
         const customer = await resolveCustomerByTelegram(telegramUserId, resellerId);
-        const order = customer?.customerId
-          ? await getBestActiveOrder(customer.customerId, resellerId)
-          : null;
-        if (order) {
-          const quota = await getOrderQuotaSnapshot(order.id);
-          text = balanceText({
-            usedGb: bytesToGb(quota.totalUsedBytes),
-            remainingGb:
-              typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
-            isUnlimited: quota.isUnlimited,
-            expiryDate: order.expiry_date,
-            formatBurmeseDate,
-          });
+        if (customer?.customerId) {
+          const [order, queuedPlan] = await Promise.all([
+            getBestActiveOrder(customer.customerId, resellerId),
+            getCustomerQueuedOrder(customer.customerId, resellerId),
+          ]);
+
+          if (order) {
+            const quota = await getOrderQuotaSnapshot(order.id);
+            text = balanceText({
+              usedGb: bytesToGb(quota.totalUsedBytes),
+              remainingGb:
+                typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
+              isUnlimited: quota.isUnlimited,
+              expiryDate: order.expiry_date,
+              formatBurmeseDate,
+              queuedPlan,
+            });
+          } else if (queuedPlan) {
+            text = balanceQueuedOnlyText({ queuedPlan });
+          }
         }
       }
 
       await ctx.replyWithHTML(text, markup);
     } catch (err) {
       console.error(`[bot:${resellerId}] BALANCE handler error:`, err.message);
-      await ctx.replyWithHTML(BALANCE_TEXT, homeUrl ? Markup.inlineKeyboard([[miniAppButton(BALANCE_BTN_OPEN, homeUrl)]]) : {}).catch(() => {});
+      await ctx.replyWithHTML(BALANCE_TEXT, Markup.inlineKeyboard([[homeButton()]])).catch(() => {});
     }
+  }
+
+  bot.hears([BTN.BALANCE, LEGACY_BTN.BALANCE], showBalance);
+  bot.action("menu:balance", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await showBalance(ctx);
   });
 
   // ── 🌐 Server ပြောင်းရန် ────────────────────────────────────────────────────
@@ -466,20 +578,20 @@ export function setupHandlers(bot, {
   // Callback srv:sel:{uuid} handles the actual switch.
   // Callback srv:cancel dismisses the picker.
 
-  bot.hears(BTN.SERVER, async (ctx) => {
+  async function showServerMenu(ctx) {
     try {
       const tgId = ctx.from.id;
 
       // ── 1. Resolve customer ────────────────────────────────────────────────
       const customer = await resolveCustomerByTelegram(tgId, resellerId);
       if (!customer) {
-        return ctx.replyWithHTML(SERVER_NO_ACCOUNT);
+        return ctx.replyWithHTML(SERVER_NO_ACCOUNT, Markup.inlineKeyboard([[homeButton()]]));
       }
 
       // ── 2. Resolve active order ────────────────────────────────────────────
       const order = await getBestActiveOrder(customer.customerId, resellerId);
       if (!order) {
-        return ctx.replyWithHTML(SERVER_NO_ACTIVE);
+        return ctx.replyWithHTML(SERVER_NO_ACTIVE, purchaseKeyboard());
       }
 
       // ── 3. Protocol check — resolve from active key, fall back to preference
@@ -523,7 +635,7 @@ export function setupHandlers(bot, {
         return [Markup.button.callback(label, `srv:sel:${srv.id}`)];
       });
 
-      buttons.push([Markup.button.callback("❌ ပယ်ဖျက်မည်", "srv:cancel")]);
+      buttons.push([backButton("menu:vpn"), homeButton()]);
 
       const markup = Markup.inlineKeyboard(buttons);
       await ctx.replyWithHTML(serverChooseText(isTrial), markup);
@@ -531,6 +643,12 @@ export function setupHandlers(bot, {
       console.error(`[bot:${resellerId}] SERVER handler error:`, err.message);
       await ctx.replyWithHTML(SERVER_SWITCH_ERROR).catch(() => {});
     }
+  }
+
+  bot.hears([BTN.SERVER, LEGACY_BTN.SERVER], showServerMenu);
+  bot.action("menu:server", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await showServerMenu(ctx);
   });
 
   // ── Callback: server selected from picker ──────────────────────────────────
@@ -622,8 +740,9 @@ export function setupHandlers(bot, {
 
       await ctx.editMessageText(serverSwitchSuccess(flag, city), {
         parse_mode: "HTML",
+        reply_markup: Markup.inlineKeyboard([[homeButton()]]).reply_markup,
       }).catch(() =>
-        ctx.replyWithHTML(serverSwitchSuccess(flag, city))
+        ctx.replyWithHTML(serverSwitchSuccess(flag, city), Markup.inlineKeyboard([[homeButton()]]))
       );
 
       console.info(
@@ -657,6 +776,7 @@ export function setupHandlers(bot, {
         Markup.button.callback(DL_PROTO_BTNS.SS,    DL_CB.SS),
         Markup.button.callback(DL_PROTO_BTNS.VLESS, DL_CB.VLESS),
       ],
+      [backButton("menu:help"), homeButton()],
     ]);
   }
 
@@ -667,7 +787,7 @@ export function setupHandlers(bot, {
        Markup.button.callback(DL_OS_BTNS.ANDROID, android)],
       [Markup.button.callback(DL_OS_BTNS.MACOS,   macos  ),
        Markup.button.callback(DL_OS_BTNS.WINDOWS, windows)],
-      [Markup.button.callback(DL_OS_BTNS.BACK, DL_CB.PROTO)],
+      [Markup.button.callback(DL_OS_BTNS.BACK, DL_CB.PROTO), homeButton()],
     ]);
   }
 
@@ -676,7 +796,7 @@ export function setupHandlers(bot, {
     const appBtns = platform.apps.map(a => Markup.button.url(a.label, a.url));
     const rows = [];
     for (let i = 0; i < appBtns.length; i += 2) rows.push(appBtns.slice(i, i + 2));
-    rows.push([Markup.button.callback(DL_OS_BTNS.BACK, backCb)]);
+    rows.push([Markup.button.callback(DL_OS_BTNS.BACK, backCb), homeButton()]);
     return Markup.inlineKeyboard(rows);
   }
 
@@ -685,12 +805,18 @@ export function setupHandlers(bot, {
   }
 
   // Entry point
-  bot.hears(BTN.DOWNLOAD, async (ctx) => {
+  async function showDownloadMenu(ctx) {
     try {
       await ctx.replyWithHTML(DOWNLOAD_PICKER_TEXT, dlProtoKeyboard());
     } catch (err) {
       console.error(`[bot:${resellerId}] DOWNLOAD handler error:`, err.message);
     }
+  }
+
+  bot.hears([BTN.DOWNLOAD, LEGACY_BTN.DOWNLOAD], showDownloadMenu);
+  bot.action("menu:download", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await showDownloadMenu(ctx);
   });
 
   // Level 1 → Level 1 (back from any OS picker)
@@ -743,43 +869,112 @@ export function setupHandlers(bot, {
     });
   }
 
-  // ── How to Use ───────────────────────────────────────────────────────────────
-  // Shows protocol-specific instructions if the customer's preference is known;
-  // falls back to the full two-section guide for unregistered users.
+  function buildHowtoKeyboard(currentProtocol) {
+    const buttons = [];
+    if (currentProtocol === "vless") {
+      buttons.push([Markup.button.callback(HOWTO_BTN_SS, HOWTO_CB.SS)]);
+    } else if (currentProtocol === "shadowsocks") {
+      buttons.push([Markup.button.callback(HOWTO_BTN_VLESS, HOWTO_CB.VLESS)]);
+    } else {
+      buttons.push([
+        Markup.button.callback(HOWTO_BTN_SS, HOWTO_CB.SS),
+        Markup.button.callback(HOWTO_BTN_VLESS, HOWTO_CB.VLESS),
+      ]);
+    }
+    if (supportUsername) {
+      buttons.push([Markup.button.url(START_BTN_ADMIN, `https://t.me/${supportUsername}`)]);
+    }
+    buttons.push([backButton("menu:help"), homeButton()]);
+    return Markup.inlineKeyboard(buttons);
+  }
 
-  bot.hears(BTN.HOWTO, async (ctx) => {
+  // ── How to Use ───────────────────────────────────────────────────────────────
+  // Shows protocol-specific instructions prioritized by the customer's active key;
+  // notes any queued plan protocol if different, and provides buttons to view both.
+
+  async function showHowto(ctx) {
     try {
       const telegramUserId = ctx.from?.id;
       let text = howToUse(); // default: combined guide (both protocols)
+      let currentProtocol = null;
 
       if (telegramUserId) {
         const customer = await resolveCustomerByTelegram(telegramUserId, resellerId)
           .catch(() => null);
 
         if (customer?.customerId) {
-          // Only show a protocol-specific guide once the customer has an active key.
-          // Before their first trial they haven't chosen a protocol yet, so always
-          // show the combined guide so they can read about both.
-          const order = await getBestActiveOrder(customer.customerId, resellerId)
-            .catch(() => null);
+          const [order, queuedOrder] = await Promise.all([
+            getBestActiveOrder(customer.customerId, resellerId).catch(() => null),
+            getCustomerQueuedOrder(customer.customerId, resellerId).catch(() => null),
+          ]);
 
           if (order) {
-            if (customer.protocolPreference === "shadowsocks") {
-              text = howToUseSS();
-            } else if (customer.protocolPreference === "vless") {
+            const activeKey = await resolveActiveKey(customer.customerId, resellerId, order.id)
+              .catch(() => null);
+            currentProtocol = activeKey?.protocol || "shadowsocks";
+
+            let queuedNotice = "";
+            if (queuedOrder) {
+              const queuedProtocol = customer.protocolPreference || "shadowsocks";
+              if (queuedProtocol !== currentProtocol) {
+                queuedNotice = howtoQueuedNotice(queuedProtocol);
+              }
+            }
+
+            if (currentProtocol === "vless") {
+              text = howToUseVless(queuedNotice);
+            } else {
+              text = howToUseSS(queuedNotice);
+            }
+          } else if (queuedOrder) {
+            currentProtocol = customer.protocolPreference || "shadowsocks";
+            if (currentProtocol === "vless") {
               text = howToUseVless();
+            } else {
+              text = howToUseSS();
             }
           }
         }
       }
 
-      const howtoMarkup = supportUsername
-        ? Markup.inlineKeyboard([[Markup.button.url(START_BTN_ADMIN, `https://t.me/${supportUsername}`)]])
-        : undefined;
-      await ctx.replyWithHTML(text, howtoMarkup);
+      await ctx.replyWithHTML(text, buildHowtoKeyboard(currentProtocol));
     } catch (err) {
       console.error(`[bot:${resellerId}] HOWTO handler error:`, err.message);
-      await ctx.replyWithHTML(howToUse()).catch(() => {});
+      await ctx.replyWithHTML(howToUse(), buildHowtoKeyboard(null)).catch(() => {});
+    }
+  }
+
+  bot.hears([BTN.HOWTO, LEGACY_BTN.HOWTO], showHowto);
+  bot.action("menu:howto", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await showHowto(ctx);
+  });
+
+  bot.action(HOWTO_CB.SS, async (ctx) => {
+    try {
+      await ctx.answerCbQuery().catch(() => {});
+      await ctx.editMessageText(howToUseSS(), {
+        parse_mode: "HTML",
+        reply_markup: buildHowtoKeyboard("shadowsocks").reply_markup,
+      }).catch(async () => {
+        await ctx.replyWithHTML(howToUseSS(), buildHowtoKeyboard("shadowsocks"));
+      });
+    } catch (err) {
+      console.error(`[bot:${resellerId}] HOWTO action SS error:`, err.message);
+    }
+  });
+
+  bot.action(HOWTO_CB.VLESS, async (ctx) => {
+    try {
+      await ctx.answerCbQuery().catch(() => {});
+      await ctx.editMessageText(howToUseVless(), {
+        parse_mode: "HTML",
+        reply_markup: buildHowtoKeyboard("vless").reply_markup,
+      }).catch(async () => {
+        await ctx.replyWithHTML(howToUseVless(), buildHowtoKeyboard("vless"));
+      });
+    } catch (err) {
+      console.error(`[bot:${resellerId}] HOWTO action VLESS error:`, err.message);
     }
   });
 
@@ -796,15 +991,15 @@ export function setupHandlers(bot, {
     try {
       const trialInfo = await getCustomerTrialInfo(telegramUserId, resellerId);
       if (!trialInfo) {
-        await ctx.replyWithHTML(TRIAL_NO_ACCOUNT);
+        await ctx.replyWithHTML(TRIAL_NO_ACCOUNT, Markup.inlineKeyboard([[homeButton()]]));
         return;
       }
       if (trialInfo.trial_used_at) {
-        await ctx.replyWithHTML(TRIAL_ALREADY_USED);
+        await ctx.replyWithHTML(TRIAL_ALREADY_USED, purchaseKeyboard());
         return;
       }
       if (!trialEnabled) {
-        await ctx.replyWithHTML(TRIAL_ALREADY_USED); // same "not available" message
+        await ctx.replyWithHTML(TRIAL_ALREADY_USED, purchaseKeyboard());
         return;
       }
       await ctx.replyWithHTML(
@@ -812,7 +1007,7 @@ export function setupHandlers(bot, {
         Markup.inlineKeyboard([
           [Markup.button.callback(BUY_PROTO_SS_BTN,    "trial:proto:ss"   )],
           [Markup.button.callback(BUY_PROTO_VLESS_BTN, "trial:proto:vless")],
-          [Markup.button.callback("❌ မလုပ်တော့ပါ",     "trial:cancel"     )],
+          [homeButton()],
         ])
       );
     } catch (err) {
@@ -820,7 +1015,7 @@ export function setupHandlers(bot, {
     }
   }
 
-  bot.hears(BTN_TRIAL, showTrialMenu);
+  bot.hears([BTN_TRIAL, LEGACY_BTN.TRIAL], showTrialMenu);
 
   // Shared handler: create + provision trial for the chosen protocol, then deliver
   async function handleTrialProto(ctx, protocol) {
@@ -892,8 +1087,29 @@ export function setupHandlers(bot, {
     }
   }
 
-  bot.action("trial:proto:ss",    (ctx) => handleTrialProto(ctx, "shadowsocks"));
-  bot.action("trial:proto:vless", (ctx) => handleTrialProto(ctx, "vless"));
+  async function confirmTrialChoice(ctx, protocol) {
+    await ctx.answerCbQuery().catch(() => {});
+    const app = protocol === "shadowsocks" ? "Outline" : "Hiddify / Happ / V2Box";
+    await showMenuMessage(
+      ctx,
+      `🎁 <b>${app}</b> ဖြင့် အခမဲ့ စမ်းသုံးရန် သေချာပါသလား?\n\nအစမ်းသုံးခွင့်ကို တစ်ကြိမ်သာ ရယူနိုင်ပါသည်။`,
+      Markup.inlineKeyboard([
+        [Markup.button.callback("✅ အခမဲ့ စမ်းသုံးမည်", `trial:confirm:${protocol}`)],
+        [backButton("trial:back"), homeButton()],
+      ]),
+      true,
+    );
+  }
+
+  bot.action("trial:proto:ss",    (ctx) => confirmTrialChoice(ctx, "shadowsocks"));
+  bot.action("trial:proto:vless", (ctx) => confirmTrialChoice(ctx, "vless"));
+  bot.action("trial:confirm:shadowsocks", (ctx) => handleTrialProto(ctx, "shadowsocks"));
+  bot.action("trial:confirm:vless", (ctx) => handleTrialProto(ctx, "vless"));
+  bot.action("trial:back", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+    await showTrialMenu(ctx);
+  });
 
   bot.action("trial:cancel", async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
@@ -909,25 +1125,45 @@ export function setupHandlers(bot, {
 
   // Step 1: show protocol picker
   async function showBuyMenu(ctx) {
+    const telegramUserId = ctx.from?.id;
+    if (!telegramUserId) return;
     try {
+      const customer = await resolveCustomerByTelegram(telegramUserId, resellerId).catch(() => null);
+      if (customer?.customerId) {
+        const { canBuy, isExtend, activeOrder } = await getCustomerOrderPurchaseState(customer.customerId, resellerId);
+        if (!canBuy) {
+          await ctx.replyWithHTML(BUY_ALREADY_QUEUED, Markup.inlineKeyboard([[homeButton()]]));
+          return;
+        }
+
+        // If customer has an active purchase (extension), lock to their active protocol!
+        if (isExtend && activeOrder) {
+          const activeKey = await resolveActiveKey(customer.customerId, resellerId, activeOrder.id).catch(() => null);
+          const currentProtocol = activeKey?.protocol || customer.protocolPreference || "shadowsocks";
+          await setSession(resellerId, telegramUserId, { step: "selecting_plan", protocol: currentProtocol });
+          await showPlanList(ctx, true);
+          return;
+        }
+      }
+
       await ctx.replyWithHTML(
         BUY_SELECT_PROTOCOL,
         Markup.inlineKeyboard([
           [Markup.button.callback(BUY_PROTO_SS_BTN,    "buy:proto:ss")],
           [Markup.button.callback(BUY_PROTO_VLESS_BTN, "buy:proto:vless")],
-          [Markup.button.callback("❌ မဝယ်တော့ပါ",      "buy:cancel")],
+          [homeButton()],
         ])
       );
     } catch (err) {
       console.error(`[bot:${resellerId}] BUY menu error:`, err.message);
+      await ctx.replyWithHTML(BUY_ERROR).catch(() => {});
     }
   }
 
-  bot.hears(BTN_BUY, showBuyMenu);
-  bot.command("buy", showBuyMenu);
+  bot.hears([BTN_BUY, LEGACY_BTN.BUY], showBuyMenu);
 
   // Step 1b: helper — render plan list after protocol is chosen
-  async function showPlanList(ctx) {
+  async function showPlanList(ctx, isExtend = false) {
     try {
       const plans = await getPurchasablePlans();
       if (!plans.length) {
@@ -941,13 +1177,22 @@ export function setupHandlers(bot, {
           `buy:plan:${plan.id}`
         ),
       ]);
-      buttons.push([Markup.button.callback("❌ မဝယ်တော့ပါ", "buy:cancel")]);
+      buttons.push([
+        backButton(isExtend ? "menu:home" : "buy:back:app"),
+        Markup.button.callback("မဝယ်တော့ပါ", "buy:cancel"),
+      ]);
       await ctx.replyWithHTML(BUY_SELECT_PLAN, Markup.inlineKeyboard(buttons));
     } catch (err) {
       console.error(`[bot:${resellerId}] showPlanList error:`, err.message);
       await ctx.replyWithHTML(BUY_ERROR).catch(() => {});
     }
   }
+
+  bot.action("buy:back:app", async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+    await showBuyMenu(ctx);
+  });
 
   // Step 2a: customer picks Shadowsocks
   bot.action("buy:proto:ss", async (ctx) => {
@@ -998,7 +1243,11 @@ export function setupHandlers(bot, {
       });
       // Collapse the plan-list keyboard
       await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-      await ctx.replyWithHTML(buyPaymentInstructions(plan, paymentMethods));
+      await ctx.replyWithHTML(buyPaymentInstructions(plan, paymentMethods),
+        Markup.inlineKeyboard([
+          [Markup.button.callback("မဝယ်တော့ပါ", "buy:cancel")],
+          [homeButton()],
+        ]));
     } catch (err) {
       console.error(`[bot:${resellerId}] buy:plan callback error:`, err.message);
       await ctx.replyWithHTML(BUY_ERROR).catch(() => {});
@@ -1011,7 +1260,9 @@ export function setupHandlers(bot, {
     const telegramUserId = ctx.from?.id;
     if (telegramUserId) await clearSession(resellerId, telegramUserId).catch(() => {});
     await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-    await ctx.replyWithHTML(BUY_CANCELLED).catch(() => {});
+    await showMainMenu(ctx, false, null, BUY_CANCELLED).catch(() =>
+      ctx.replyWithHTML(BUY_CANCELLED, Markup.inlineKeyboard([[homeButton()]])).catch(() => {})
+    );
   });
 
   // Step 3: customer sends the payment screenshot
@@ -1043,9 +1294,9 @@ export function setupHandlers(bot, {
         await setCustomerProtocolPreference(customer.customerId, session.protocol);
       }
 
-      // Upload screenshot + create order + provision key (instant-access)
+      // Upload screenshot + create order
       const screenshotPath = await uploadScreenshot(bot, fileId, resellerId);
-      const { order, plan } = await createBotPurchaseOrder({
+      const { order, isQueued, plan } = await createBotPurchaseOrder({
         resellerId,
         customerId: customer.customerId,
         planId: session.planId,
@@ -1055,8 +1306,14 @@ export function setupHandlers(bot, {
       // Clear session — order is now created regardless of subsequent errors
       await clearSession(resellerId, telegramUserId).catch(() => {});
 
-      // Send the active key to the customer (reuses the full lookup chain)
-      await sendActiveKey(ctx);
+      if (isQueued) {
+        await ctx.replyWithHTML(
+          buyExtendSuccessText(plan.name, plan.duration_days, plan.data_limit_gb)
+        );
+      } else {
+        // Send the active key to the customer (reuses the full lookup chain)
+        await sendActiveKey(ctx);
+      }
 
       // Notify reseller with the screenshot + Confirm/Reject buttons (non-fatal)
       if (adminTelegramUserId) {
@@ -1068,6 +1325,7 @@ export function setupHandlers(bot, {
             durationDays: plan.duration_days,
             dataLimitGb: plan.data_limit_gb,
             orderId: order.id,
+            isExtend: isQueued,
           });
           await bot.telegram.sendPhoto(String(adminTelegramUserId), fileId, {
             caption,
@@ -1086,7 +1344,9 @@ export function setupHandlers(bot, {
     } catch (err) {
       console.error(`[bot:${resellerId}] photo handler error:`, err.message);
       await clearSession(resellerId, telegramUserId).catch(() => {});
-      if (err.code === "CUSTOMER_ALREADY_ACTIVE") {
+      if (err.code === "CUSTOMER_ALREADY_QUEUED") {
+        await ctx.replyWithHTML(BUY_ALREADY_QUEUED).catch(() => {});
+      } else if (err.code === "CUSTOMER_ALREADY_ACTIVE") {
         await ctx.replyWithHTML(BUY_ALREADY_ACTIVE).catch(() => {});
       } else {
         await ctx.replyWithHTML(BUY_ERROR).catch(() => {});

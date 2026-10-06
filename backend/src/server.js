@@ -22,6 +22,7 @@ import { startCleanupScreenshotsJob } from "./jobs/cleanupScreenshotsJob.js";
 import { startCleanupAppEventsJob } from "./jobs/cleanupAppEventsJob.js";
 import { startCustomerNotificationsJob } from "./jobs/customerNotificationsJob.js";
 import { validateEncryptionKey } from "./lib/tokenEncryption.js";
+import { isBackendRoute } from "./lib/devMiniappProxyRoutes.js";
 
 import resellerSessionRouter from "./routes/auth/resellerSessionRouter.js";
 import adminSessionRouter from "./routes/admin/adminSessionRouter.js";
@@ -137,14 +138,6 @@ function isAllowedPreviewOrigin(origin) {
 
 function isAllowedOrigin(origin) {
   return getAllowedOrigins().includes(origin) || isAllowedPreviewOrigin(origin);
-}
-
-function isBackendRoute(pathname) {
-  return (
-    pathname.startsWith("/api") ||
-    pathname.startsWith("/k") ||
-    pathname === "/open-key"
-  );
 }
 
 function createDevMiniappProxy() {

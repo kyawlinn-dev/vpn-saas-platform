@@ -22,7 +22,11 @@ Mounted at `/api/miniapp/:slug`.
 | GET | `/:slug/servers` | Active servers and customer access state |
 | POST | `/:slug/servers/:serverId/link` | Link/switch customer server |
 | POST | `/:slug/upload-screenshot` | Private payment screenshot upload |
-| POST | `/:slug/orders` | Create purchase and provision access |
+| POST | `/:slug/orders` | Create immediate purchase or queue one future package |
+
+`POST /:slug/auth` includes `queued_subscription` when a future package exists.
+Checkout accepts `protocol_preference`; a queued purchase retains the live
+protocol. A second queued purchase returns `409 QUEUED_PACKAGE_EXISTS`.
 
 Expensive public Mini App routes have per-IP rate limits.
 
@@ -33,8 +37,8 @@ Expensive public Mini App routes have per-IP rate limits.
 | GET | `/k/:ssconf_token.json` | Permanent customer ssconf endpoint |
 | GET | `/open-key?url=ssconf://...` | Mini App Add-to-Outline bridge |
 
-Order activation, renewal, and Mini App purchase responses return the current
-dynamic key shape:
+Shadowsocks order activation, renewal, and Mini App purchase responses return
+the customer config shape below. VLESS uses a Marzneshin subscription URL.
 
 ```json
 {

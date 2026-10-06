@@ -13,7 +13,7 @@
  */
 
 import { supabase } from "../lib/supabase.js";
-import { createKey, deleteKey } from "./vpnProviderService.js";
+import { createKey, deleteKey, serviceIdsForOrder } from "./vpnProviderService.js";
 import {
   clearServerError,
   decrementServerUsage,
@@ -27,6 +27,10 @@ import { addDaysToDateOnly, businessDateOnly } from "../utils/businessTime.js";
 function gbToBytes(gb) {
   if (!gb || Number(gb) <= 0) return null;
   return Math.floor(Number(gb) * 1024 * 1024 * 1024);
+}
+
+export function requireTrialVlessServiceIds(server) {
+  return serviceIdsForOrder({ server, protocol: "vless", orderType: "trial" });
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -258,8 +262,19 @@ export async function provisionTrialKey({
 
   if (existingKey) return;
 
+  const { data: order, error: orderError } = await supabase
+    .from("vpn_orders")
+    .select("expiry_date")
+    .eq("id", orderId)
+    .eq("reseller_id", resellerId)
+    .eq("customer_id", customerId)
+    .single();
+  if (orderError || !order?.expiry_date) {
+    throw new Error(orderError?.message || "Trial order expiry_date is missing");
+  }
+
   // Pick trial capacity only. Trial users must never land on premium servers.
-  const servers = await getActiveServers({ limit: 0, serverTier: "trial" });
+  const servers = await getActiveServers({ limit: 0, serverTier: "trial", resellerId });
   if (!servers.length) {
     throw new Error("No active trial server available for trial key provisioning");
   }
@@ -288,14 +303,10 @@ export async function provisionTrialKey({
       ].join(" | ");
 
       // Call the VPN provider API to create the key
-      // For VLESS trial keys, use the trial-specific service IDs so the user
-      // only gets access to the trial node — not the global all-nodes service.
-      // Falls back to marzneshin_vless_service_ids if trial IDs aren't set yet.
+      // Trial subscriptions must never inherit the all-nodes premium service.
       let serviceIds = null;
       if (protocol === "vless" || protocol === "hysteria2") {
-        serviceIds = server.marzneshin_vless_trial_service_ids?.length
-          ? server.marzneshin_vless_trial_service_ids
-          : null; // null → createKey falls back to marzneshin_vless_service_ids
+        serviceIds = requireTrialVlessServiceIds(server);
       }
 
       outlineKey = await createKey({
@@ -304,6 +315,7 @@ export async function provisionTrialKey({
         dataLimitBytes,
         protocol,
         serviceIds,
+        expiryDate: order.expiry_date,
       });
 
       // Persist the key in vpn_keys

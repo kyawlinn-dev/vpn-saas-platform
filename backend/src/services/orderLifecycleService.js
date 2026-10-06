@@ -29,6 +29,7 @@ import {
   buildAccessUrlForProtocol,
 } from "./publicAccessUrlService.js";
 import { businessDateOnly } from "../utils/businessTime.js";
+import { isQueuedPurchaseConflict } from "./queuedPurchasePolicy.js";
 
 export class OrderLifecycleError extends Error {
   constructor(message, status = 400, code = "ORDER_LIFECYCLE_ERROR") {
@@ -383,6 +384,7 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
     regions,
     limit: serverLimit,
     serverTier,
+    resellerId: reseller.id,
   });
 
   if (!selectedServers.length) {
@@ -439,6 +441,7 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
     plan,
     servers: selectedServers,
     protocol: customerProtocol,
+    expiryDate: toDateOnly(expiryAt),
   });
   const accessLinks = await buildOrderAccessLinks({ order, reseller });
 
@@ -552,6 +555,10 @@ function buildPlanSnapshotFromPayment({ order, payment }) {
 }
 
 async function applyPendingPackagePayments({ order }) {
+  if (order.status === "scheduled") {
+    return;
+  }
+
   const payments = await loadOrderPayments(order.id);
   const pendingPackagePayments = payments.filter(
     (payment) =>
@@ -608,6 +615,7 @@ async function applyPendingPackagePayments({ order }) {
       await updateProvisionedKeyLimitsForOrder({
         orderId: workingOrder.id,
         plan: planSnapshot,
+        expiryDate: toDateOnly(expiryAt),
       });
 
       const { error: updateErr } = await supabase
@@ -829,8 +837,8 @@ export async function activateOrder({ orderId, reseller }) {
 // Queued-plan model: extending an ACTIVE subscription creates a NEW independent
 // plan in the 'scheduled' state (a fresh sale row) that activates automatically
 // when the current plan ends — by time OR data, whichever comes first. Nothing
-// about the current plan changes and no usage/data carries over. Multiple
-// extends stack FIFO (oldest scheduled activates first).
+// about the current plan changes and no usage/data carries over. Only one
+// queued purchase is allowed per customer.
 export async function extendOrder({ orderId, resellerId, planId, idempotencyKey = null, source = "dashboard" }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
 
@@ -868,6 +876,11 @@ export async function extendOrder({ orderId, resellerId, planId, idempotencyKey 
     }
   }
 
+  const queued = await getOldestScheduledOrder(order.customer_id, resellerId);
+  if (queued) {
+    throw new OrderLifecycleError("Customer already has a queued package", 409, "QUEUED_PACKAGE_EXISTS");
+  }
+
   // Insert the queued plan. It holds no keys and no server capacity until it
   // activates; start/expiry dates are set at activation time.
   const { data: inserted, error: insertErr } = await supabase
@@ -892,6 +905,9 @@ export async function extendOrder({ orderId, resellerId, planId, idempotencyKey 
     .single();
 
   if (insertErr || !inserted) {
+    if (isQueuedPurchaseConflict(insertErr)) {
+      throw new OrderLifecycleError("Customer already has a queued package", 409, "QUEUED_PACKAGE_EXISTS");
+    }
     throw new Error(insertErr?.message || "Failed to queue extension plan");
   }
 
@@ -1288,9 +1304,9 @@ export async function confirmPayment({ orderId, resellerId, reviewerAdminId = nu
     throw new OrderLifecycleError("Rejected orders cannot be confirmed", 409, "ORDER_REJECTED");
   }
 
-  if (!["active", "pending"].includes(order.status)) {
+  if (!["active", "pending", "scheduled"].includes(order.status)) {
     throw new OrderLifecycleError(
-      `Only active or pending purchase orders can be confirmed. Current status: ${order.status}`,
+      `Only active, pending, or scheduled purchase orders can be confirmed. Current status: ${order.status}`,
       409,
       "INVALID_STATUS"
     );

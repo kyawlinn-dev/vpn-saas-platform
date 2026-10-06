@@ -19,6 +19,7 @@
  */
 
 import axios from "axios";
+import { businessDateOnly, parseBusinessDay } from "../utils/businessTime.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -220,6 +221,15 @@ function buildUsername(name) {
   return `${slug}_${rand}`;
 }
 
+export function panelExpireDateForOrder(expiryDate) {
+  const day = parseBusinessDay(expiryDate);
+  if (!day || businessDateOnly(new Date(Date.parse(day.endIso) - 1)) !== expiryDate) {
+    throw new Error("A valid order expiry_date is required for Marzneshin access");
+  }
+  // Orders remain active through their expiry_date in Asia/Bangkok.
+  return day.endIso;
+}
+
 // ---------------------------------------------------------------------------
 // Public API — mirrors outlineService function signatures
 // ---------------------------------------------------------------------------
@@ -254,7 +264,7 @@ export async function testMarzneshinServer(server) {
  *
  * Protocol determines which service IDs to assign:
  *   - "shadowsocks" → server.marzneshin_service_ids (per-node SS service)
- *   - "vless"       → server.marzneshin_vless_service_ids (global all-nodes VLESS service)
+ *   - "vless"       → caller supplies trial-only IDs for trials; otherwise global VLESS service
  */
 export async function createMarzneshinUser({
   server,
@@ -262,7 +272,9 @@ export async function createMarzneshinUser({
   dataLimitBytes = null,
   serviceIds = null,
   protocol = "shadowsocks",
+  expiryDate,
 }) {
+  const expireDate = panelExpireDateForOrder(expiryDate);
   const client = await createClient(server);
   const username = buildUsername(name);
 
@@ -292,7 +304,8 @@ export async function createMarzneshinUser({
     service_ids: services,
     data_limit: dataLimitBytes ? Math.floor(Number(dataLimitBytes)) : 0,
     data_limit_reset_strategy: "no_reset",
-    expire_strategy: "never",
+    expire_strategy: "fixed_date",
+    expire_date: expireDate,
     note: name || "",
   };
 
@@ -471,7 +484,9 @@ export async function updateMarzneshinUserDataLimit({
   server,
   outlineKeyId,
   dataLimitBytes,
+  expiryDate,
 }) {
+  const expireDate = panelExpireDateForOrder(expiryDate);
   const normalizedBytes =
     dataLimitBytes && Number(dataLimitBytes) > 0
       ? Math.floor(Number(dataLimitBytes))
@@ -480,6 +495,8 @@ export async function updateMarzneshinUserDataLimit({
   try {
     await patchMarzneshinUser(server, outlineKeyId, {
       data_limit: normalizedBytes,
+      expire_strategy: "fixed_date",
+      expire_date: expireDate,
     }, "update data limit");
 
     return {

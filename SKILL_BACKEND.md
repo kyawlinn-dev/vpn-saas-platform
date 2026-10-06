@@ -126,12 +126,27 @@ DEFAULT_TRIAL_RESELLER_ID=
 
 ## Server Capacity Concurrency
 
-`subscriptionProvisionService.js` uses an optimistic-concurrency loop when
-updating `vpn_servers.current_active_keys`. Do not bypass it.
+Migration `0021` owns `vpn_servers.current_active_keys` through a database
+trigger. Initial key provisioning uses the `reserve_pending_key` and
+`activate_vpn_key` RPCs; do not write the counter directly. Migration `0024`
+enforces one scheduled purchase per customer/reseller across Mini App, bot, and
+dashboard checkout.
 
 Provisioning must also respect `vpn_servers.server_tier`:
 
 - trial orders -> `serverTier: "trial"`
 - paid purchases/renewals/migrations -> `serverTier: "premium"`
 
-Use `getActiveServers({ serverTier, regions, limit })` for server selection.
+Use `getActiveServers({ serverTier, regions, limit, resellerId })` for server
+selection. Provider identity comes from `vpn_servers.panel_type`. Production
+new provisioning defaults to Outline during coexistence; only UUIDs in
+`VPN_MARZNESHIN_CANARY_RESELLER_IDS` use Marzneshin until the global
+`VPN_NEW_ACCESS_PROVIDER` flag changes. Existing key operations always use
+their server's provider, regardless of the new-provisioning flag. Outline
+supports Shadowsocks only; set a canary's trial protocol to VLESS only after
+its Marzneshin trial server and trial-only VLESS service are ready.
+Pass the order expiry date to every Marzneshin user creation path (activation,
+trial, Mini App link, switch, and migration). The panel's `fixed_date` cutoff
+is the start of the next Asia/Bangkok business day. Trial VLESS orders must use
+`marzneshin_vless_trial_service_ids`; missing IDs block provisioning rather
+than falling back to the global VLESS service.

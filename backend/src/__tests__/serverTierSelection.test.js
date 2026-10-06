@@ -6,7 +6,7 @@ vi.mock("../lib/supabase.js", () => ({
   supabase: { from: mockFrom },
 }));
 
-const { getActiveServers, getAvailableServer, rankProvisionableServers } = await import("../services/serverService.js");
+const { getActiveServers, getAvailableServer, providerForNewAccess, rankProvisionableServers } = await import("../services/serverService.js");
 
 function makeServer(overrides = {}) {
   return {
@@ -16,6 +16,7 @@ function makeServer(overrides = {}) {
     server_tier: "premium",
     panel_url: "https://panel.example.com",
     panel_username: "admin",
+    panel_password_encrypted: "ciphertext",
     current_active_keys: 0,
     max_active_keys: 5,
     is_default: false,
@@ -167,5 +168,30 @@ describe("server tier selection", () => {
     });
 
     expect(servers.map((server) => server.id)).toEqual(["sg-light", "jp-default"]);
+  });
+
+  it("keeps production on Outline unless a reseller is canaried", () => {
+    const env = { NODE_ENV: "production", VPN_MARZNESHIN_CANARY_RESELLER_IDS: "pilot-1" };
+    expect(providerForNewAccess("ordinary", env)).toBe("outline");
+    expect(providerForNewAccess("pilot-1", env)).toBe("marzneshin");
+  });
+
+  it("selects only the requested provider from a mixed pool", async () => {
+    mockQueryResult({ data: [
+      makeServer({ id: "legacy", panel_type: "outline", panel_url: null,
+        panel_username: null, outline_api_url: "https://outline.example",
+        outline_cert_sha256: "fingerprint" }),
+      makeServer({ id: "modern", panel_type: "marzneshin" }),
+    ] });
+
+    expect((await getActiveServers({ provider: "outline" })).map((s) => s.id))
+      .toEqual(["legacy"]);
+    expect((await getActiveServers({ provider: "marzneshin" })).map((s) => s.id))
+      .toEqual(["modern"]);
+  });
+
+  it("excludes panel rows without a usable password", async () => {
+    mockQueryResult({ data: [makeServer({ id: "unconfigured", panel_password_encrypted: null })] });
+    expect(await getActiveServers({ provider: "marzneshin" })).toEqual([]);
   });
 });

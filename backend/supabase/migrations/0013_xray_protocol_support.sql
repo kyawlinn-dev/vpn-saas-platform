@@ -7,11 +7,11 @@
 -- Purely additive: new columns have safe defaults so existing rows
 -- are unaffected until explicitly updated.
 
--- Panel type column. All servers will be Marzneshin going forward.
--- Existing rows get 'marzneshin' since Outline is retired.
+-- Existing Outline rows must keep their provider identity during coexistence.
+-- New panel rows explicitly set panel_type = 'marzneshin'.
 alter table vpn_servers
-  add column if not exists panel_type text not null default 'marzneshin'
-    check (panel_type = 'marzneshin');
+  add column if not exists panel_type text not null default 'outline'
+    check (panel_type in ('outline', 'marzneshin'));
 
 -- Marzneshin panel credentials. Password is encrypted at rest by the
 -- application layer (same pattern as bot_token_encrypted on resellers),
@@ -39,7 +39,7 @@ alter table vpn_keys
   add column if not exists key_credentials jsonb;
 
 comment on column vpn_servers.panel_type is
-  'Server management panel: marzneshin (Marzneshin panel, multi-protocol: SS + VLESS Reality + Hysteria2).';
+  'Server provider: outline for legacy keys, marzneshin for new panel-backed keys.';
 comment on column vpn_servers.panel_public_url is
   'Public-facing HTTPS URL for the Marzneshin panel (e.g. https://panel.novanetmm.com). Used to build subscription URLs for customers. Falls back to panel_url if null.';
 comment on column vpn_servers.marzneshin_service_ids is

@@ -1,26 +1,27 @@
 import { useState } from "react";
-import { ArrowRight, Check } from "lucide-react";
-import { GlassCard, PageHeader, PrimaryButton, SecondaryButton } from "../components/ui/primitives";
+import { Dialog } from "@base-ui/react/dialog";
+import { ArrowRight, Check, X } from "lucide-react";
+import { PrimaryButton } from "../ui/primitives";
 import { cn } from "@/lib/utils";
-import { formatCurrencyMmk } from "../lib/format";
-import { TAB_KEYS } from "../constants/routes";
-import { useLanguage } from "../i18n/language";
+import { formatCurrencyMmk } from "../../lib/format";
+import { useLanguage } from "../../i18n/language";
 
 // VLESS Reality is compatible with several client apps.
 const VLESS_APPS = [
+  { src: "/apps/happ.webp", name: "Happ" },
   { src: "/apps/hiddify.png", name: "Hiddify" },
   { src: "/apps/v2box.png", name: "V2Box" },
   { src: "/apps/v2raytun.png", name: "v2rayTun" },
   { src: "/apps/v2rayng.png", name: "v2rayNG" },
 ];
 
-function PlanSummaryCard({ plan }) {
+function PlanSummary({ plan }) {
   const { language, t } = useLanguage();
   const dataLabel = plan?.data_limit_gb ? `${plan.data_limit_gb} GB` : t("common.unlimited");
   const daysLabel = plan?.duration_days ? t("common.days", { count: plan.duration_days }) : "";
 
   return (
-    <GlassCard glow className="aurora-glow p-4">
+    <div className="border-b border-border/70 px-1 pb-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="mb-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
@@ -39,23 +40,23 @@ function PlanSummaryCard({ plan }) {
           </p>
         </div>
       </div>
-    </GlassCard>
+    </div>
   );
 }
 
-function ProtocolCard({ selected, onSelect, logo, title, desc, badge, appLogos }) {
+function ProtocolCard({ selected, onSelect, logo, title, desc, appLogos }) {
   return (
     <button
       type="button"
       onClick={onSelect}
+      aria-pressed={selected}
       className={cn(
-        "relative flex w-full flex-col gap-3 rounded-2xl border p-4 text-left transition-all",
+        "relative flex w-full flex-col gap-3 rounded-lg border p-4 text-left transition-all",
         selected
           ? "border-primary bg-primary/10 ring-1 ring-primary/30"
           : "border-border bg-secondary/30 hover:bg-secondary/50",
       )}
     >
-      {/* Selected check */}
       <span
         className={cn(
           "absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full border transition-all",
@@ -74,11 +75,6 @@ function ProtocolCard({ selected, onSelect, logo, title, desc, badge, appLogos }
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[15px] font-bold text-foreground">{title}</span>
-            {badge && (
-              <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
-                {badge}
-              </span>
-            )}
           </div>
           <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">{desc}</p>
         </div>
@@ -101,66 +97,52 @@ function ProtocolCard({ selected, onSelect, logo, title, desc, badge, appLogos }
   );
 }
 
-export default function ProtocolPage({
-  data,
-  checkoutPlan,
-  checkoutProtocol,
-  onConfirmProtocol,
-  onTabChange,
-}) {
+export default function ProtocolDialog({ plan, onClose, onConfirm }) {
   const { t } = useLanguage();
-  const [selected, setSelected] = useState(
-    checkoutProtocol || data?.protocol_preference || "shadowsocks",
-  );
-
-  if (!checkoutPlan) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 px-6 py-20">
-        <p className="text-[15px] text-muted-foreground">{t("packages.noPlanSelected")}</p>
-        <SecondaryButton onClick={() => onTabChange(TAB_KEYS.PACKAGES)} className="w-auto px-6">
-          {t("packages.backToPackages")}
-        </SecondaryButton>
-      </div>
-    );
-  }
+  const [selected, setSelected] = useState(null);
 
   return (
-    <div className="flex flex-col gap-3 px-4 pt-4 pb-8">
-      <PageHeader
-        title={t("protocol.choose")}
-        onBack={() => onTabChange(TAB_KEYS.PACKAGES)}
-        centerTitle
-      />
+    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm" />
+        <Dialog.Popup className="glass fixed inset-x-3 bottom-[max(12px,var(--app-safe-bottom))] z-50 mx-auto flex max-h-[min(85dvh,680px)] max-w-md flex-col gap-3 overflow-hidden rounded-lg p-4 text-foreground shadow-2xl outline-none">
+          <div className="flex items-center justify-between gap-3">
+            <Dialog.Title className="text-[18px] font-semibold">{t("protocol.choose")}</Dialog.Title>
+            <Dialog.Close className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground" aria-label={t("common.cancel")}>
+              <X size={18} />
+            </Dialog.Close>
+          </div>
 
-      <PlanSummaryCard plan={checkoutPlan} />
+          <div className="min-h-0 overflow-y-auto">
+            <PlanSummary plan={plan} />
+            <Dialog.Description className="my-3 text-[13px] text-muted-foreground">
+              {t("protocol.subtitle")}
+            </Dialog.Description>
+            <div className="flex flex-col gap-2.5">
+            <ProtocolCard
+              selected={selected === "shadowsocks"}
+              onSelect={() => setSelected("shadowsocks")}
+              logo="/apps/outline.png"
+              title="Outline"
+              desc={t("protocol.ssDesc")}
+            />
+            <ProtocolCard
+              selected={selected === "vless"}
+              onSelect={() => setSelected("vless")}
+              logo="/apps/happ.webp"
+              title="Happ / Hiddify"
+              desc={t("protocol.vlessDesc")}
+              appLogos={VLESS_APPS}
+            />
+            </div>
+          </div>
 
-      <p className="px-1 text-[13px] text-muted-foreground">{t("protocol.subtitle")}</p>
-
-      <div className="flex flex-col gap-2.5">
-        <ProtocolCard
-          selected={selected === "shadowsocks"}
-          onSelect={() => setSelected("shadowsocks")}
-          logo="/apps/outline.png"
-          title="Outline"
-          desc={t("protocol.ssDesc")}
-          badge={t("protocol.recommended")}
-          appLogos={[{ src: "/apps/outline.png", name: "Outline" }]}
-        />
-
-        <ProtocolCard
-          selected={selected === "vless"}
-          onSelect={() => setSelected("vless")}
-          logo="/apps/hiddify.png"
-          title="VLESS Reality"
-          desc={t("protocol.vlessDesc")}
-          appLogos={VLESS_APPS}
-        />
-      </div>
-
-      <PrimaryButton onClick={() => onConfirmProtocol(selected)} className="mt-2">
-        {t("protocol.continue")}
-        <ArrowRight size={18} />
-      </PrimaryButton>
-    </div>
+          <PrimaryButton onClick={() => onConfirm(selected)} disabled={!selected} className="shrink-0 rounded-lg disabled:bg-secondary disabled:opacity-50 disabled:shadow-none">
+            {t("protocol.continue")}
+            <ArrowRight size={18} />
+          </PrimaryButton>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

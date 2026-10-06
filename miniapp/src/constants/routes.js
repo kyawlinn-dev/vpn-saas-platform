@@ -2,7 +2,6 @@ export const TAB_KEYS = {
   HOME: "home",
   SERVERS: "servers",
   PACKAGES: "packages",
-  PROTOCOL: "protocol",
   CHECKOUT: "checkout",
   PAYMENT_STATUS: "payment_status",
   SETTINGS: "settings",

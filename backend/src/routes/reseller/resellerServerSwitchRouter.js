@@ -42,7 +42,7 @@ async function loadPaidActiveOrder(orderId, resellerId) {
 async function loadCurrentActiveKey(orderId) {
   const { data, error } = await supabase
     .from("vpn_keys")
-    .select("id, server_id, outline_key_id, status")
+    .select("id, server_id, outline_key_id, status, protocol")
     .eq("order_id", orderId)
     .eq("status", "active")
     .is("deleted_at", null)
@@ -71,22 +71,15 @@ router.get("/:orderId/eligible-servers", async (req, res) => {
       return res.status(status).json({ error: reason });
     }
 
-    // VLESS/Hysteria2 subscriptions already include all nodes — the client
-    // app picks which server to connect to, so server switch is not needed.
-    const { data: custPref } = await supabase
-      .from("vpn_customers")
-      .select("protocol_preference")
-      .eq("id", order.customer_id)
-      .maybeSingle();
-    const protocol = custPref?.protocol_preference || "shadowsocks";
+    // The active key defines the live protocol; preference is only for future keys.
+    const currentKey = await loadCurrentActiveKey(orderId);
+    const protocol = currentKey?.protocol || "shadowsocks";
     if (protocol !== "shadowsocks") {
       return res.status(400).json({
         error: "PROTOCOL_NO_SWITCH",
         message: `${protocol.toUpperCase()} subscriptions include all servers automatically. No switch needed — the customer's app can connect to any server.`,
       });
     }
-
-    const currentKey = await loadCurrentActiveKey(orderId);
 
     const { data: servers, error } = await supabase
       .from("vpn_servers")
@@ -167,13 +160,8 @@ router.post("/:orderId/switch-server", async (req, res) => {
       return res.status(status).json({ error: reason });
     }
 
-    // VLESS/Hysteria2 subscriptions already include all nodes — block switch.
-    const { data: custPref } = await supabase
-      .from("vpn_customers")
-      .select("protocol_preference")
-      .eq("id", order.customer_id)
-      .maybeSingle();
-    const protocol = custPref?.protocol_preference || "shadowsocks";
+    const currentKey = await loadCurrentActiveKey(orderId);
+    const protocol = currentKey?.protocol || "shadowsocks";
     if (protocol !== "shadowsocks") {
       return res.status(400).json({
         error: "PROTOCOL_NO_SWITCH",
@@ -181,7 +169,6 @@ router.post("/:orderId/switch-server", async (req, res) => {
       });
     }
 
-    const currentKey = await loadCurrentActiveKey(orderId);
     if (!currentKey) {
       return res.status(400).json({ error: "NO_ACTIVE_KEY" });
     }
@@ -248,6 +235,9 @@ router.post("/:orderId/switch-server", async (req, res) => {
     });
   } catch (err) {
     console.error("POST /reseller/orders/:orderId/switch-server error:", err);
+    if (err.code === "DATA_LIMIT_REACHED") {
+      return res.status(409).json({ error: "DATA_LIMIT_REACHED" });
+    }
     return res.status(500).json({ error: "Failed to switch server" });
   }
 });

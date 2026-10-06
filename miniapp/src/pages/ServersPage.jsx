@@ -143,10 +143,11 @@ function CurrentServerSummary({ server }) {
   );
 }
 
-function ServerRow({ server, linking, onSelect, locked = false }) {
+function ServerRow({ server, linking, onSelect, locked = false, isVless = false }) {
   const { t } = useLanguage();
-  const isCurrent = !locked && Boolean(server?.is_current);
+  const isCurrent = !locked && !isVless && Boolean(server?.is_current);
   const canAccess = locked || Boolean(server?.can_access);
+  const isIncluded = !locked && isVless && Boolean(server?.is_current) && canAccess;
   const ms = getLatencyMs(server);
   const serverLabel = server?.city || server?.name || server?.region || t("nav.servers");
 
@@ -181,7 +182,11 @@ function ServerRow({ server, linking, onSelect, locked = false }) {
         </div>
       </div>
 
-      {isCurrent ? (
+      {isIncluded ? (
+        <span className="flex shrink-0 items-center gap-1 rounded-md bg-primary/20 px-2.5 py-1 text-[11px] font-semibold text-primary">
+          <Check size={13} /> {t("servers.included")}
+        </span>
+      ) : isCurrent ? (
         <span className="flex shrink-0 items-center gap-1 rounded-md bg-primary/20 px-2.5 py-1 text-[11px] font-semibold text-primary">
           <Check size={13} /> {t("servers.connected")}
         </span>
@@ -204,11 +209,11 @@ function ServerRow({ server, linking, onSelect, locked = false }) {
   );
 }
 
-function CountryGroup({ group, expanded, onToggle, linking, onSelect, locked = false }) {
+function CountryGroup({ group, expanded, onToggle, linking, onSelect, locked = false, isVless = false }) {
   const { t } = useLanguage();
   const best = getBestLatencyMs(group.servers);
   // In locked mode there is no current server — suppress the green indicator.
-  const hasCurrentServer = !locked && group.servers.some((s) => s?.is_current);
+  const hasCurrentServer = !locked && !isVless && group.servers.some((s) => s?.is_current);
 
   return (
     <div className="glass overflow-hidden rounded-[20px]">
@@ -252,6 +257,7 @@ function CountryGroup({ group, expanded, onToggle, linking, onSelect, locked = f
               linking={linking}
               onSelect={onSelect}
               locked={locked}
+              isVless={isVless}
             />
           ))}
         </div>
@@ -262,7 +268,7 @@ function CountryGroup({ group, expanded, onToggle, linking, onSelect, locked = f
 
 // ── Page ───────────────────────────────────────────────────────────────────────
 
-function ServerTierSection({ section, openGroupKey, onToggleGroup, linking, onSelect, locked }) {
+function ServerTierSection({ section, openGroupKey, onToggleGroup, linking, onSelect, locked, isVless }) {
   const { t } = useLanguage();
   const Icon = section.Icon;
   const groups = groupServers(section.servers);
@@ -304,6 +310,7 @@ function ServerTierSection({ section, openGroupKey, onToggleGroup, linking, onSe
               linking={linking}
               onSelect={onSelect}
               locked={locked}
+              isVless={isVless}
             />
           );
         })}
@@ -333,8 +340,8 @@ export default function ServersPage({
     );
   const currentServer = data?.current_server || null;
   const brand = data?.config?.brand || null;
-  const protocolPreference = data?.protocol_preference || "shadowsocks";
-  const isVless = protocolPreference === "vless" || protocolPreference === "hysteria2";
+  const protocol = data?.vpn_key?.protocol || data?.outline_key?.protocol || data?.protocol_preference || "shadowsocks";
+  const isVless = protocol === "vless" || protocol === "hysteria2";
   // Trial VLESS/Hysteria2 customers connect to the trial node only;
   // premium VLESS customers get a global subscription URL covering all nodes.
   const isVlessTrial = isVless && subscription?.type === "trial";
@@ -358,7 +365,12 @@ export default function ServersPage({
   // the upgrade dialog instead of running the mutation.
   const lockedMode = !hasActivePackage;
 
-  const filteredSections = useMemo(() => getTierSections(servers), [servers]);
+  const filteredSections = useMemo(
+    () => getTierSections(isVlessPremium && hasActivePackage
+      ? servers.filter((server) => server.is_current)
+      : servers),
+    [hasActivePackage, isVlessPremium, servers],
+  );
 
   // ── Mutation ──────────────────────────────────────────────────────────────────
   const linkMutation = useLinkServer({
@@ -507,6 +519,7 @@ export default function ServersPage({
               linking={lockedMode ? false : linkMutation.isPending}
               onSelect={handleSelectServer}
               locked={lockedMode}
+              isVless={isVless}
             />
           ))}
           {filteredSections.length === 0 && (

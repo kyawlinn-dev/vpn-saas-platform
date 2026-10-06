@@ -13,7 +13,6 @@ import { formatDate } from "../lib/format";
 import { getShareUrl, getImportUrl } from "../lib/links";
 import { copyText } from "../lib/clipboard";
 import {
-  isTelegramWebBrowser,
   openTelegramNativeLink,
   openTelegramSharePicker,
 } from "../lib/telegram";
@@ -190,6 +189,8 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
   const subscription = data?.subscription || null;
   const currentServer = data?.current_server || null;
   const vpnKey = data?.vpn_key || data?.outline_key || null;
+  const protocol = vpnKey?.protocol || data?.protocol_preference;
+  const isMultiNodeProtocol = protocol === "vless" || protocol === "hysteria2";
   const recentRejection = data?.recent_rejection || null;
   const brand = data?.config?.brand || null;
 
@@ -245,12 +246,14 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
             onToast={onToast}
           />
 
-          <CurrentServerCard
-            server={currentServer}
-            onChangeServer={() => onTabChange("servers")}
-          />
+          {!isMultiNodeProtocol && currentServer && (
+            <CurrentServerCard
+              server={currentServer}
+              onChangeServer={() => onTabChange("servers")}
+            />
+          )}
 
-          {hasLinkedKey && currentServer ? (
+          {hasLinkedKey ? (
             <div>
               <p className="mb-3 text-[13px] font-bold text-foreground">{t("access.quickActions")}</p>
               <div className="grid grid-cols-2 gap-3">

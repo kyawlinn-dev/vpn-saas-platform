@@ -208,8 +208,8 @@ export default function PackagesPage({
       onToast("Telegram user is not ready yet", "warning");
       return;
     }
-    if (subscription?.type === "purchase") {
-      onToast(t("packages.activePackageWarning"), "warning");
+    if (data?.queued_subscription) {
+      onToast(t("packages.alreadyQueuedWarning"), "warning");
       return;
     }
     onNavigateToProtocol(plan);

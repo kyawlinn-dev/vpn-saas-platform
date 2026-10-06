@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase.js";
+import { providerForServer } from "./vpnProviderService.js";
 
 export class ServerAvailabilityError extends Error {
   constructor(message, code = "NO_ACTIVE_SERVER") {
@@ -6,6 +7,15 @@ export class ServerAvailabilityError extends Error {
     this.name = "ServerAvailabilityError";
     this.code = code;
   }
+}
+
+export function providerForNewAccess(resellerId, env = process.env) {
+  const canaries = String(env.VPN_MARZNESHIN_CANARY_RESELLER_IDS || "")
+    .split(",").map((id) => id.trim()).filter(Boolean);
+  if (resellerId && canaries.includes(String(resellerId))) return "marzneshin";
+  const configured = String(env.VPN_NEW_ACCESS_PROVIDER || "").trim().toLowerCase();
+  if (configured === "outline" || configured === "marzneshin") return configured;
+  return env.NODE_ENV === "production" ? "outline" : "marzneshin";
 }
 
 function toNumber(value, fallback = 0) {
@@ -27,12 +37,22 @@ function isServerReady(server) {
     return false;
   }
 
-  // Marzneshin panel credentials required
+  let provider;
+  try {
+    provider = providerForServer(server);
+  } catch {
+    return false;
+  }
+  if (provider === "outline") {
+    return Boolean(server.outline_api_url && server.outline_cert_sha256);
+  }
+
   return (
     typeof server.panel_url === "string" &&
     server.panel_url.trim().length > 0 &&
     typeof server.panel_username === "string" &&
-    server.panel_username.trim().length > 0
+    server.panel_username.trim().length > 0 &&
+    Boolean(server.panel_password_encrypted || server._panel_password)
   );
 }
 
@@ -52,9 +72,10 @@ function compareText(a, b) {
   return String(a || "").localeCompare(String(b || ""));
 }
 
-export function rankProvisionableServers(servers = []) {
+export function rankProvisionableServers(servers = [], { provider = null } = {}) {
   return [...servers]
     .filter((server) => isServerReady(server) && hasCapacity(server))
+    .filter((server) => !provider || provider === "any" || providerForServer(server) === provider)
     .sort((a, b) => {
       const loadDiff = serverLoadRatio(a) - serverLoadRatio(b);
       if (loadDiff !== 0) return loadDiff;
@@ -124,7 +145,9 @@ export async function listServers() {
 }
 
 export async function getAvailableServer() {
-  const servers = rankProvisionableServers(await listServers());
+  const servers = rankProvisionableServers(await listServers(), {
+    provider: providerForNewAccess(),
+  });
   const server = servers.find((item) => normalizeServerTier(item.server_tier) === "premium");
 
   if (!server) {
@@ -137,7 +160,7 @@ export async function getAvailableServer() {
   return server;
 }
 
-export async function getActiveServers({ regions = [], limit = 1, serverTier = "premium" } = {}) {
+export async function getActiveServers({ regions = [], limit = 1, serverTier = "premium", resellerId = null, provider = null } = {}) {
   const normalizedTier = normalizeServerTier(serverTier);
   let query = supabase
     .from("vpn_servers")
@@ -157,7 +180,12 @@ export async function getActiveServers({ regions = [], limit = 1, serverTier = "
   const { data, error } = await query;
   if (error) throw new Error(error.message);
 
-  const filtered = pickRankedServersForRegions(data || [], normalizedRegions);
+  const chosenProvider = provider || providerForNewAccess(resellerId);
+  const eligible = (data || []).filter((server) => {
+    if (!isServerReady(server) || !hasCapacity(server)) return false;
+    return chosenProvider === "any" || providerForServer(server) === chosenProvider;
+  });
+  const filtered = pickRankedServersForRegions(eligible, normalizedRegions);
 
   return limit > 0 ? filtered.slice(0, limit) : filtered;
 }

@@ -6,6 +6,7 @@ import {
   createKey,
   deleteKey,
   getTransferMetrics,
+  serviceIdsForOrder,
 } from "../../services/vpnProviderService.js";
 import { decrypt } from "../../lib/tokenEncryption.js";
 
@@ -21,13 +22,18 @@ import {
   OrderLifecycleError,
 } from "../../services/orderLifecycleService.js";
 import { createOrderPayment } from "../../services/paymentLedgerService.js";
+import { isQueuedPurchaseConflict } from "../../services/queuedPurchasePolicy.js";
+import { isCurrentMiniAppServer } from "../../services/miniAppServerState.js";
 import { createTrialOrder, provisionTrialKey } from "../../services/trialService.js";
 import {
   buildDynamicAccessUrl,
   buildSsconfHttpUrl,
   buildAccessUrlForProtocol,
 } from "../../services/publicAccessUrlService.js";
-import { getOrderQuotaSnapshot } from "../../services/subscriptionProvisionService.js";
+import {
+  getOrderQuotaSnapshot,
+  resolveRemainingKeyLimitBytes,
+} from "../../services/subscriptionProvisionService.js";
 import {
   buildRequestEventContext,
   trackAppEvent,
@@ -857,6 +863,47 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
       }
     }
 
+    // Fetch any queued ("scheduled") plan waiting to activate for this customer
+    let queuedSubscription = null;
+    try {
+      const { data: scheduledOrder, error: scheduledError } = await supabase
+        .from("vpn_orders")
+        .select(`
+          id,
+          plan_id,
+          status,
+          order_type,
+          created_at,
+          vpn_plans (
+            id,
+            name,
+            data_limit_gb,
+            duration_days
+          )
+        `)
+        .eq("customer_id", customer.id)
+        .eq("reseller_id", miniapp.reseller_id)
+        .eq("status", "scheduled")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (!scheduledError && scheduledOrder) {
+        queuedSubscription = {
+          order_id: scheduledOrder.id,
+          plan_id: scheduledOrder.plan_id,
+          type: scheduledOrder.order_type,
+          status: scheduledOrder.status,
+          plan_name: scheduledOrder.vpn_plans?.name || null,
+          data_limit_gb: scheduledOrder.vpn_plans?.data_limit_gb ?? null,
+          duration_days: scheduledOrder.vpn_plans?.duration_days ?? null,
+          queued_at: scheduledOrder.created_at || null,
+        };
+      }
+    } catch (schedErr) {
+      console.warn("[auth] scheduled order lookup failed (non-fatal):", schedErr.message);
+    }
+
     let currentKeyRow = null;
     let currentServer = null;
 
@@ -982,6 +1029,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
           used: Boolean(telegramLink.trial_used_at || trialCreated),
         },
         recent_rejection: recentRejection,
+        queued_subscription: queuedSubscription,
       },
     });
   } catch (err) {
@@ -1102,7 +1150,7 @@ async function handleMiniAppServers(
     }
 
     let allowedRegions = [];
-    let currentServerId = null;
+    let currentKey = null;
     let activeOrder = null;
     let customerId = null;
 
@@ -1152,7 +1200,7 @@ async function handleMiniAppServers(
         if (activeOrder) {
           const { data: activeKey, error: keyError } = await supabase
             .from("vpn_keys")
-            .select("id, server_id")
+            .select("id, server_id, protocol")
             .eq("customer_id", link.customer_id)
             .eq("reseller_id", miniapp.reseller_id)
             .eq("order_id", activeOrder.id)
@@ -1169,7 +1217,7 @@ async function handleMiniAppServers(
             });
           }
 
-          currentServerId = activeKey?.server_id || null;
+          currentKey = activeKey;
         }
       }
     }
@@ -1188,12 +1236,6 @@ async function handleMiniAppServers(
       });
     }
 
-    // VLESS subscriptions cover ALL nodes in the global service — detect by
-    // checking if the customer's active key is on a server with VLESS service IDs.
-    // If so, mark every VLESS-enabled server as current (not just the provisioned one).
-    const activeKeyServer = (servers || []).find(s => s.id === currentServerId);
-    const isVlessKey = (activeKeyServer?.marzneshin_vless_service_ids || []).length > 0;
-
     const mappedServers = (servers || []).map((server) => {
       const access = getMiniAppServerAccessState({
         activeOrder,
@@ -1201,9 +1243,12 @@ async function handleMiniAppServers(
         allowedRegions,
       });
 
-      const isCurrent = isVlessKey
-        ? (server.marzneshin_vless_service_ids || []).length > 0
-        : currentServerId === server.id;
+      const isCurrent = isCurrentMiniAppServer({
+        key: currentKey,
+        order: activeOrder,
+        server,
+        canAccess: access.canAccess,
+      });
 
       return {
         ...mapServerForMiniApp(server, isCurrent),
@@ -1563,7 +1608,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
 
     const { data: server, error: serverError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, region_code, display_country, display_city, flag_emoji, panel_url, panel_public_url, panel_username, panel_password_encrypted, marzneshin_service_ids, marzneshin_vless_service_ids, status, is_default, server_tier")
+      .select("id, name, region, region_code, display_country, display_city, flag_emoji, panel_type, outline_api_url, outline_cert_sha256, panel_url, panel_public_url, panel_username, panel_password_encrypted, marzneshin_service_ids, marzneshin_vless_service_ids, marzneshin_vless_trial_service_ids, status, is_default, server_tier")
       .eq("id", serverId)
       .maybeSingle();
 
@@ -1619,8 +1664,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
       });
     }
 
-    // vpnProviderService.requireCredentials() will throw if panel_url/panel_username
-    // are missing, so no explicit guard needed here.
+    // vpnProviderService validates the selected server's provider credentials.
 
     const dataLimitBytes = gbToBytes(plan?.data_limit_gb);
 
@@ -1636,9 +1680,13 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         access_url,
         data_limit_bytes,
         used_bytes,
+        protocol,
         status,
         vpn_servers (
           id,
+          panel_type,
+          outline_api_url,
+          outline_cert_sha256,
           panel_url,
           panel_public_url,
           panel_username,
@@ -1663,33 +1711,39 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     }
 
     const activeKeys = existingActiveKeys || [];
+    const activeOrderProtocol = activeKeys[0]?.protocol || protocolPreference;
 
-    // ── VLESS / Hysteria2: one key covers ALL servers ──────────────────────
-    // No per-server key switching. If a VLESS key already exists for this
-    // order, return it. If not, create one (on any server — all nodes are
-    // in the VLESS service). The subscription URL gives the client app
-    // access to all servers; the customer picks inside Hiddify/V2Box.
-    if (protocolPreference === "vless" || protocolPreference === "hysteria2") {
+    if (server.panel_type === "outline" && activeOrderProtocol !== "shadowsocks") {
+      return res.status(403).json({
+        success: false,
+        code: "PROTOCOL_UNSUPPORTED_ON_SERVER",
+        message: "This server supports Shadowsocks only. Select a Marzneshin server for VLESS.",
+      });
+    }
+
+    // VLESS uses one subscription per order. Trials receive only the trial
+    // service; paid subscriptions receive the configured global service.
+    if (activeOrderProtocol === "vless" || activeOrderProtocol === "hysteria2") {
       const existingVlessKey = activeKeys[0]; // any active key will do
       if (existingVlessKey) {
         const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
         return res.json({
           success: true,
-          message: "Subscription covers all servers",
+          message: "Subscription is ready",
           data: {
             current_server: mapServerForMiniApp(server, true),
             vpn_key: toPublicVpnKey(req, {
               ssconfToken: customerSsconfToken,
               key: existingVlessKey,
               label,
-              protocol: protocolPreference,
+              protocol: activeOrderProtocol,
               orderTotalUsedBytes: totalUsedBytes,
             }),
             outline_key: toPublicVpnKey(req, {
               ssconfToken: customerSsconfToken,
               key: existingVlessKey,
               label,
-              protocol: protocolPreference,
+              protocol: activeOrderProtocol,
               orderTotalUsedBytes: totalUsedBytes,
             }),
           },
@@ -1698,7 +1752,20 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
 
       // No VLESS key yet — create one
       const vlessQuota = await getOrderQuotaSnapshot(activeOrder.id);
-      const remainingBytes = vlessQuota.isUnlimited ? null : vlessQuota.remainingBytes;
+      let remainingBytes;
+      try {
+        remainingBytes = resolveRemainingKeyLimitBytes({
+          quota: vlessQuota,
+          planDataLimitGb: plan?.data_limit_gb,
+        });
+      } catch (error) {
+        if (error.code !== "DATA_LIMIT_REACHED") throw error;
+        return res.status(403).json({
+          success: false,
+          code: "DATA_LIMIT_REACHED",
+          message: "You have used all your data. Renew or upgrade to connect.",
+        });
+      }
 
       let vlessKey;
       try {
@@ -1706,7 +1773,9 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
           server,
           name: buildMiniAppKeyName({ customer, server, order: activeOrder, plan }),
           dataLimitBytes: remainingBytes,
-          protocol: protocolPreference,
+          protocol: activeOrderProtocol,
+          serviceIds: serviceIdsForOrder({ server, protocol: activeOrderProtocol, orderType: activeOrder.order_type }),
+          expiryDate: activeOrder.expiry_date,
         });
       } catch (err) {
         console.error("VLESS key create error:", err);
@@ -1729,6 +1798,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
           key_credentials: vlessKey._marzneshin_meta || null,
           data_limit_bytes: remainingBytes,
           used_bytes: 0,
+          protocol: activeOrderProtocol,
           status: "active",
           is_used: true,
           used_at: new Date().toISOString(),
@@ -1764,7 +1834,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
 
       return res.json({
         success: true,
-        message: "Subscription link created for all servers",
+        message: "Subscription link created",
         data: {
           current_server: mapServerForMiniApp(server, true),
           vpn_key: toPublicVpnKey(req, {
@@ -1865,22 +1935,20 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     // Append-only: the partial unique index keeps one ACTIVE key per (order, server),
     // but deleted history rows never conflict -> a switch is always a fresh INSERT.
     if (!insertedKey) {
-      // New key's Outline limit = remaining order balance, so Outline throttles at the
-      // real cap even between hourly usage syncs. null plan limit = unlimited.
-      // Guard: quota.remainingBytes is null when the order has no active key to
-      // anchor the allowance (can happen mid-switch / after a keyless state).
-      // Falling through with null would mint an UNLIMITED key (no data cap), so
-      // fall back to the plan limit minus lifetime used. Only a genuinely
-      // unlimited plan (isUnlimited) yields a null (uncapped) limit.
+      // Provision the replacement key with the order's remaining balance.
       let remainingBytes;
-      if (quota.isUnlimited) {
-        remainingBytes = null;
-      } else if (quota.remainingBytes != null) {
-        remainingBytes = quota.remainingBytes;
-      } else {
-        const planBytes = gbToBytes(plan?.data_limit_gb);
-        remainingBytes =
-          planBytes != null ? Math.max(1, planBytes - Number(quota.totalUsedBytes || 0)) : null;
+      try {
+        remainingBytes = resolveRemainingKeyLimitBytes({
+          quota,
+          planDataLimitGb: plan?.data_limit_gb,
+        });
+      } catch (error) {
+        if (error.code !== "DATA_LIMIT_REACHED") throw error;
+        return res.status(403).json({
+          success: false,
+          code: "DATA_LIMIT_REACHED",
+          message: "You have used all your data. Renew or upgrade to switch servers.",
+        });
       }
 
       let outlineKey;
@@ -1893,7 +1961,8 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
           server,
           name: buildMiniAppKeyName({ customer, server, order: activeOrder, plan }),
           dataLimitBytes: remainingBytes,
-          protocol: protocolPreference,
+          protocol: activeOrderProtocol,
+          expiryDate: activeOrder.expiry_date,
         });
       } catch (outlineErr) {
         console.error("Outline key create error:", outlineErr);
@@ -1918,6 +1987,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         key_credentials: outlineKey._marzneshin_meta || null,
         data_limit_bytes: remainingBytes,
         used_bytes: 0,
+        protocol: activeOrderProtocol,
         status: "active",
         is_used: true,
         used_at: new Date().toISOString(),
@@ -2019,14 +2089,14 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
           ssconfToken: customerSsconfToken,
           key: insertedKey,
           label,
-          protocol: protocolPreference,
+          protocol: activeOrderProtocol,
           orderTotalUsedBytes: knownUsedBytes,
         }),
         outline_key: toPublicVpnKey(req, {
           ssconfToken: customerSsconfToken,
           key: insertedKey,
           label,
-          protocol: protocolPreference,
+          protocol: activeOrderProtocol,
           orderTotalUsedBytes: knownUsedBytes,
         }),
       },
@@ -2078,15 +2148,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
             .maybeSingle();
           if (currentActive?.id === oldKey.id) return;
 
-          // Marzneshin: panel_url + panel_username identify a provisioned user.
-          // (Previously this checked outline_api_url / outline_cert_sha256, which
-          //  are Outline-only fields — always null on Marzneshin servers, so the
-          //  deleteKey call was never reached.)
-          if (
-            oldKey.outline_key_id &&
-            oldKey.vpn_servers?.panel_url &&
-            oldKey.vpn_servers?.panel_username
-          ) {
+          if (oldKey.outline_key_id && oldKey.vpn_servers) {
             // Snapshot live usage before deleting the key
             const oldServer = oldKey.vpn_servers;
             const metricsMap = await getTransferMetrics(oldServer).catch((err) => {
@@ -2111,7 +2173,10 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
               if (oldKey.server_id) {
                 await setServerError(oldKey.server_id, err.message).catch(() => {});
               }
+              return;
             }
+          } else {
+            return;
           }
 
           if (oldKey.server_id) {
@@ -2308,18 +2373,6 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
     const customerSsconfToken = await ensureCustomerSsconfToken(customer.id);
     const label = [miniapp.brand_name, customer.full_name].filter(Boolean).join("-");
 
-    // Protocol preference — save the customer's choice
-    const VALID_PROTOCOLS = ["shadowsocks", "vless", "hysteria2"];
-    const protocolPreference = VALID_PROTOCOLS.includes(reqProtocol) ? reqProtocol : "shadowsocks";
-
-    // Update customer's stored preference if provided
-    if (reqProtocol && VALID_PROTOCOLS.includes(reqProtocol)) {
-      await supabase
-        .from("vpn_customers")
-        .update({ protocol_preference: reqProtocol })
-        .eq("id", customer.id);
-    }
-
     const { data: plan, error: planError } = await supabase
       .from("vpn_plans")
       .select(`
@@ -2387,16 +2440,45 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
       });
     }
 
-    // Renew/top-up while a package is already active is not supported yet —
-    // one active purchase order at a time. Customers must wait for expiry,
-    // or contact their reseller, until the renew flow ships in a future version.
-    if (activePurchaseOrder) {
+    const { data: queuedOrder, error: queuedOrderError } = await supabase
+      .from("vpn_orders")
+      .select("id")
+      .eq("customer_id", customer.id)
+      .eq("reseller_id", miniapp.reseller_id)
+      .eq("status", "scheduled")
+      .limit(1)
+      .maybeSingle();
+
+    if (queuedOrderError) {
+      console.error("Queued order check error:", queuedOrderError);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to check queued package",
+      });
+    }
+
+    if (queuedOrder) {
       return res.status(409).json({
         success: false,
-        message:
-          "You already have an active package. Renewing or adding a top-up isn't available yet — please contact your reseller.",
-        code: "ACTIVE_PACKAGE_EXISTS",
+        message: "You already have a queued package waiting.",
+        code: "QUEUED_PACKAGE_EXISTS",
       });
+    }
+
+    const isQueuedOrder = Boolean(activePurchaseOrder);
+
+    // Protocol preference:
+    // If extending an active purchase (isQueuedOrder), preserve their active protocol preference (do not overwrite).
+    // If this is a first-time purchase or converting from trial, save their selected protocol.
+    const VALID_PROTOCOLS = ["shadowsocks", "vless", "hysteria2"];
+    let protocolPreference = customer.protocol_preference || (VALID_PROTOCOLS.includes(reqProtocol) ? reqProtocol : "shadowsocks");
+
+    if (!isQueuedOrder && reqProtocol && VALID_PROTOCOLS.includes(reqProtocol)) {
+      protocolPreference = reqProtocol;
+      await supabase
+        .from("vpn_customers")
+        .update({ protocol_preference: reqProtocol })
+        .eq("id", customer.id);
     }
 
     const { data: reseller, error: resellerError } = await supabase
@@ -2426,7 +2508,7 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
         reseller_id: miniapp.reseller_id,
         plan_id: plan.id,
 
-        status: "pending",
+        status: isQueuedOrder ? "scheduled" : "pending",
         price_mmk: priceMmk,
         commission_percent: commissionPercent,
         commission_amount_mmk: commissionAmountMmk,
@@ -2469,6 +2551,13 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
       .single();
 
     if (orderError || !createdOrder) {
+      if (isQueuedPurchaseConflict(orderError)) {
+        return res.status(409).json({
+          success: false,
+          code: "QUEUED_PACKAGE_EXISTS",
+          message: "You already have a queued package waiting.",
+        });
+      }
       console.error("Mini App order create error:", orderError);
       return res.status(500).json({
         success: false,
@@ -2485,22 +2574,26 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
       },
       amountMmk: priceMmk,
       reviewStatus: "pending_review",
+      paymentType: isQueuedOrder ? "extend" : "initial",
       source: "miniapp",
       paymentNote: payment_note,
       paymentScreenshotUrl: payment_screenshot_url || null,
     });
 
-    const activation = await activatePendingReviewPurchase({
-      order: { ...createdOrder, customer },
-      reseller,
-      plan,
-    });
+    let activatedOrder = createdOrder;
+    if (!isQueuedOrder) {
+      const activation = await activatePendingReviewPurchase({
+        order: { ...createdOrder, customer },
+        reseller,
+        plan,
+      });
 
-    const activatedOrder = activation.order || {
-      ...createdOrder,
-      status: "active",
-      expiry_date: activation.expiry_date,
-    };
+      activatedOrder = activation.order || {
+        ...createdOrder,
+        status: "active",
+        expiry_date: activation.expiry_date,
+      };
+    }
 
     // Notify reseller via Telegram (non-fatal — mirrors bot purchase flow)
     if (miniapp.admin_telegram_user_id && miniapp.bot_token_encrypted) {
@@ -2516,6 +2609,7 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
             durationDays: plan.duration_days,
             dataLimitGb: plan.data_limit_gb,
             orderId,
+            isExtend: isQueuedOrder,
           });
           const replyMarkup = JSON.stringify({
             inline_keyboard: [[
@@ -2563,6 +2657,53 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
           console.warn(`[miniapp:${miniapp.miniapp_slug}] reseller notify failed (non-fatal):`, notifyErr.message);
         }
       })();
+    }
+
+    if (isQueuedOrder) {
+      trackMiniAppEvent(req, {
+        event_name: "order_submitted",
+        reseller_id: miniapp.reseller_id,
+        customer_id: customer.id,
+        telegram_user_id: telegramUserId,
+        order_id: createdOrder.id,
+        payment_id: payment?.id || null,
+        plan_id: plan.id,
+        server_id: null,
+        page: "checkout",
+        status: "success",
+        metadata: {
+          price_mmk: priceMmk,
+          duration_days: plan.duration_days,
+          data_limit_gb: plan.data_limit_gb,
+          order_type: "purchase",
+          review_status: createdOrder.review_status,
+          payment_status: createdOrder.payment_status,
+          is_queued: true,
+        },
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: "Order submitted to queue. It will activate automatically when your current package ends.",
+        data: {
+          order: {
+            id: createdOrder.id,
+            status: createdOrder.status,
+            payment_status: createdOrder.payment_status,
+            review_status: createdOrder.review_status,
+            order_type: createdOrder.order_type,
+            source: createdOrder.source,
+            price_mmk: createdOrder.price_mmk,
+            start_date: createdOrder.start_date,
+            expiry_date: createdOrder.expiry_date,
+            payment_screenshot_url: createdOrder.payment_screenshot_url,
+            payment_note: createdOrder.payment_note,
+            created_at: createdOrder.created_at,
+            plan: createdOrder.vpn_plans,
+          },
+          is_queued: true,
+        },
+      });
     }
 
     const { data: insertedKey, error: insertKeyError } = await supabase

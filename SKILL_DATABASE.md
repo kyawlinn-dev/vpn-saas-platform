@@ -33,13 +33,13 @@ Read before making schema decisions:
 | `admins` | Platform owner accounts |
 | `app_events` | Backend-owned monitoring events for Mini App, checkout, server, and provisioning flow |
 | `system_job_runs` | Compact backend job health state for usage sync and health checks |
-| `server_health_status` | One-row-per-server Outline API and usage-sync health state |
+| `server_health_status` | One-row-per-server panel API and usage-sync health state |
 | `reseller_miniapps` | Per-reseller Mini App config (slug, brand, bot, payments) |
-| `vpn_servers` | Outline servers; Outline API URL + cert per row |
+| `vpn_servers` | Marzneshin node/service assignments and capacity; legacy Outline columns remain |
 | `vpn_plans` | Subscription catalogue shared across resellers |
 | `vpn_orders` | A customer's subscription period |
 | `order_payments` | Payment ledger; source of truth for paid amount, commission, and platform due |
-| `vpn_keys` | Active/historical Outline VPN keys |
+| `vpn_keys` | Active/historical VPN credentials with authoritative protocol |
 | `vpn_customers` | End customers, scoped to a reseller |
 | `telegram_links` | Maps Telegram user ID → vpn_customer per reseller |
 | `commission_ledger` | Reseller earnings per paid order |
@@ -64,13 +64,13 @@ These three tables use different name columns — this has caused bugs:
 | `resellers.status` | `active`, `disabled` |
 | `admins.status` | `active`, `disabled` |
 | `vpn_customers.status` | `active`, `inactive` |
-| `vpn_servers.status` | `active`, `provisioning`, `error`, `inactive` |
+| `vpn_servers.status` | `active`, `provisioning`, `error` |
 | `vpn_servers.server_tier` | `trial`, `premium` |
-| `vpn_orders.status` | `pending`, `active`, `expired`, `stopped` |
+| `vpn_orders.status` | `pending`, `active`, `expired`, `stopped`, `scheduled` |
 | `vpn_orders.payment_status` | `unpaid`, `paid`, `overdue` |
 | `vpn_orders.order_type` | `trial`, `purchase` |
 | `vpn_orders.review_status` | `pending_review`, `confirmed`, `rejected` |
-| `vpn_orders.source` | `miniapp`, `dashboard` |
+| `vpn_orders.source` | `miniapp`, `dashboard`, `bot`, `admin` |
 | `vpn_keys.status` | `active`, `deleted`, `pending` (transient reservation, migration 0020) |
 | `vpn_keys.protocol` | `shadowsocks`, `vless`, `hysteria2` (authoritative protocol of the key) |
 | `vpn_customers.protocol_preference` | `shadowsocks`, `vless`, `hysteria2` (intent for the NEXT provision; not the live key) |
@@ -99,6 +99,12 @@ These three tables use different name columns — this has caused bugs:
 Do not bypass `getActiveServers({ serverTier })` when choosing a provisioning
 target.
 
+Migration `0013` now defaults existing server rows to `panel_type = outline`;
+new Marzneshin rows must set `panel_type = marzneshin` explicitly. Migration
+`0025` corrects development databases that ran the older `0013` variant.
+Never relabel a row carrying active Outline keys as Marzneshin. Provider
+identity is tied to the server row until those keys are retired.
+
 `order_payments` is the accounting source of truth. For each confirmed and
 applied payment:
 
@@ -118,8 +124,9 @@ derived read (same confirmed+applied filter). New read paths should prefer
 Package events are recorded as separate rows:
 
 - `payment_type = initial`: first paid purchase.
-- `payment_type = extend`: active subscription top-up; adds plan duration and
-  plan data to the current key.
+- `payment_type = extend`: a new scheduled purchase while an active package
+  exists. The active key's quota and expiry do not change; the queued plan
+  starts fresh when the active package ends by time or data.
 - `payment_type = renew`: stopped/expired subscription purchase; provisions or
   reactivates access as a new paid period.
 
@@ -127,8 +134,10 @@ Only `review_status = confirmed` and `apply_status = applied` rows count toward
 gross paid, reseller commission, and platform due. Use `idempotency_key` for
 dashboard/admin retry protection when applying extend or renew actions.
 
-Mini App top-ups are intentionally two-step: customer checkout creates a pending
-`extend` payment, then reseller confirmation applies the duration/data change.
+Mini App queued payments are pending review. Migration `0024` enforces at most
+one scheduled purchase per `(reseller_id, customer_id)`; review existing
+duplicates before applying it. A failed unique insert maps to
+`QUEUED_PACKAGE_EXISTS` in customer-facing flows.
 
 ## Monitoring Event Model
 

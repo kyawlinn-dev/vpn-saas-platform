@@ -7,11 +7,58 @@ This repository is aligned around the current production shape:
 - Admin dashboard: Cloudflare Pages
 - Reseller dashboard: Cloudflare Pages
 - Database: Supabase
-- Outline VPN servers: DigitalOcean droplets
+- VPN nodes: production backend still manages Outline keys; Marznode/Xray is
+  installed alongside Outline and tested, but the backend/database cutover is pending
 
 Do not use DO App Platform or Cloudflare Workers for customer-facing production
 traffic. Those paths were retired because customer networks may block Cloudflare
 IPs.
+
+## Provider Coexistence Gate
+
+The `feature/marzneshin` branch is **not** a drop-in backend deployment over the
+current Outline production database. Existing active keys store Outline `ss://`
+URLs and numeric Outline key IDs. The dual-provider backend identifies their
+provider from the server row and keeps their configuration delivery, usage
+sync, and stop operations on Outline. Applying schema migrations alone does
+not convert keys, and this release must not bulk-convert them.
+
+Before deploying the new backend, follow `PROVIDER_COEXISTENCE_RUNBOOK.md`:
+verify the production schema, restore-test a database backup, rehearse the
+migrations on production-shaped data, and verify existing Outline access and
+new-provider canary behavior. Keep Outline running until its last active key
+is retired. Do not copy encrypted panel-password
+values from the development database: its `BOT_TOKEN_ENCRYPTION_KEY` differs
+from production. Encrypt panel credentials with the production key and verify
+all production server rows have their intended service IDs and tier.
+
+Local `.env.local` and production `.env.production` use different Supabase
+projects. The backend loads `.env` first, then `.env.production` when PM2 sets
+`NODE_ENV=production`; `.env.local` is never loaded in production. Panel admin
+credentials in `MARZNESHIN_PANEL_*` are for one-off operator scripts; normal
+backend requests use per-server encrypted credentials stored in `vpn_servers`.
+
+| Concern | Local development | Production cutover |
+|---|---|---|
+| Database | Development Supabase project | Production Supabase project; migrate and verify separately |
+| Encryption | Local `BOT_TOKEN_ENCRYPTION_KEY` | Keep the existing production key; re-encrypt any imported panel credential with it |
+| Backend URLs | Local/ngrok URLs | `api.novanetmm.com`, `app.novanetmm.com`, and production dashboard origins |
+| Mini App build | `miniapp/.env.local` | Droplet `miniapp-source/.env.production`; Vite values are baked at build time |
+| Bot/webhooks | Development bot and tunnel | Existing production bot tokens and `WEBHOOK_BASE_URL` |
+| Panel | Development DB points at the shared live `panel.novanetmm.com` | Same panel by operator choice; keep test users distinct and verify trial-only service IDs before provisioning |
+
+The development trial server currently uses Marzneshin trial VLESS service `8`
+(only the Trial-SGP inbound). New panel users have a fixed expiry derived from
+the order's Asia/Bangkok expiry day. Existing development-linked panel users
+can be audited from `backend/` with `node scripts/backfill-dev-panel-expiry.mjs`.
+Only `--apply` writes to the panel; the script refuses the production Supabase
+project. Do not use it to backfill production after the Outline migration;
+that needs a separate migration plan and ownership checks.
+
+Production `.env.production` currently has no `MARZNESHIN_PANEL_*` variables;
+this is expected for normal runtime. Supply them only to an operator script
+that needs panel administration. Do not copy the entire local `.env.local` to
+the Droplet or put service-role/panel secrets in any `VITE_*` variable.
 
 ## Environments
 
@@ -204,6 +251,8 @@ For this project, the current post-initial migration sequence is:
 0021_server_counter_trigger.sql
 0022_apply_confirmed_payment_rpc.sql
 0023_canonical_read_views.sql
+0024_one_scheduled_purchase_per_customer.sql
+0025_provider_coexistence.sql
 ```
 
 > **Final Data Model (migrations 0020–0023):** the ACID/consistency layer —
@@ -226,15 +275,52 @@ queries documented in `DEPLOYMENT_RUNBOOK.md`. If preflight finds duplicate
 active purchases or duplicate active server keys, stop and clean the data
 explicitly before deployment.
 
-Minimum production order:
+Before `0024`, inspect scheduled purchases for duplicates:
+
+```sql
+select reseller_id, customer_id, count(*) as scheduled_count,
+       array_agg(id order by created_at) as order_ids
+from vpn_orders
+where status = 'scheduled' and order_type = 'purchase'
+group by reseller_id, customer_id
+having count(*) > 1;
+```
+
+Resolve any returned rows against their payments and customer history before
+running `0024`. The migration refuses duplicates and never deletes a sale.
+Apply `0024` before deploying code that relies on its unique index.
+
+Provider coexistence: the current `0013` keeps existing servers as Outline and
+requires new panel rows to opt into Marzneshin. Development databases that
+already ran the original `0013` need `0025` to correct old Outline rows.
+Verify `panel_type` for every server after migration. Keep Outline rows and
+their APIs online until their
+last active key is retired. The new backend defaults new production provisioning
+to Outline; `VPN_MARZNESHIN_CANARY_RESELLER_IDS` opts specific reseller UUIDs
+into panel provisioning, and `VPN_NEW_ACCESS_PROVIDER=marzneshin` changes the
+global default only after canary verification. Never set these flags before
+Marzneshin server rows and service IDs are ready.
+
+Migration `0021` transfers server-counter ownership to a database trigger.
+Rehearse the old/new writer overlap on a production-data copy before applying
+it to production. See `PROVIDER_COEXISTENCE_RUNBOOK.md` for release gates.
+
+Minimum production order (each gate must pass before the next):
 
 ```text
-1. Back up Supabase.
-2. Apply and verify all pending migrations.
-3. Push/update production env values if needed.
-4. Deploy backend with Ansible.
-5. Deploy Mini App with Ansible if Mini App code changed.
-6. Deploy dashboards manually after backend health checks pass.
+1. Freeze and test the release revision; inventory production schema and data.
+2. Take and restore-test Supabase backup; back up both VPN panels separately.
+3. Rehearse each missing migration in order on a production-data copy, checking
+   its objects and invariants. Resolve duplicates before 0024.
+4. Gate 0021 separately: prove the old/new counter-writer transition in the
+   rehearsal. Do not overlap incompatible writers on production.
+5. Apply only verified missing migrations to production and validate the RPCs,
+   views, provider identity, active keys, payments, and counters.
+6. Set production env with new Marzneshin provisioning OFF; deploy backend via
+   Ansible and verify health plus existing Outline key delivery and lifecycle.
+7. Deploy Mini App if changed, then dashboards after API checks pass.
+8. Create separate Marzneshin server rows and canary one named reseller. Expand
+   only after provider and client checks pass; keep Outline online.
 ```
 
 ## Marznode VPN Nodes (Marzneshin fleet)
@@ -243,6 +329,16 @@ Each VPN server runs `dawsh/marznode` in Docker (`/opt/marznode`), with Xray
 config at `/var/lib/marznode/xray_config.json`, gRPC to the panel on `:62050`,
 Shadowsocks on `:1080`, and VLESS Reality on `:443`. The Marzneshin panel
 (`panel.novanetmm.com`) pushes user configs to each node over gRPC.
+
+The fleet pins Xray `25.5.16` from the official image digest in the setup
+scripts. The bundled Marznode Xray `25.2.21` failed Reality connections with
+Apple's post-quantum TLS target in Happ and V2Box. Existing nodes keep the
+pinned binary at `/var/lib/marznode/xray-25.5.16` and select it through
+`/opt/marznode/docker-compose.override.yml`; verify the effective path with
+`cd /opt/marznode && docker compose config`. Do not omit the override by
+running `docker compose -f docker-compose.yml up`. To roll back a node's core,
+remove only that override from the effective Compose configuration and recreate
+Marznode; the original Compose file still selects the bundled Xray binary.
 
 **Provisioning a new premium node:** `backend/scripts/setup-marznode-premium.sh`
 (needs a fresh per-node Reality keypair — never reuse). It disables IPv6, writes
@@ -261,7 +357,7 @@ the Xray config, and starts marznode. Then register + wire services with
   subscription fail to import ("duplicate outbound/endpoint tag"). Every node's
   host remark must include its server name. Fix with
   `backend/scripts/fix-vless-host-remarks.mjs`.
-- **Consistent Reality params:** `sni=www.tiktok.com`, `fingerprint=chrome`,
+- **Consistent Reality params:** `sni=www.apple.com`, `fingerprint=chrome`,
   `flow=xtls-rprx-vision`, host record `address` = the node's public IPv4.
 
 > **CRITICAL — never `docker compose restart` a marznode.** It can hit a marznode
@@ -271,8 +367,8 @@ the Xray config, and starts marznode. Then register + wire services with
 > `docker compose down && docker compose up -d` — a clean recreate re-pushes all
 > users (access.log then shows `accepted ... [VLESS TCP REALITY >> direct]`).
 
-> **Diagnostics:** `openssl s_client -connect <ip>:443 -servername www.tiktok.com`
-> should return the real tiktok cert (proves camouflage, not user sync). Panel
+> **Diagnostics:** `openssl s_client -connect <ip>:443 -servername www.apple.com`
+> should return the real Apple cert (proves camouflage, not user sync). Panel
 > node `msg=timeout` with `status=healthy` is a cosmetic remote-node health-check
 > artifact, not an outage. Clients (Hiddify/Streisand) cache subscriptions —
 > refresh/re-import after any host-record change.

@@ -1,7 +1,6 @@
 import HomePage from "../pages/HomePage";
 import ServersPage from "../pages/ServersPage";
 import PackagesPage from "../pages/PackagesPage";
-import ProtocolPage from "../pages/ProtocolPage";
 import CheckoutPage from "../pages/CheckoutPage";
 import PaymentStatusPage from "../pages/PaymentStatusPage";
 import SettingsPage from "../pages/SettingsPage";
@@ -13,8 +12,6 @@ export function renderPage(tab, props) {
       return <ServersPage {...props} />;
     case TAB_KEYS.PACKAGES:
       return <PackagesPage {...props} />;
-    case TAB_KEYS.PROTOCOL:
-      return <ProtocolPage {...props} />;
     case TAB_KEYS.CHECKOUT:
       return <CheckoutPage {...props} />;
     case TAB_KEYS.PAYMENT_STATUS:

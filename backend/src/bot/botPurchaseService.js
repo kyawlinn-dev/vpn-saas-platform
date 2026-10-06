@@ -14,6 +14,7 @@ import {
   activatePendingReviewPurchase,
 } from "../services/orderLifecycleService.js";
 import { createOrderPayment } from "../services/paymentLedgerService.js";
+import { isQueuedPurchaseConflict } from "../services/queuedPurchasePolicy.js";
 
 // ── Plans ──────────────────────────────────────────────────────────────────────
 
@@ -102,11 +103,8 @@ export async function createBotPurchaseOrder({ resellerId, customerId, planId, s
 
   if (planErr || !plan) throw new Error("Plan not found or no longer available");
 
-  // 3. Guard: customer must not already have an active purchase.
-  // Cannot use assertNoOtherActivePurchase here (no order id yet — passing null
-  // causes PostgREST to send "neq.null" which PostgreSQL rejects as invalid UUID).
-  // activatePendingReviewPurchase repeats this check with the real order id after insert.
-  const { data: existingActive } = await supabase
+  // 3. Check existing active purchase and queued purchase.
+  const { data: existingActive, error: activeError } = await supabase
     .from("vpn_orders")
     .select("id")
     .eq("customer_id", customerId)
@@ -116,11 +114,25 @@ export async function createBotPurchaseOrder({ resellerId, customerId, planId, s
     .limit(1)
     .maybeSingle();
 
-  if (existingActive) {
-    const err = new Error("Customer already has an active paid subscription");
-    err.code = "CUSTOMER_ALREADY_ACTIVE";
+  const { data: existingScheduled, error: scheduledError } = await supabase
+    .from("vpn_orders")
+    .select("id")
+    .eq("customer_id", customerId)
+    .eq("reseller_id", resellerId)
+    .eq("status", "scheduled")
+    .limit(1)
+    .maybeSingle();
+
+  if (activeError || scheduledError) {
+    throw new Error(activeError?.message || scheduledError?.message);
+  }
+  if (existingScheduled) {
+    const err = new Error("Customer already has a queued order");
+    err.code = "CUSTOMER_ALREADY_QUEUED";
     throw err;
   }
+
+  const isQueued = Boolean(existingActive);
 
   // 4. Commission
   const commissionPercent = getPackageCommissionPercent({ reseller, plan });
@@ -133,7 +145,7 @@ export async function createBotPurchaseOrder({ resellerId, customerId, planId, s
       customer_id: customerId,
       reseller_id: resellerId,
       plan_id: plan.id,
-      status: "pending",
+      status: isQueued ? "scheduled" : "pending",
       price_mmk: plan.price_mmk,
       commission_percent: commissionPercent,
       commission_amount_mmk: commissionAmountMmk,
@@ -147,6 +159,11 @@ export async function createBotPurchaseOrder({ resellerId, customerId, planId, s
     .select("id, customer_id, reseller_id, plan_id, status, price_mmk, commission_percent, payment_status, review_status, order_type, source, start_date, expiry_date, payment_screenshot_url")
     .single();
 
+  if (isQueuedPurchaseConflict(orderErr)) {
+    const error = new Error("Customer already has a queued package");
+    error.code = "CUSTOMER_ALREADY_QUEUED";
+    throw error;
+  }
   if (orderErr || !order) throw new Error(`Failed to create order: ${orderErr?.message}`);
 
   // 6. Payment ledger row
@@ -154,18 +171,23 @@ export async function createBotPurchaseOrder({ resellerId, customerId, planId, s
     order: { ...order, reseller_id: resellerId, customer_id: customerId },
     amountMmk: plan.price_mmk,
     reviewStatus: "pending_review",
+    paymentType: isQueued ? "extend" : "initial",
     source: "bot",
     paymentScreenshotUrl: screenshotPath || null,
   });
 
-  // 7. Provision key immediately (pending-review instant access)
+  if (isQueued) {
+    return { order, isQueued: true, activation: null, plan, reseller };
+  }
+
+  // 7. Provision key immediately (pending-review instant access for initial orders)
   const activation = await activatePendingReviewPurchase({
     order: { ...order, customer: { id: customerId } },
     reseller,
     plan,
   });
 
-  return { order, activation, plan, reseller };
+  return { order, isQueued: false, activation, plan, reseller };
 }
 
 // ── Payment info ───────────────────────────────────────────────────────────────
@@ -225,6 +247,88 @@ export async function setCustomerProtocolPreference(customerId, protocol) {
     .eq("id", customerId);
   if (error) {
     console.warn(`[botPurchaseService] setCustomerProtocolPreference failed (non-fatal):`, error.message);
+  }
+}
+
+/**
+ * Query customer purchase eligibility for bot buy flow.
+ * Rules:
+ *   - At most 1 active purchase + 1 queued (scheduled) purchase order.
+ *   - Any scheduled purchase blocks another purchase until it activates or is cancelled.
+ * @param {string} customerId
+ * @param {string} resellerId
+ */
+export async function getCustomerOrderPurchaseState(customerId, resellerId) {
+  const { data: activeOrder, error: activeError } = await supabase
+    .from("vpn_orders")
+    .select("id, status, order_type")
+    .eq("customer_id", customerId)
+    .eq("reseller_id", resellerId)
+    .eq("status", "active")
+    .eq("order_type", "purchase")
+    .limit(1)
+    .maybeSingle();
+
+  const { data: queuedOrder, error: queuedError } = await supabase
+    .from("vpn_orders")
+    .select("id, status, order_type")
+    .eq("customer_id", customerId)
+    .eq("reseller_id", resellerId)
+    .eq("status", "scheduled")
+    .limit(1)
+    .maybeSingle();
+
+  if (activeError || queuedError) {
+    throw new Error(activeError?.message || queuedError?.message);
+  }
+  return {
+    activeOrder,
+    queuedOrder,
+    canBuy: !queuedOrder,
+    isExtend: Boolean(activeOrder),
+  };
+}
+
+/**
+ * Fetch a customer's pending/queued (scheduled) purchase order along with plan details.
+ * Scoped strictly by customer_id and reseller_id.
+ *
+ * @param {string} customerId
+ * @param {string} resellerId
+ * @returns {Promise<{ id: string, planName: string, dataLimitGb: number|null, durationDays: number|null }|null>}
+ */
+export async function getCustomerQueuedOrder(customerId, resellerId) {
+  try {
+    const { data, error } = await supabase
+      .from("vpn_orders")
+      .select(`
+        id,
+        status,
+        order_type,
+        vpn_plans (
+          id,
+          name,
+          data_limit_gb,
+          duration_days
+        )
+      `)
+      .eq("customer_id", customerId)
+      .eq("reseller_id", resellerId)
+      .eq("status", "scheduled")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return {
+      id: data.id,
+      planName: data.vpn_plans?.name || "Premium Plan",
+      dataLimitGb: data.vpn_plans?.data_limit_gb ?? null,
+      durationDays: data.vpn_plans?.duration_days ?? null,
+    };
+  } catch (err) {
+    console.warn(`[botPurchaseService] getCustomerQueuedOrder error (non-fatal):`, err.message);
+    return null;
   }
 }
 

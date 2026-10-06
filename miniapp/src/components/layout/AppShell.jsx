@@ -10,10 +10,10 @@ import { TAB_KEYS } from "../../constants/routes";
 import { useMiniAppAuth } from "../../hooks/useMiniAppAuth";
 import { getMiniAppConfig } from "../../features/auth/api";
 import { renderPage } from "../../app/router";
+import ProtocolDialog from "../checkout/ProtocolDialog";
 
 // Sub-screens hide the BottomNav and take full page height.
 const SUB_SCREENS = new Set([
-  TAB_KEYS.PROTOCOL,
   TAB_KEYS.CHECKOUT,
   TAB_KEYS.PAYMENT_STATUS,
   TAB_KEYS.SETTINGS,
@@ -24,7 +24,9 @@ export default function AppShell() {
   const [prevTab, setPrevTab] = useState(DEFAULT_TAB);
   const [toast, setToast] = useState({ open: false, message: "", severity: "info" });
   const [checkoutPlan, setCheckoutPlan] = useState(null);
-  const [checkoutProtocol, setCheckoutProtocol] = useState("shadowsocks");
+  const [checkoutProtocol, setCheckoutProtocol] = useState(null);
+  const [protocolDialogOpen, setProtocolDialogOpen] = useState(false);
+  const [paymentResult, setPaymentResult] = useState(null);
 
   const {
     data,
@@ -55,15 +57,29 @@ export default function AppShell() {
   const closeToast = () =>
     setToast((prev) => ({ ...prev, open: false }));
 
-  // Purchase flow: Packages → Protocol → Checkout.
+  // Renewals keep the active protocol; new purchases require an explicit app choice.
   const navigateToProtocol = (plan) => {
     setCheckoutPlan(plan);
-    setCheckoutProtocol(data?.protocol_preference || "shadowsocks");
-    setTab(TAB_KEYS.PROTOCOL);
+    setPaymentResult(null);
+    setCheckoutProtocol(null);
+    const isExtend = Boolean(
+      data?.subscription &&
+      data.subscription.type === "purchase" &&
+      data.subscription.status === "active"
+    );
+    if (isExtend) {
+      const activeProto = data?.vpn_key?.protocol || data?.protocol_preference || "shadowsocks";
+      setCheckoutProtocol(activeProto);
+      setTab(TAB_KEYS.CHECKOUT);
+      return;
+    }
+    setProtocolDialogOpen(true);
   };
 
   const confirmProtocol = (protocol) => {
+    if (!protocol) return;
     setCheckoutProtocol(protocol);
+    setProtocolDialogOpen(false);
     setTab(TAB_KEYS.CHECKOUT);
   };
 
@@ -88,12 +104,14 @@ export default function AppShell() {
       initData,
       checkoutPlan,
       checkoutProtocol,
+      paymentResult,
       prevTab,
       onToast: showToast,
       onTabChange: setTab,
       onRefreshAuth: refreshAuth,
       onNavigateToProtocol: navigateToProtocol,
       onConfirmProtocol: confirmProtocol,
+      onPurchaseSubmitted: setPaymentResult,
       onOpenSettings: openSettings,
     });
   }
@@ -126,6 +144,14 @@ export default function AppShell() {
 
       {!isSubScreen && (
         <BottomNav active={tab} onChange={setTab} />
+      )}
+
+      {protocolDialogOpen && checkoutPlan && (
+        <ProtocolDialog
+          plan={checkoutPlan}
+          onClose={() => setProtocolDialogOpen(false)}
+          onConfirm={confirmProtocol}
+        />
       )}
 
       <ToastMessage

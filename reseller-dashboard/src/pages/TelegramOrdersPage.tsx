@@ -31,9 +31,17 @@ function ReviewChip({ value }: { value?: string | null }) {
 
 function AccessChip({ value }: { value?: string | null }) {
   const v = String(value || "pending");
+  const label =
+    v === "active" ? "Active" :
+    v === "stopped" ? "Stopped" :
+    v === "scheduled" ? "Queued" : "Pending";
+  const variant =
+    v === "active" ? "success" :
+    v === "stopped" ? "default" :
+    v === "scheduled" ? "info" : "warning";
   return (
-    <Badge variant={v === "active" ? "success" : v === "stopped" ? "default" : "info"}>
-      {v === "active" ? "Active" : v === "stopped" ? "Stopped" : "Pending"}
+    <Badge variant={variant}>
+      {label}
     </Badge>
   );
 }
@@ -162,7 +170,7 @@ export function TelegramOrdersPage() {
     const busy = busyOrderId === order.id;
     const canReview =
       order.review_status === "pending_review" &&
-      ["active", "pending"].includes(String(order.status || ""));
+      ["active", "pending", "scheduled"].includes(String(order.status || ""));
     const hasScreenshot = Boolean(order.payment_screenshot_url);
     const actions: ActionMenuItem[] = [
       {
@@ -504,12 +512,26 @@ export function TelegramOrdersPage() {
           </DialogHeader>
           <DialogBody>
             <p className="text-sm text-muted-foreground">
-              This will approve the payment for{" "}
-              <span className="font-semibold text-foreground">
-                {confirmPaymentOrder.customer?.full_name ?? "this customer"}
-              </span>{" "}
-              and finalize their order. Only confirm after you've verified the payment screenshot
-              is genuine.
+              {confirmPaymentOrder.status === "scheduled" ? (
+                <>
+                  Confirm that payment for{" "}
+                  <span className="font-semibold text-foreground">
+                    {confirmPaymentOrder.customer?.full_name ?? "this customer"}
+                  </span>{" "}
+                  ({confirmPaymentOrder.plan?.name ?? "package"}) has been received. This queued
+                  package will be confirmed and will activate automatically when their current
+                  package expires.
+                </>
+              ) : (
+                <>
+                  This will approve the payment for{" "}
+                  <span className="font-semibold text-foreground">
+                    {confirmPaymentOrder.customer?.full_name ?? "this customer"}
+                  </span>{" "}
+                  and finalize their order. Only confirm after you've verified the payment screenshot
+                  is genuine.
+                </>
+              )}
             </p>
           </DialogBody>
           <DialogFooter>
@@ -538,12 +560,25 @@ export function TelegramOrdersPage() {
           </DialogHeader>
           <DialogBody>
             <p className="text-sm text-muted-foreground">
-              This will permanently delete the VPN key for{" "}
-              <span className="font-semibold text-foreground">
-                {rejectConfirmOrder.customer?.full_name ?? "this customer"}
-              </span>{" "}
-              and cut their access immediately. The order will be marked rejected and cannot be
-              confirmed afterward.
+              {rejectConfirmOrder.status === "scheduled" ? (
+                <>
+                  This will reject the queued payment for{" "}
+                  <span className="font-semibold text-foreground">
+                    {rejectConfirmOrder.customer?.full_name ?? "this customer"}
+                  </span>{" "}
+                  and cancel the scheduled package. Their current active VPN access will remain
+                  unaffected.
+                </>
+              ) : (
+                <>
+                  This will permanently delete the VPN key for{" "}
+                  <span className="font-semibold text-foreground">
+                    {rejectConfirmOrder.customer?.full_name ?? "this customer"}
+                  </span>{" "}
+                  and cut their access immediately. The order will be marked rejected and cannot be
+                  confirmed afterward.
+                </>
+              )}
             </p>
           </DialogBody>
           <DialogFooter>
@@ -559,7 +594,7 @@ export function TelegramOrdersPage() {
                 void handleReject(order.id);
               }}
             >
-              Reject &amp; Remove Access
+              {rejectConfirmOrder.status === "scheduled" ? "Reject Payment" : "Reject & Remove Access"}
             </Button>
           </DialogFooter>
         </Dialog>

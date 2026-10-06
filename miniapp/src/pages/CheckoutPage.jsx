@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Camera,
   CheckCircle2,
+  Clock,
   Copy,
   CreditCard,
 } from "lucide-react";
@@ -285,14 +286,21 @@ export default function CheckoutPage({
   onToast,
   onTabChange,
   onRefreshAuth,
+  onPurchaseSubmitted,
 }) {
   const { t } = useLanguage();
   const paymentMethods = data?.config?.payment || [];
   const telegramUserId = data?.user?.telegram_user_id;
   const initData = initDataProp || data?.init_data || "";
 
-  // Protocol is chosen on the previous (Protocol) step.
-  const selectedProtocol = checkoutProtocol || data?.protocol_preference || "shadowsocks";
+  const isExtend = Boolean(
+    data?.subscription &&
+    data.subscription.type === "purchase" &&
+    data.subscription.status === "active"
+  );
+  const activeProtocol = data?.vpn_key?.protocol || data?.protocol_preference || "shadowsocks";
+  // If extending an active purchase, strictly lock to the current protocol; otherwise use chosen protocol.
+  const selectedProtocol = isExtend ? activeProtocol : checkoutProtocol;
 
   const [selectedMethodIdx, setSelectedMethodIdx] = useState(0);
   const [uploadedPath, setUploadedPath] = useState(null);
@@ -303,7 +311,7 @@ export default function CheckoutPage({
 
   // Guard: no plan selected → bounce back to packages
   const selectedMethod = paymentMethods[selectedMethodIdx] ?? null;
-  const canSubmit = Boolean(uploadedPath) && !isUploading;
+  const canSubmit = Boolean(uploadedPath && selectedProtocol) && !isUploading;
 
   const handleFileSelect = async (file) => {
     setUploadedPath(null);
@@ -325,9 +333,14 @@ export default function CheckoutPage({
 
   // ── Mutation (payload unchanged from PurchaseDialog) ─────────────────────────
   const submitMutation = useSubmitPurchase({
-    onSuccess: async () => {
-      if (onRefreshAuth) await onRefreshAuth();
+    onSuccess: async (result) => {
+      onPurchaseSubmitted?.(result);
       onTabChange(TAB_KEYS.PAYMENT_STATUS);
+      try {
+        await onRefreshAuth?.();
+      } catch {
+        // The submitted order result remains available if the refresh fails.
+      }
     },
     onError: (err) => {
       onToast(err?.message || t("payment.failedSubmit"), "error");
@@ -346,10 +359,12 @@ export default function CheckoutPage({
     });
   };
 
-  if (!checkoutPlan) {
+  if (!checkoutPlan || !selectedProtocol) {
     return (
       <div className="flex flex-col items-center justify-center gap-4 px-6 py-20">
-        <p className="text-[15px] text-muted-foreground">{t("packages.noPlanSelected")}</p>
+        <p className="text-[15px] text-muted-foreground">
+          {checkoutPlan ? t("protocol.choose") : t("packages.noPlanSelected")}
+        </p>
         <SecondaryButton onClick={() => onTabChange(TAB_KEYS.PACKAGES)} className="w-auto px-6">
           {t("packages.backToPackages")}
         </SecondaryButton>
@@ -359,10 +374,27 @@ export default function CheckoutPage({
 
   return (
     <div className="flex flex-col gap-3 px-4 pt-4 pb-8">
-      <PageHeader title={t("payment.checkout")} onBack={() => onTabChange(TAB_KEYS.PROTOCOL)} centerTitle />
+      <PageHeader title={t("payment.checkout")} onBack={() => onTabChange(TAB_KEYS.PACKAGES)} centerTitle />
 
       {/* 1 — Plan summary */}
       <PlanSummaryCard plan={checkoutPlan} />
+
+      {/* Queued Notice if customer currently has an active plan */}
+      {data?.subscription?.type === "purchase" && (
+        <GlassCard className="border-cyan/30 bg-cyan/10 p-3.5">
+          <div className="flex items-start gap-2.5">
+            <Clock size={16} className="mt-0.5 shrink-0 text-cyan" />
+            <div>
+              <p className="text-[13px] font-semibold text-cyan">
+                {t("payment.queuedNoticeTitle")}
+              </p>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+                {t("payment.queuedNoticeDesc")}
+              </p>
+            </div>
+          </div>
+        </GlassCard>
+      )}
 
       {/* 2 — Payment method selector */}
       {paymentMethods.length > 0 ? (
@@ -423,7 +455,10 @@ export default function CheckoutPage({
       <PrimaryButton
         onClick={handleSubmit}
         disabled={!canSubmit || submitMutation.isPending}
-        className="mt-1"
+        className={cn(
+          "mt-1",
+          !canSubmit && "disabled:opacity-100 disabled:bg-none disabled:bg-secondary disabled:text-muted-foreground disabled:shadow-none",
+        )}
       >
         {submitMutation.isPending ? (
           <>

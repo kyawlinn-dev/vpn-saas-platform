@@ -3,7 +3,7 @@ import { Telegraf } from "telegraf";
 import { supabase } from "../lib/supabase.js";
 import { decrypt } from "../lib/tokenEncryption.js";
 import { setupHandlers } from "./handlers.js";
-import { buildWebAppUrl } from "./webAppUrl.js";
+import { getBotCommands, setCommandsMenu } from "./commandMenu.js";
 
 // A fresh webhook secret is generated per bot on every server boot, so startup
 // registers webhooks for all configured bots. Persisting secrets can be added
@@ -66,27 +66,6 @@ async function persistBotStatus(resellerId, patch) {
   }
 }
 
-function safeWebAppUrlMeta(url) {
-  try {
-    const parsed = new URL(url);
-    return {
-      host: parsed.host,
-      path: parsed.pathname || "/",
-      has_slug: parsed.searchParams.has("slug"),
-      slug: parsed.searchParams.get("slug") || "",
-      has_version: parsed.searchParams.has("v"),
-      version: parsed.searchParams.get("v") || "",
-    };
-  } catch {
-    return {
-      host: "",
-      path: "",
-      has_slug: false,
-      slug: "",
-    };
-  }
-}
-
 async function startBotForReseller(row) {
   const { reseller_id, bot_token_encrypted, brand_name, miniapp_slug, support_username, trial_enabled, trial_protocol, admin_telegram_user_id } = row;
   const miniappBaseUrl = String(process.env.TELEGRAM_MINIAPP_URL || "").replace(/\/$/, "");
@@ -132,33 +111,17 @@ async function startBotForReseller(row) {
   // Throws on bad token or timeout — callers handle the error
   await registerWebhook(plainToken, reseller_id, secretToken);
 
-  // Menu button + commands are non-fatal — a failure here doesn't prevent the bot going live.
-  // MENU_BUTTON_TEXT is deliberately hardcoded to "Open VPN" (English) across
-  // every reseller bot: (1) it matches what operators set in @BotFather so we
-  // don't fight that setting on every restart, (2) it stays consistent per
-  // reseller regardless of brand_name, and (3) it avoids the cache/fallback
-  // issues Telegram clients hit when the text drifts.
+  // Command registration and the default menu button are independent so a
+  // temporary failure of either Telegram call does not prevent the other.
   try {
-    const label = brand_name || "App";
-    const MENU_BUTTON_TEXT = "Open VPN";
-    const webAppUrl = buildWebAppUrl(miniappBaseUrl, miniapp_slug || "");
-    if (webAppUrl) {
-      console.info(`[bot:${reseller_id}] menu web_app payload`, {
-        text: MENU_BUTTON_TEXT,
-        has_web_app: true,
-        web_app_url: safeWebAppUrlMeta(webAppUrl),
-      });
-      await bot.telegram.setChatMenuButton({
-        menu_button: { type: "web_app", text: MENU_BUTTON_TEXT, web_app: { url: webAppUrl } },
-      });
-    }
-    await bot.telegram.setMyCommands([
-      { command: "start", description: `Start ${label}` },
-      { command: "app", description: `Open ${label}` },
-      { command: "buy", description: "ပက်ကေ့ဂျ် ဝယ်ရန်" },
-    ]);
+    await bot.telegram.setMyCommands(getBotCommands(trial_enabled ?? false));
   } catch (err) {
-    console.warn(`[bot:${reseller_id}] menu/commands setup warning (non-fatal):`, err.message);
+    console.warn(`[bot:${reseller_id}] commands setup warning (non-fatal):`, err.message);
+  }
+  try {
+    await setCommandsMenu(bot.telegram);
+  } catch (err) {
+    console.warn(`[bot:${reseller_id}] command menu setup warning (non-fatal):`, err.message);
   }
 
   activeBots.set(reseller_id, {
