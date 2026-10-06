@@ -205,7 +205,7 @@ export async function getFullServerById(serverId) {
   const { data, error } = await supabase
     .from("vpn_servers")
     .select(
-      "id, name, region, server_tier, status, " +
+      "id, name, region, server_tier, status, panel_type, " +
         "panel_url, panel_username, panel_password_encrypted, " +
         "marzneshin_service_ids, marzneshin_vless_service_ids, marzneshin_vless_trial_service_ids, " +
         "current_active_keys, max_active_keys"

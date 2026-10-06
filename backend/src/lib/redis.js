@@ -1,4 +1,5 @@
 import { Redis } from "@upstash/redis";
+import "./loadEnv.js";
 
 /**
  * Upstash Redis client — REST-based, no persistent socket needed.

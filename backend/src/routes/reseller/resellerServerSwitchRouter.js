@@ -179,7 +179,7 @@ router.post("/:orderId/switch-server", async (req, res) => {
     const { data: newServer, error: serverErr } = await supabase
       .from("vpn_servers")
       .select(
-        "id, name, region, server_tier, panel_url, panel_username, panel_password_encrypted, " +
+        "id, name, region, server_tier, panel_type, panel_url, panel_username, panel_password_encrypted, " +
           "marzneshin_service_ids, marzneshin_vless_service_ids, " +
           "current_active_keys, max_active_keys, status, " +
           "server_health_status(outline_api_status)"

@@ -263,7 +263,7 @@ export async function checkAllServerHealth() {
   try {
     const { data: servers, error } = await supabase
       .from("vpn_servers")
-      .select("id, name, status, panel_url, panel_username, panel_password_encrypted")
+      .select("id, name, status, panel_type, panel_url, panel_username, panel_password_encrypted")
       .eq("status", "active")
       .not("panel_url", "is", null);
 

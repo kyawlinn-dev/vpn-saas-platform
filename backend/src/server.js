@@ -230,7 +230,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Telegram-Init-Data, ngrok-skip-browser-warning"
+    "Content-Type, Authorization, X-Telegram-Init-Data, x-novanet-session-id, ngrok-skip-browser-warning"
   );
 
   if (req.method === "OPTIONS") {
