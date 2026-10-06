@@ -38,7 +38,9 @@ jobs:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           workingDirectory: admin-dashboard
-          command: pages deploy dist --project-name=novanet-admin
+          # The workflow can run from a release branch, but these domains need a
+          # production Pages deployment rather than a branch preview.
+          command: pages deploy dist --project-name=novanet-admin --branch=main --commit-hash=${{ github.sha }}
 
   deploy-reseller:
     name: Deploy Reseller Dashboard to Cloudflare Pages
@@ -68,4 +70,4 @@ jobs:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
           workingDirectory: reseller-dashboard
-          command: pages deploy dist --project-name=novanet-reseller
+          command: pages deploy dist --project-name=novanet-reseller --branch=main --commit-hash=${{ github.sha }}
