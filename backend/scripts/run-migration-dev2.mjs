@@ -4,8 +4,10 @@
  * No extra packages needed — just fetch.
  */
 
+import "../src/lib/loadEnv.js";
+
 const DEV_REF = "huqmzvlzfcexycdrsxpn";
-const SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1cW16dmx6ZmNleHljZHJzeHBuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDI4NDkxMywiZXhwIjoyMDg5ODYwOTEzfQ.9dY1LRUMapO1jhGhu1T4m9xzJnAgPdRr9Rb3UdZtG9g";
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BASE = `https://${DEV_REF}.supabase.co`;
 
 const headers = {

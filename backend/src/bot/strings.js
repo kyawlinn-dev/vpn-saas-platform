@@ -478,6 +478,9 @@ export const BUY_ALREADY_QUEUED =
   "နောက်ထပ် ဝယ်ယူနိုင်မည့်အချိန်တွင် ပြန်လည်ကြိုးစားပါ။\n" +
   "အသေးစိတ်ကြည့်ရန် ပင်မသို့ ပြန်သွားပြီး ဒေတာနှင့် သက်တမ်းကို စစ်ဆေးပါ။";
 
+export const BUY_PAYMENT_UNDER_REVIEW =
+  "⏳ လက်ရှိဝယ်ယူမှု၏ ငွေပေးချေမှုကို စစ်ဆေးနေပါသည်။ အတည်ပြုပြီးမှ နောက်ပက်ကေ့ဂျ်ကို ဝယ်ယူနိုင်ပါမည်။";
+
 /** Shown when the customer already has an active purchase order. */
 export const BUY_ALREADY_ACTIVE =
   "ℹ️ လက်ရှိ ပက်ကေ့ဂျ် ရှိနေပါသည်။ ဤဝယ်ယူမှုကို ဆက်မလုပ်ဆောင်နိုင်ခဲ့ပါ။\n\n" +

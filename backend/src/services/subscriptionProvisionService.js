@@ -44,16 +44,41 @@ export function calculateExtendedDataLimitBytes(currentLimitBytes, packageLimitB
   return Math.floor(currentBytes + packageBytes);
 }
 
-export function buildOrderQuotaSnapshot(keys = []) {
+export function buildOrderQuotaSnapshot(keys = [], orderQuota = {}) {
   const rows = Array.isArray(keys) ? keys : [];
-  const totalUsedBytes = rows.reduce((sum, key) => sum + usageBytesForQuota(key), 0);
+  const rawTotalUsedBytes = rows.reduce((sum, key) => sum + usageBytesForQuota(key), 0);
+  const usageBaselineBytes = Math.max(
+    0,
+    Number(orderQuota?.usage_baseline_bytes ?? orderQuota?.usageBaselineBytes) || 0
+  );
+  const totalUsedBytes = Math.max(rawTotalUsedBytes - usageBaselineBytes, 0);
+  const explicitLimitValue =
+    orderQuota?.quota_limit_bytes ?? orderQuota?.quotaLimitBytes;
+  const explicitLimitBytes = Number(explicitLimitValue);
   const activeKeys = rows.filter(isActiveKey);
+
+  if (Number.isFinite(explicitLimitBytes) && explicitLimitBytes > 0) {
+    return {
+      isUnlimited: false,
+      rawTotalUsedBytes,
+      usageBaselineBytes,
+      totalUsedBytes,
+      usedBytes: totalUsedBytes,
+      totalAllowanceBytes: Math.floor(explicitLimitBytes),
+      limitBytes: Math.floor(explicitLimitBytes),
+      remainingBytes: Math.max(Math.floor(explicitLimitBytes) - totalUsedBytes, 0),
+    };
+  }
 
   if (activeKeys.some((key) => key.data_limit_bytes == null)) {
     return {
       isUnlimited: true,
+      rawTotalUsedBytes,
+      usageBaselineBytes,
       totalUsedBytes,
+      usedBytes: totalUsedBytes,
       totalAllowanceBytes: null,
+      limitBytes: null,
       remainingBytes: null,
     };
   }
@@ -66,8 +91,12 @@ export function buildOrderQuotaSnapshot(keys = []) {
   if (activeLimitBytes <= 0) {
     return {
       isUnlimited: false,
+      rawTotalUsedBytes,
+      usageBaselineBytes,
       totalUsedBytes,
+      usedBytes: totalUsedBytes,
       totalAllowanceBytes: null,
+      limitBytes: null,
       remainingBytes: null,
     };
   }
@@ -75,12 +104,19 @@ export function buildOrderQuotaSnapshot(keys = []) {
   const historicalUsedBytes = rows
     .filter((key) => !isActiveKey(key))
     .reduce((sum, key) => sum + usageBytesForQuota(key), 0);
-  const totalAllowanceBytes = historicalUsedBytes + activeLimitBytes;
+  const totalAllowanceBytes = Math.max(
+    historicalUsedBytes + activeLimitBytes - usageBaselineBytes,
+    0
+  );
 
   return {
     isUnlimited: false,
+    rawTotalUsedBytes,
+    usageBaselineBytes,
     totalUsedBytes,
+    usedBytes: totalUsedBytes,
     totalAllowanceBytes,
+    limitBytes: totalAllowanceBytes,
     remainingBytes: Math.max(totalAllowanceBytes - totalUsedBytes, 0),
   };
 }
@@ -108,14 +144,23 @@ export function resolveRemainingKeyLimitBytes({ quota, planDataLimitGb }) {
 }
 
 export async function getOrderQuotaSnapshot(orderId) {
-  const { data: keys, error } = await supabase
-    .from("vpn_keys")
-    .select("id, status, deleted_at, data_limit_bytes, used_bytes")
-    .eq("order_id", orderId)
-    .in("status", ["active", "deleted"]);
+  const [{ data: keys, error: keysError }, { data: order, error: orderError }] =
+    await Promise.all([
+      supabase
+        .from("vpn_keys")
+        .select("id, status, deleted_at, data_limit_bytes, used_bytes")
+        .eq("order_id", orderId)
+        .in("status", ["active", "deleted"]),
+      supabase
+        .from("vpn_orders")
+        .select("usage_baseline_bytes, quota_limit_bytes")
+        .eq("id", orderId)
+        .single(),
+    ]);
 
-  if (error) throw new Error(error.message);
-  return buildOrderQuotaSnapshot(keys || []);
+  if (keysError) throw new Error(keysError.message);
+  if (orderError) throw new Error(orderError.message);
+  return buildOrderQuotaSnapshot(keys || [], order || {});
 }
 
 function buildKeyName({ customer, server, order, plan, protocol = "shadowsocks" }) {

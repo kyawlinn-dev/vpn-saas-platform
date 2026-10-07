@@ -23,14 +23,14 @@ async function runAutoStop() {
   log.info("running");
   try {
     const results = await processExpiredOrdersAndQueue();
-    const ended = results.filter((r) => !r.error).length;
+    const ended = results.filter((r) => r.ended && !r.error).length;
     const promoted = results.filter((r) => r.promoted).length;
     const failed = results.filter((r) => r.error);
     if (ended > 0 || promoted > 0) {
       log.info({ ended, promoted }, "lifecycle sweep applied");
     }
     for (const f of failed) {
-      log.error({ order_id: f.ended, err: f.error }, "lifecycle sweep order failed");
+      log.error({ order_id: f.ended || f.queued, err: f.error }, "lifecycle sweep order failed");
     }
   } catch (err) {
     log.error({ err }, "lifecycle sweep error");

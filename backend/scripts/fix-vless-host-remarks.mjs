@@ -98,7 +98,7 @@ async function run() {
         await api.put(`/api/inbounds/hosts/${h.id}`, {
           remark: newRemark,
           address: address || h.address,
-          sni: h.sni || "www.tiktok.com",
+          sni: h.sni || "www.apple.com",
           fingerprint: fp,
         });
         console.log(`     ✓ updated`);

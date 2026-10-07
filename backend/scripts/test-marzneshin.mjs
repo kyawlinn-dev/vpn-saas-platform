@@ -5,7 +5,7 @@
  * Usage:
  *   node scripts/test-marzneshin.mjs
  *
- * Reads panel credentials from env or defaults to the production Marzneshin panel.
+ * Reads panel credentials from environment variables.
  * Tests: auth → system info → create user → get user → update data limit → delete user.
  */
 
@@ -23,13 +23,16 @@ import {
 } from "../src/services/marzneshinService.js";
 
 // ---------------------------------------------------------------------------
-// Config — override with env vars or edit defaults
+// Config
 // ---------------------------------------------------------------------------
 
-const PANEL_URL = process.env.MARZNESHIN_PANEL_URL || "https://panel.novanetmm.com";
-const PANEL_PUBLIC_URL = process.env.MARZNESHIN_PANEL_PUBLIC_URL || "https://panel.novanetmm.com";
-const PANEL_USERNAME = process.env.MARZNESHIN_PANEL_USERNAME || "novanet-admin";
-const PANEL_PASSWORD = process.env.MARZNESHIN_PANEL_PASSWORD || "NovaNet3xuiTest2026!";
+const PANEL_URL = process.env.MARZNESHIN_PANEL_URL;
+const PANEL_PUBLIC_URL = process.env.MARZNESHIN_PANEL_PUBLIC_URL || PANEL_URL;
+const PANEL_USERNAME = process.env.MARZNESHIN_PANEL_USERNAME;
+const PANEL_PASSWORD = process.env.MARZNESHIN_PANEL_PASSWORD;
+if (!PANEL_URL || !PANEL_USERNAME || !PANEL_PASSWORD) {
+  throw new Error("MARZNESHIN_PANEL_URL, MARZNESHIN_PANEL_USERNAME, and MARZNESHIN_PANEL_PASSWORD are required");
+}
 const SERVICE_IDS = process.env.MARZNESHIN_SERVICE_IDS
   ? process.env.MARZNESHIN_SERVICE_IDS.split(",").map(Number)
   : [1]; // NovaNet VPN service
@@ -98,6 +101,7 @@ async function run() {
       server,
       name: "Test | SmokeTest | ORD-local",
       dataLimitBytes: 1 * 1024 * 1024 * 1024, // 1 GB
+      expiryDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
     });
     console.log("✓ Created user:", JSON.stringify(createdUser, null, 2));
   } catch (err) {

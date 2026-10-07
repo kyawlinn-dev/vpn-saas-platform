@@ -71,6 +71,7 @@ import {
   buyPaymentInstructions,
   BUY_PROCESSING,
   BUY_ALREADY_QUEUED,
+  BUY_PAYMENT_UNDER_REVIEW,
   BUY_ALREADY_ACTIVE,
   buyExtendSuccessText,
   BUY_CANCELLED,
@@ -263,11 +264,11 @@ export function setupHandlers(bot, {
     const canTrial = trialEnabled && !(trialUsed ?? trialInfo?.trial_used_at);
     let primary;
     if (activeOrder) primary = Markup.button.callback(MENU_MY_VPN, "menu:vpn");
-    else if (queuedOrder) primary = Markup.button.callback(BTN.BALANCE, "menu:balance");
+    else if (queuedOrder) primary = Markup.button.callback("📦 စောင့်ဆိုင်းနေသော ပက်ကေ့ဂျ်", "menu:balance");
     else if (canTrial) primary = Markup.button.callback(START_BTN_TRIAL_KEY, START_CB_GET_TRIAL);
     else primary = Markup.button.callback(START_BTN_BUY_PACKAGE, "menu:buy");
     const rows = [[primary]];
-    if ((activeOrder || canTrial) && !queuedOrder) {
+    if ((activeOrder?.review_status === "confirmed" || (!activeOrder && canTrial)) && !queuedOrder) {
       rows.push([Markup.button.callback(START_BTN_BUY_PACKAGE, "menu:buy")]);
     }
     rows.push([Markup.button.callback(MENU_HELP, "menu:help")]);
@@ -275,7 +276,7 @@ export function setupHandlers(bot, {
     await showMenuMessage(ctx, messageText, Markup.inlineKeyboard(rows), edit);
   }
 
-  function myVpnKeyboard(hasQueuedOrder) {
+  function myVpnKeyboard(hasQueuedOrder, canBuy) {
     const rows = [
       [Markup.button.callback(BTN.KEY, "menu:key")],
       [Markup.button.callback(BTN.BALANCE, "menu:balance")],
@@ -283,7 +284,7 @@ export function setupHandlers(bot, {
       [Markup.button.callback(BTN.DOWNLOAD, "menu:download")],
       [Markup.button.callback(BTN.HOWTO, "menu:howto")],
     ];
-    if (!hasQueuedOrder) rows.push([Markup.button.callback(START_BTN_BUY_PACKAGE, "menu:buy")]);
+    if (!hasQueuedOrder && canBuy) rows.push([Markup.button.callback(START_BTN_BUY_PACKAGE, "menu:buy")]);
     rows.push([homeButton()]);
     return Markup.inlineKeyboard(rows);
   }
@@ -367,7 +368,10 @@ export function setupHandlers(bot, {
     const queuedOrder = customer?.customerId
       ? await getCustomerQueuedOrder(customer.customerId, resellerId).catch(() => null)
       : null;
-    await showMenuMessage(ctx, MENU_MY_VPN_TEXT, myVpnKeyboard(Boolean(queuedOrder)), true);
+    const activeOrder = customer?.customerId
+      ? await getBestActiveOrder(customer.customerId, resellerId)
+      : null;
+    await showMenuMessage(ctx, MENU_MY_VPN_TEXT, myVpnKeyboard(Boolean(queuedOrder), activeOrder?.review_status === "confirmed" || activeOrder?.order_type === "trial"), true);
   });
 
   bot.action("menu:help", async (ctx) => {
@@ -1130,9 +1134,9 @@ export function setupHandlers(bot, {
     try {
       const customer = await resolveCustomerByTelegram(telegramUserId, resellerId).catch(() => null);
       if (customer?.customerId) {
-        const { canBuy, isExtend, activeOrder } = await getCustomerOrderPurchaseState(customer.customerId, resellerId);
+        const { canBuy, isExtend, activeOrder, blockReason } = await getCustomerOrderPurchaseState(customer.customerId, resellerId);
         if (!canBuy) {
-          await ctx.replyWithHTML(BUY_ALREADY_QUEUED, Markup.inlineKeyboard([[homeButton()]]));
+          await ctx.replyWithHTML(blockReason === "PURCHASE_UNDER_REVIEW" ? BUY_PAYMENT_UNDER_REVIEW : BUY_ALREADY_QUEUED, Markup.inlineKeyboard([[homeButton()]]));
           return;
         }
 
@@ -1344,7 +1348,9 @@ export function setupHandlers(bot, {
     } catch (err) {
       console.error(`[bot:${resellerId}] photo handler error:`, err.message);
       await clearSession(resellerId, telegramUserId).catch(() => {});
-      if (err.code === "CUSTOMER_ALREADY_QUEUED") {
+      if (err.code === "PURCHASE_UNDER_REVIEW") {
+        await ctx.replyWithHTML(BUY_PAYMENT_UNDER_REVIEW).catch(() => {});
+      } else if (err.code === "CUSTOMER_ALREADY_QUEUED") {
         await ctx.replyWithHTML(BUY_ALREADY_QUEUED).catch(() => {});
       } else if (err.code === "CUSTOMER_ALREADY_ACTIVE") {
         await ctx.replyWithHTML(BUY_ALREADY_ACTIVE).catch(() => {});

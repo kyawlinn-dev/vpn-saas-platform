@@ -482,12 +482,22 @@ export interface Order {
   plan?: Plan;
   payments?: OrderPayment[];
   keys?: VpnKey[];
-  // Lifetime usage across every key this order has ever had (survives
-  // server switches) — see customerOrderEnrichmentService.js enrichOrderAccess.
+  // Canonical current-package usage across server switches.
   total_used_bytes?: number;
   total_used_gb?: number;
   total_remaining_gb?: Nullable<number>;
   is_unlimited?: boolean;
+  quota?: OrderQuota;
+}
+
+export interface OrderQuota {
+  limit_bytes: Nullable<number>;
+  used_bytes: number;
+  remaining_bytes: Nullable<number>;
+  limit_gb: Nullable<number>;
+  used_gb: number;
+  remaining_gb: Nullable<number>;
+  is_unlimited: boolean;
 }
 
 export interface VpnKey {
@@ -511,6 +521,7 @@ export interface VpnKey {
   order_total_used_bytes?: number;
   order_total_used_gb?: number;
   order_total_remaining_gb?: Nullable<number>;
+  quota?: OrderQuota;
 }
 
 export interface MonthlySettlement {

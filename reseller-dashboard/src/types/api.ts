@@ -97,6 +97,16 @@ export interface OrderPayment {
   created_at?: string;
 }
 
+export interface OrderQuota {
+  limit_bytes: Nullable<number>;
+  used_bytes: number;
+  remaining_bytes: Nullable<number>;
+  limit_gb: Nullable<number>;
+  used_gb: number;
+  remaining_gb: Nullable<number>;
+  is_unlimited: boolean;
+}
+
 export interface VpnKey {
   id: string;
   order_id: string;
@@ -125,6 +135,7 @@ export interface VpnKey {
   data_limit_gb?: Nullable<number>;
   remaining_gb_30d?: Nullable<number>;
   recent_connections_24h?: number;
+  quota?: OrderQuota;
 
   order?: {
     id: string;

@@ -212,6 +212,10 @@ export default function PackagesPage({
       onToast(t("packages.alreadyQueuedWarning"), "warning");
       return;
     }
+    if (subscription?.type === "purchase" && subscription?.review_status !== "confirmed") {
+      onToast(t("packages.paymentUnderReview"), "warning");
+      return;
+    }
     onNavigateToProtocol(plan);
   };
 

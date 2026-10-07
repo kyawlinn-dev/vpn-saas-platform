@@ -41,7 +41,9 @@ router.get("/", async (req, res) => {
           id,
           status,
           payment_status,
-          expiry_date
+          expiry_date,
+          usage_baseline_bytes,
+          quota_limit_bytes
         ),
         customer:vpn_customers!vpn_keys_customer_id_fkey (
           id,
@@ -112,7 +114,7 @@ router.get("/", async (req, res) => {
     const quotaByOrderId = Object.fromEntries(
       Object.entries(keysByOrderId).map(([orderId, orderKeys]) => [
         orderId,
-        buildOrderQuotaSnapshot(orderKeys),
+        buildOrderQuotaSnapshot(orderKeys, orderKeys[0]?.order || {}),
       ])
     );
 
@@ -130,6 +132,17 @@ router.get("/", async (req, res) => {
         order_total_used_gb: bytesToGb(quota.totalUsedBytes),
         order_total_remaining_gb:
           typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
+        quota: {
+          limit_bytes: quota.totalAllowanceBytes,
+          used_bytes: quota.totalUsedBytes,
+          remaining_bytes: quota.remainingBytes,
+          limit_gb:
+            typeof quota.totalAllowanceBytes === "number" ? bytesToGb(quota.totalAllowanceBytes) : null,
+          used_gb: bytesToGb(quota.totalUsedBytes),
+          remaining_gb:
+            typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
+          is_unlimited: quota.isUnlimited,
+        },
         ssconf_token: customerSsconfToken,
         ssconf_url: ssconfUrl,
         dynamic_access_url: dynamicAccessUrl,

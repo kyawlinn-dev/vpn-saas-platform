@@ -44,8 +44,8 @@ const TARGET_NODES = [
   { address: "107.191.53.200", name: "Tokyo #1" },
 ];
 
-const CORRECT_SNI  = "www.tiktok.com";
-const BAD_SNI      = "www.yahoo.com";
+const CORRECT_SNI  = "www.apple.com";
+const BAD_SNI      = "www.tiktok.com";
 
 async function getToken() {
   const { data } = await axios.post(

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
-import "dotenv/config";
+import "../src/lib/loadEnv.js";
 import axios from "axios";
 
-const PANEL_URL = "https://panel.novanetmm.com";
-const USERNAME = "novanet-admin";
-const PASSWORD = "NovaNet3xuiTest2026!";
+const PANEL_URL = process.env.MARZNESHIN_PANEL_URL;
+const USERNAME = process.env.MARZNESHIN_PANEL_USERNAME;
+const PASSWORD = process.env.MARZNESHIN_PANEL_PASSWORD;
+if (!PANEL_URL || !USERNAME || !PASSWORD) {
+  throw new Error("MARZNESHIN_PANEL_URL, MARZNESHIN_PANEL_USERNAME, and MARZNESHIN_PANEL_PASSWORD are required");
+}
 
 async function getToken() {
   const { data } = await axios.post(

@@ -968,6 +968,21 @@ async function getOldestScheduledOrder(customerId, resellerId) {
 // keys. On provisioning failure it reverts to 'scheduled' so the next job run
 // retries rather than leaving an active-but-keyless order.
 export async function activateScheduledOrder(scheduledOrder) {
+  if (scheduledOrder.review_status !== "confirmed" || scheduledOrder.payment_status !== "paid") {
+    throw new OrderLifecycleError("Queued payment must be confirmed before activation", 409, "PAYMENT_UNDER_REVIEW");
+  }
+  const { data: activeOrder, error: activeError } = await supabase
+    .from("vpn_orders")
+    .select("id")
+    .eq("customer_id", scheduledOrder.customer_id)
+    .eq("reseller_id", scheduledOrder.reseller_id)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (activeError) throw new Error(activeError.message);
+  if (activeOrder) {
+    throw new OrderLifecycleError("Current package is still active", 409, "CUSTOMER_ALREADY_ACTIVE");
+  }
   const reseller = await loadResellerForLifecycle({ id: scheduledOrder.reseller_id });
   const plan = scheduledOrder.plan || (await resolvePlan(scheduledOrder.plan_id, null));
   const now = new Date();
@@ -1009,8 +1024,26 @@ export async function activateScheduledOrder(scheduledOrder) {
 async function promoteNextScheduledPlan(customerId, resellerId) {
   const next = await getOldestScheduledOrder(customerId, resellerId);
   if (!next) return null;
+  if (next.review_status !== "confirmed" || next.payment_status !== "paid") return null;
   await activateScheduledOrder(next);
   return next.id;
+}
+
+async function activateConfirmedQueueWithoutActiveOrder(order) {
+  if (order.status !== "scheduled" || order.review_status !== "confirmed" || order.payment_status !== "paid") return;
+  const { data: activeOrder, error } = await supabase
+    .from("vpn_orders")
+    .select("id")
+    .eq("customer_id", order.customer_id)
+    .eq("reseller_id", order.reseller_id)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!activeOrder) {
+    const queued = await getOldestScheduledOrder(order.customer_id, order.reseller_id);
+    if (queued?.id === order.id) await activateScheduledOrder(queued);
+  }
 }
 
 // End a spent active order (time or data exhausted) and promote the customer's
@@ -1036,6 +1069,7 @@ export async function processExpiredOrdersAndQueue() {
     .from("vpn_orders")
     .select(`
       id, customer_id, reseller_id, expiry_date, order_type,
+      usage_baseline_bytes, quota_limit_bytes,
       keys:vpn_keys!vpn_keys_order_tenant_fk(id, status, deleted_at, data_limit_bytes, used_bytes)
     `)
     .eq("status", "active");
@@ -1045,7 +1079,7 @@ export async function processExpiredOrdersAndQueue() {
   const results = [];
   for (const order of activeOrders || []) {
     try {
-      const quota = buildOrderQuotaSnapshot(order.keys || []);
+      const quota = buildOrderQuotaSnapshot(order.keys || [], order);
       const timeExpired = Boolean(order.expiry_date) && order.expiry_date < today;
       const dataExhausted =
         !quota.isUnlimited && quota.remainingBytes !== null && quota.remainingBytes <= 0;
@@ -1057,6 +1091,45 @@ export async function processExpiredOrdersAndQueue() {
     } catch (err) {
       results.push({ ended: order.id, error: err.message });
     }
+  }
+
+  let lastQueueId = null;
+  while (true) {
+    let query = supabase
+      .from("vpn_orders")
+      .select("id, customer_id, reseller_id")
+      .eq("status", "scheduled")
+      .eq("review_status", "confirmed")
+      .eq("payment_status", "paid")
+      .order("id", { ascending: true })
+      .limit(100);
+    if (lastQueueId) query = query.gt("id", lastQueueId);
+    const { data: confirmedQueues, error: queueError } = await query;
+    if (queueError) throw new Error(queueError.message);
+    if (!confirmedQueues?.length) break;
+
+    for (const queued of confirmedQueues) {
+      try {
+        const order = await getOldestScheduledOrder(queued.customer_id, queued.reseller_id);
+        if (!order || order.id !== queued.id) continue;
+        const { data: activeOrder, error: activeError } = await supabase
+          .from("vpn_orders")
+          .select("id")
+          .eq("customer_id", queued.customer_id)
+          .eq("reseller_id", queued.reseller_id)
+          .eq("status", "active")
+          .limit(1)
+          .maybeSingle();
+        if (activeError) throw new Error(activeError.message);
+        if (activeOrder) continue;
+        await activateScheduledOrder(order);
+        results.push({ promoted: queued.id, reason: "orphaned_queue" });
+      } catch (err) {
+        results.push({ queued: queued.id, error: err.message });
+      }
+    }
+    lastQueueId = confirmedQueues.at(-1).id;
+    if (confirmedQueues.length < 100) break;
   }
   return results;
 }
@@ -1290,6 +1363,7 @@ export async function confirmPayment({ orderId, resellerId, reviewerAdminId = nu
   }
 
   if (order.review_status === "confirmed" && pendingPayments.length === 0) {
+    await activateConfirmedQueueWithoutActiveOrder(order);
     return {
       success: true,
       already_confirmed: true,
@@ -1321,6 +1395,8 @@ export async function confirmPayment({ orderId, resellerId, reviewerAdminId = nu
   });
 
   await ensureCommissionEntry(updated);
+
+  await activateConfirmedQueueWithoutActiveOrder(updated);
 
   return {
     success: true,
@@ -1388,6 +1464,10 @@ export async function rejectPayment({ orderId, resellerId, reviewerAdminId = nul
       payment_status: "unpaid",
       total_paid_mmk: 0,
     });
+
+  // Older queued purchases can still exist when the original payment is rejected.
+  // Only a confirmed, paid queue may take over access.
+  await promoteNextScheduledPlan(order.customer_id, order.reseller_id);
 
   return {
     success: true,

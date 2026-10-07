@@ -1,7 +1,7 @@
 # NovaNet MM
 
-NovaNet MM is a multi-tenant VPN reseller platform for selling Outline VPN
-access through reseller-branded Telegram Mini Apps.
+NovaNet MM is a multi-tenant VPN reseller platform for selling Marzneshin-backed
+Shadowsocks and VLESS access through reseller-branded Telegram Mini Apps.
 
 ## Applications
 
@@ -12,6 +12,9 @@ access through reseller-branded Telegram Mini Apps.
 | `admin-dashboard/` | Super-admin dashboard deployed to Cloudflare Pages |
 | `reseller-dashboard/` | Reseller dashboard deployed to Cloudflare Pages |
 | `ansible/` | Droplet provisioning, Nginx, SSL, backend and Mini App deploy |
+
+The Mini App supports one active paid package and one queued future package per
+customer. See `SYSTEM_DESIGN.md` for the current lifecycle and provider model.
 
 ## Production Shape
 

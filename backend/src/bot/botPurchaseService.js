@@ -15,6 +15,7 @@ import {
 } from "../services/orderLifecycleService.js";
 import { createOrderPayment } from "../services/paymentLedgerService.js";
 import { isQueuedPurchaseConflict } from "../services/queuedPurchasePolicy.js";
+import { getPurchaseBlockReason } from "../services/purchaseQueuePolicy.js";
 
 // ── Plans ──────────────────────────────────────────────────────────────────────
 
@@ -106,7 +107,7 @@ export async function createBotPurchaseOrder({ resellerId, customerId, planId, s
   // 3. Check existing active purchase and queued purchase.
   const { data: existingActive, error: activeError } = await supabase
     .from("vpn_orders")
-    .select("id")
+    .select("id, review_status")
     .eq("customer_id", customerId)
     .eq("reseller_id", resellerId)
     .eq("status", "active")
@@ -126,9 +127,12 @@ export async function createBotPurchaseOrder({ resellerId, customerId, planId, s
   if (activeError || scheduledError) {
     throw new Error(activeError?.message || scheduledError?.message);
   }
-  if (existingScheduled) {
-    const err = new Error("Customer already has a queued order");
-    err.code = "CUSTOMER_ALREADY_QUEUED";
+  const blockReason = getPurchaseBlockReason(existingActive, existingScheduled);
+  if (blockReason) {
+    const err = new Error(blockReason === "PURCHASE_UNDER_REVIEW"
+      ? "Current purchase is awaiting payment review"
+      : "Customer already has a queued order");
+    err.code = blockReason === "QUEUED_PACKAGE_EXISTS" ? "CUSTOMER_ALREADY_QUEUED" : blockReason;
     throw err;
   }
 
@@ -261,7 +265,7 @@ export async function setCustomerProtocolPreference(customerId, protocol) {
 export async function getCustomerOrderPurchaseState(customerId, resellerId) {
   const { data: activeOrder, error: activeError } = await supabase
     .from("vpn_orders")
-    .select("id, status, order_type")
+    .select("id, status, order_type, review_status")
     .eq("customer_id", customerId)
     .eq("reseller_id", resellerId)
     .eq("status", "active")
@@ -284,7 +288,8 @@ export async function getCustomerOrderPurchaseState(customerId, resellerId) {
   return {
     activeOrder,
     queuedOrder,
-    canBuy: !queuedOrder,
+    canBuy: !getPurchaseBlockReason(activeOrder, queuedOrder),
+    blockReason: getPurchaseBlockReason(activeOrder, queuedOrder),
     isExtend: Boolean(activeOrder),
   };
 }

@@ -116,6 +116,15 @@ Package lifecycle:
 `order_payments` is the source of truth for accounting, monthly settlement, and
 commission history.
 
+Package quota is database-authoritative. `vpn_orders.quota_limit_bytes`
+snapshots the current package allowance and `usage_baseline_bytes` records any
+lifetime key usage that predates that package period. The canonical backend
+quota service sums immutable active/deleted `vpn_keys.used_bytes`, subtracts
+the baseline, and returns one `quota` object to the Mini App, bot, reseller
+dashboard, admin dashboard, warning job, and auto-stop job. Clients must not
+recalculate package usage from an individual key or the mutable plan catalogue.
+Marzneshin enforces the resulting remaining allowance for the active user.
+
 The customer chooses Shadowsocks or VLESS before Mini App checkout. The active
 `vpn_keys.protocol` describes the current access; `protocol_preference` is only
 the intent for future provisioning. Shadowsocks uses a per-server key and

@@ -41,8 +41,12 @@ function getPlanTitle(subscription, t) {
 
 function AccessHero({ subscription, vpnKey, keyForActions, hasImportLink, onToast }) {
   const { t } = useLanguage();
-  const usedGb = Number(vpnKey?.used_bytes || 0) / 1024 / 1024 / 1024;
-  const limitGb = Number(subscription?.data_limit_gb || 0);
+  const usedGb = subscription?.quota?.used_gb != null
+    ? Number(subscription.quota.used_gb)
+    : Number(vpnKey?.used_bytes || 0) / 1024 / 1024 / 1024;
+  const limitGb = subscription?.quota?.limit_gb != null
+    ? Number(subscription.quota.limit_gb)
+    : Number(subscription?.data_limit_gb || 0);
   const percent = limitGb > 0 ? Math.min(100, (usedGb / limitGb) * 100) : 0;
   const validUntil = subscription?.expiry_date ? formatDate(subscription.expiry_date) : null;
   const secondary = limitGb

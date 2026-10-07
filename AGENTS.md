@@ -3,7 +3,8 @@
 ## Project Purpose
 
 Build and maintain **NovaNet MM**: a multi-tenant VPN reseller platform where
-resellers sell Outline VPN access through white-label Telegram Mini Apps.
+resellers sell Marzneshin-backed Shadowsocks and VLESS access through
+white-label Telegram Mini Apps.
 
 ## Required Context Before Coding
 
@@ -49,7 +50,7 @@ MINI APP
        |
        v
 CUSTOMER
-  trial, buy, pay, receive key, connect through Outline
+  trial, buy, pay, receive a dynamic key, connect through Shadowsocks or VLESS
 ```
 
 Isolation rule: a customer of reseller A must never see or touch reseller B's

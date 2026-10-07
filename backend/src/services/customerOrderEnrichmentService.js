@@ -6,6 +6,20 @@ function bytesToGb(bytes) {
   return value > 0 ? Number((value / 1024 / 1024 / 1024).toFixed(2)) : 0;
 }
 
+function toQuotaPayload(quota) {
+  return {
+    limit_bytes: quota.totalAllowanceBytes,
+    used_bytes: quota.totalUsedBytes,
+    remaining_bytes: quota.remainingBytes,
+    limit_gb:
+      typeof quota.totalAllowanceBytes === "number" ? bytesToGb(quota.totalAllowanceBytes) : null,
+    used_gb: bytesToGb(quota.totalUsedBytes),
+    remaining_gb:
+      typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
+    is_unlimited: quota.isUnlimited,
+  };
+}
+
 export function toNumber(value) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : 0;
@@ -44,14 +58,10 @@ export function enrichOrderAccess(order, req) {
   const preferredOf = (urls, fallbackAccessUrl) =>
     urls.dynamic_access_url || urls.subscription_url || urls.ssconf_url || fallbackAccessUrl || null;
 
-  // Usage shown to resellers/admins must reflect the order's LIFETIME total
-  // across every key it has ever had — not just whatever key happens to be
-  // active right now. A server switch (see resellerServerSwitchRouter.js)
-  // retires the old key and provisions a new one; without this, the
-  // dashboard would silently "forget" all usage accrued before the switch.
-  // order.keys already contains every key for this order (active + deleted,
-  // no status filter in the callers' select), so no extra query needed.
-  const quota = buildOrderQuotaSnapshot(order?.keys ?? []);
+  // Historical key rows remain immutable. The order baseline excludes usage
+  // from an earlier package period while retaining it for audit/history.
+  const quota = buildOrderQuotaSnapshot(order?.keys ?? [], order);
+  const quotaPayload = toQuotaPayload(quota);
 
   const keys = (order?.keys ?? []).map((key) => {
     const urls = pickUrls(key.access_url || null);
@@ -66,6 +76,7 @@ export function enrichOrderAccess(order, req) {
       order_total_used_gb: bytesToGb(quota.totalUsedBytes),
       order_total_remaining_gb:
         typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
+      quota: quotaPayload,
     };
   });
 
@@ -83,6 +94,7 @@ export function enrichOrderAccess(order, req) {
     subscription_url: orderUrls.subscription_url,
     preferred_access_url: preferredOf(orderUrls, activeKey?.access_url),
     keys,
+    quota: quotaPayload,
     // Also surface at the order level — some UIs (e.g. admin OrdersPage)
     // read usage off the order directly rather than digging into .keys[].
     total_used_gb: bytesToGb(quota.totalUsedBytes),

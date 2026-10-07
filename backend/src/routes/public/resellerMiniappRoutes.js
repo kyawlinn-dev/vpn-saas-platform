@@ -23,6 +23,7 @@ import {
 } from "../../services/orderLifecycleService.js";
 import { createOrderPayment } from "../../services/paymentLedgerService.js";
 import { isQueuedPurchaseConflict } from "../../services/queuedPurchasePolicy.js";
+import { getPurchaseBlockReason } from "../../services/purchaseQueuePolicy.js";
 import { isCurrentMiniAppServer } from "../../services/miniAppServerState.js";
 import { createTrialOrder, provisionTrialKey } from "../../services/trialService.js";
 import {
@@ -222,7 +223,22 @@ const EXT_MAP = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" 
  * For SS customers → ssconf dynamic URL (one-tap Outline import)
  * For VLESS/Hysteria2 customers → raw Marzneshin subscription URL
  */
-function toPublicVpnKey(req, { ssconfToken, key, label, protocol, orderTotalUsedBytes = 0 }) {
+function toQuotaPayload(quota) {
+  if (!quota) return null;
+  const toGb = (bytes) =>
+    typeof bytes === "number" ? Number((bytes / 1024 / 1024 / 1024).toFixed(2)) : null;
+  return {
+    limit_bytes: quota.totalAllowanceBytes,
+    used_bytes: quota.totalUsedBytes,
+    remaining_bytes: quota.remainingBytes,
+    limit_gb: toGb(quota.totalAllowanceBytes),
+    used_gb: toGb(quota.totalUsedBytes) || 0,
+    remaining_gb: toGb(quota.remainingBytes),
+    is_unlimited: quota.isUnlimited,
+  };
+}
+
+function toPublicVpnKey(req, { ssconfToken, key, label, protocol, quota = null, orderTotalUsedBytes = 0 }) {
   if (!ssconfToken && protocol === "shadowsocks") return null;
 
   const urls = buildAccessUrlForProtocol({
@@ -242,24 +258,10 @@ function toPublicVpnKey(req, { ssconfToken, key, label, protocol, orderTotalUsed
     // VLESS / Hysteria2 field
     subscription_url: urls.subscription_url,
     // Common
-    data_limit_bytes: key?.data_limit_bytes ?? null,
-    used_bytes: orderTotalUsedBytes,
+    data_limit_bytes: quota?.totalAllowanceBytes ?? key?.data_limit_bytes ?? null,
+    used_bytes: quota?.totalUsedBytes ?? orderTotalUsedBytes,
+    quota: toQuotaPayload(quota),
   };
-}
-
-async function getOrderTotalUsedBytes(orderId) {
-  const { data: keys, error } = await supabase
-    .from("vpn_keys")
-    .select("used_bytes")
-    .eq("order_id", orderId)
-    .in("status", ["active", "deleted"]);
-
-  if (error) {
-    console.error("[usage] Failed to sum order used_bytes:", error.message);
-    return 0;
-  }
-
-  return (keys || []).reduce((sum, k) => sum + Number(k.used_bytes || 0), 0);
 }
 
 function gbToBytes(gb) {
@@ -387,6 +389,8 @@ async function getBestActiveOrder({ customerId, resellerId }) {
       review_status,
       start_date,
       expiry_date,
+      usage_baseline_bytes,
+      quota_limit_bytes,
       created_at,
       vpn_plans (
         id,
@@ -954,8 +958,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
       }
     }
 
-    const orderUsedBytes =
-      currentKeyRow && activeOrder ? await getOrderTotalUsedBytes(activeOrder.id) : 0;
+    const orderQuota = activeOrder ? await getOrderQuotaSnapshot(activeOrder.id) : null;
 
     trackMiniAppEvent(req, {
       event_name: "miniapp_authenticated",
@@ -999,6 +1002,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
               duration_days: activeOrder.vpn_plans?.duration_days,
               start_date: activeOrder.start_date,
               expiry_date: activeOrder.expiry_date,
+              quota: toQuotaPayload(orderQuota),
             }
           : null,
         current_server: currentServer,
@@ -1010,7 +1014,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
               // Use the key's stored protocol column as the authoritative source;
               // fall back to the customer preference for legacy rows without it.
               protocol: currentKeyRow.protocol || protocolPreference,
-              orderTotalUsedBytes: orderUsedBytes,
+              quota: orderQuota,
             })
           : null,
         // Legacy alias — miniapp may still reference this until updated
@@ -1020,7 +1024,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
               key: currentKeyRow,
               label,
               protocol: currentKeyRow.protocol || protocolPreference,
-              orderTotalUsedBytes: orderUsedBytes,
+              quota: orderQuota,
             })
           : null,
         protocol_preference: protocolPreference,
@@ -1726,7 +1730,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     if (activeOrderProtocol === "vless" || activeOrderProtocol === "hysteria2") {
       const existingVlessKey = activeKeys[0]; // any active key will do
       if (existingVlessKey) {
-        const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
+        const existingQuota = await getOrderQuotaSnapshot(activeOrder.id);
         return res.json({
           success: true,
           message: "Subscription is ready",
@@ -1737,14 +1741,14 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
               key: existingVlessKey,
               label,
               protocol: activeOrderProtocol,
-              orderTotalUsedBytes: totalUsedBytes,
+              quota: existingQuota,
             }),
             outline_key: toPublicVpnKey(req, {
               ssconfToken: customerSsconfToken,
               key: existingVlessKey,
               label,
               protocol: activeOrderProtocol,
-              orderTotalUsedBytes: totalUsedBytes,
+              quota: existingQuota,
             }),
           },
         });
@@ -1842,14 +1846,14 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
             key: vlessInserted,
             label,
             protocol: protocolPreference,
-            orderTotalUsedBytes: 0,
+            quota: vlessQuota,
           }),
           outline_key: toPublicVpnKey(req, {
             ssconfToken: customerSsconfToken,
             key: vlessInserted,
             label,
             protocol: protocolPreference,
-            orderTotalUsedBytes: 0,
+            quota: vlessQuota,
           }),
         },
       });
@@ -1862,7 +1866,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
 
     // Idempotent: target server is already the only active key -> nothing to switch.
     if (activeTargetKey && activeKeys.length === 1) {
-      const totalUsedBytes = await getOrderTotalUsedBytes(activeOrder.id);
+      const existingQuota = await getOrderQuotaSnapshot(activeOrder.id);
       trackMiniAppEvent(req, {
         event_name: "server_selected",
         reseller_id: miniapp.reseller_id,
@@ -1890,14 +1894,14 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
             key: activeTargetKey,
             label,
             protocol: protocolPreference,
-            orderTotalUsedBytes: totalUsedBytes,
+            quota: existingQuota,
           }),
           outline_key: toPublicVpnKey(req, {
             ssconfToken: customerSsconfToken,
             key: activeTargetKey,
             label,
             protocol: protocolPreference,
-            orderTotalUsedBytes: totalUsedBytes,
+            quota: existingQuota,
           }),
         },
       });
@@ -2058,11 +2062,8 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
       await clearServerError(server.id);
     }
 
-    // Respond immediately — use already-fetched used_bytes (avoids a second DB
-    // round-trip) and send before touching the old server at all.
-    const knownUsedBytes = activeKeys.reduce(
-      (sum, k) => sum + Number(k.used_bytes || 0), 0
-    );
+    // Respond before retiring old provider keys. The canonical order quota was
+    // calculated above and is shared by every client surface.
     trackMiniAppEvent(req, {
       event_name: "server_selected",
       reseller_id: miniapp.reseller_id,
@@ -2090,14 +2091,14 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
           key: insertedKey,
           label,
           protocol: activeOrderProtocol,
-          orderTotalUsedBytes: knownUsedBytes,
+          quota,
         }),
         outline_key: toPublicVpnKey(req, {
           ssconfToken: customerSsconfToken,
           key: insertedKey,
           label,
           protocol: activeOrderProtocol,
-          orderTotalUsedBytes: knownUsedBytes,
+          quota,
         }),
       },
     });
@@ -2457,11 +2458,14 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
       });
     }
 
-    if (queuedOrder) {
+    const purchaseBlockReason = getPurchaseBlockReason(activePurchaseOrder, queuedOrder);
+    if (purchaseBlockReason) {
       return res.status(409).json({
         success: false,
-        message: "You already have a queued package waiting.",
-        code: "QUEUED_PACKAGE_EXISTS",
+        message: purchaseBlockReason === "PURCHASE_UNDER_REVIEW"
+          ? "Your current payment is under review. Please wait before buying another package."
+          : "You already have a queued package waiting.",
+        code: purchaseBlockReason,
       });
     }
 

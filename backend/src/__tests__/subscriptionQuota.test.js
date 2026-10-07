@@ -68,6 +68,35 @@ describe("subscription quota calculations", () => {
     expect(quota.remainingBytes).toBe(80 * GB);
   });
 
+  it("excludes historical usage before the current package baseline", () => {
+    const quota = buildOrderQuotaSnapshot(
+      [
+        { status: "deleted", data_limit_bytes: 200 * GB, used_bytes: 168 * GB },
+        { status: "deleted", data_limit_bytes: 300 * GB, used_bytes: 60 * GB },
+        { status: "active", data_limit_bytes: 240 * GB, used_bytes: 7 * GB },
+      ],
+      {
+        usage_baseline_bytes: 168 * GB,
+        quota_limit_bytes: 300 * GB,
+      }
+    );
+
+    expect(quota.rawTotalUsedBytes).toBe(235 * GB);
+    expect(quota.totalUsedBytes).toBe(67 * GB);
+    expect(quota.totalAllowanceBytes).toBe(300 * GB);
+    expect(quota.remainingBytes).toBe(233 * GB);
+  });
+
+  it("clamps a baseline above recorded lifetime usage to zero", () => {
+    const quota = buildOrderQuotaSnapshot(
+      [{ status: "active", data_limit_bytes: 50 * GB, used_bytes: 2 * GB }],
+      { usage_baseline_bytes: 3 * GB, quota_limit_bytes: 50 * GB }
+    );
+
+    expect(quota.totalUsedBytes).toBe(0);
+    expect(quota.remainingBytes).toBe(50 * GB);
+  });
+
   it("preserves remaining data when a key moves to another server", () => {
     const quota = buildOrderQuotaSnapshot([
       { status: "deleted", data_limit_bytes: 50 * GB, used_bytes: 20 * GB },

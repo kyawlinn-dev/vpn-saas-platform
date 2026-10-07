@@ -434,6 +434,8 @@ A customer's VPN subscription period. Drives billing, key provisioning, and expi
 | `total_paid_mmk` | integer | ✓ | — | |
 | `start_date` | date | | — | |
 | `expiry_date` | date | | — | Used by autoStopJob |
+| `usage_baseline_bytes` | bigint | ✓ | `0` | Lifetime key usage before this package period; subtracted from current-period usage |
+| `quota_limit_bytes` | bigint | | — | Snapshotted allowance for this package period; null means unlimited or unavailable |
 | `payment_status` | text | ✓ | — | `unpaid` \| `paid` \| `overdue` |
 | `payment_note` | text | | — | |
 | `payment_screenshot_url` | text | | — | Storage path (not public URL) |
@@ -450,6 +452,8 @@ A customer's VPN subscription period. Drives billing, key provisioning, and expi
 Partial unique index: one active purchase per `(reseller_id, customer_id)`.
 Migration `0006_business_integrity_constraints.sql` also enforces composite
 customer/order/key tenant ownership for all new writes.
+Migration `0026_order_quota_source_of_truth.sql` snapshots finite plan quotas
+and makes package-period usage independent from immutable historical key usage.
 
 ## vpn_plans
 

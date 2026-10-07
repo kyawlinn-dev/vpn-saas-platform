@@ -140,8 +140,8 @@ async function fixHostAddress(api, inboundId, address, proto, serverName = "Serv
       remark: `NovaNet ${label} ({USERNAME}) [${proto}]`,
       address,
     };
-    // Reality SNI must match the inbound's serverNames (www.tiktok.com).
-    if (proto === "VLESS Reality") payload.sni = "www.tiktok.com";
+    // Reality SNI must match the inbound's serverNames (www.apple.com).
+    if (proto === "VLESS Reality") payload.sni = "www.apple.com";
     await api.put(`/api/inbounds/hosts/${host.id}`, payload);
     console.log(`    ✓ Host #${host.id} → address=${address} [${proto}]`);
   } catch (e) {

@@ -257,6 +257,7 @@ For this project, the current post-initial migration sequence is:
 0023_canonical_read_views.sql
 0024_one_scheduled_purchase_per_customer.sql
 0025_provider_coexistence.sql
+0026_order_quota_source_of_truth.sql
 ```
 
 > **Final Data Model (migrations 0020–0023):** the ACID/consistency layer —

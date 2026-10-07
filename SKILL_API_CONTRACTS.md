@@ -15,6 +15,12 @@ than Outline Prometheus-only 30-day usage/connection fields.
 
 ## Mini App Routes
 
+`POST /api/miniapp/:slug/orders` returns HTTP 409 with
+`code: "PURCHASE_UNDER_REVIEW"` when an active purchase is awaiting payment
+review. A confirmed active purchase may have one scheduled purchase;
+additional purchases return `QUEUED_PACKAGE_EXISTS`. Bot purchases follow
+the same eligibility rule.
+
 Mounted at `/api/miniapp/:slug`.
 
 Mini App clients should send `x-novanet-session-id` on API calls. The value is
@@ -38,7 +44,25 @@ Body:
 Production requires valid Telegram init data. Local development may use the
 dev fallback only when `NODE_ENV=development` and no init data is sent.
 The response includes `queued_subscription` (or `null`) for the customer's
-next scheduled package.
+next scheduled package. An active `subscription` includes the canonical
+`quota` object described below.
+
+```json
+{
+  "quota": {
+    "limit_bytes": 322122547200,
+    "used_bytes": 71840861993,
+    "remaining_bytes": 250281685207,
+    "limit_gb": 300,
+    "used_gb": 66.91,
+    "remaining_gb": 233.09,
+    "is_unlimited": false
+  }
+}
+```
+
+Clients must display these values directly. They must not recompute package
+usage from `vpn_keys[]`, a single key, or the mutable plan catalogue.
 
 ### `GET /api/miniapp/:slug/plans`
 
@@ -240,11 +264,12 @@ a real status value), `order_type` (`trial`/`purchase`), `customer_type`
 name/Telegram username/phone or plan name), `hide_unconfirmed_telegram`,
 `hide_rejected_telegram`, plus standard `page`/`limit`. Each order's `keys[]`
 carries `order_total_used_bytes`/`order_total_used_gb`/
-`order_total_remaining_gb` — the order's LIFETIME usage across every key it
-has ever had (summed across server switches), not just the current active
-key's own `used_bytes`; the same totals are also mirrored at the order level
+`order_total_remaining_gb` — canonical usage for the order's current package
+period, summed across server switches and adjusted by its historical usage
+baseline; the same totals are also mirrored at the order level
 as `total_used_bytes`/`total_used_gb`/`total_remaining_gb`/`is_unlimited`.
-Dashboards should prefer these over a single key's `used_bytes`.
+The order and each key also carry `quota`; dashboards should prefer it over a
+single key's `used_bytes` or any client-side calculation.
 
 ### Server switching (paid orders only)
 
@@ -502,8 +527,8 @@ The access fields are:
 ```
 
 Like `/api/reseller/orders`, each key also carries `order_total_used_bytes`/
-`order_total_used_gb`/`order_total_remaining_gb` (lifetime usage across every
-key the order has ever had), mirrored at the order level as `total_used_gb`/
+`order_total_used_gb`/`order_total_remaining_gb` (canonical current-package
+usage across server switches), mirrored at the order level as `total_used_gb`/
 `total_used_bytes`/`total_remaining_gb`/`is_unlimited` — prefer these over a
 single key's own `used_bytes` for any "usage" display.
 

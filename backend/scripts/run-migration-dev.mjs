@@ -2,6 +2,7 @@
 /**
  * Apply migration 0013 to DEV Supabase via direct Postgres connection.
  */
+import "../src/lib/loadEnv.js";
 import { readFileSync } from "fs";
 import pg from "pg";
 
@@ -16,7 +17,7 @@ if (!DEV_DB_PASSWORD) {
 
   // Use the HTTP API to run SQL via the pg_net extension or a DB function
   const SUPABASE_URL = `https://${DEV_REF}.supabase.co`;
-  const SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1cW16dmx6ZmNleHljZHJzeHBuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDI4NDkxMywiZXhwIjoyMDg5ODYwOTEzfQ.9dY1LRUMapO1jhGhu1T4m9xzJnAgPdRr9Rb3UdZtG9g";
+  const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   const migrationSql = readFileSync("supabase/migrations/0013_xray_protocol_support.sql", "utf-8");
 

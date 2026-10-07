@@ -76,7 +76,7 @@ describe('getCustomerOrderPurchaseState', () => {
 
   it('allows buy (as extension) when customer has an active order but no queued order', async () => {
     mockMaybeSingle
-      .mockResolvedValueOnce({ data: { id: 'active-1', status: 'active' }, error: null })
+      .mockResolvedValueOnce({ data: { id: 'active-1', status: 'active', review_status: 'confirmed' }, error: null })
       .mockResolvedValueOnce({ data: null, error: null })
 
     mockLimit.mockReturnValue({ maybeSingle: mockMaybeSingle })
@@ -105,6 +105,20 @@ describe('getCustomerOrderPurchaseState', () => {
     expect(res.isExtend).toBe(true)
     expect(res.activeOrder).toBeTruthy()
     expect(res.queuedOrder).toBeTruthy()
+  })
+
+  it('blocks a second purchase while the active payment is under review', async () => {
+    mockMaybeSingle
+      .mockResolvedValueOnce({ data: { id: 'active-1', review_status: 'pending_review' }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null })
+    mockLimit.mockReturnValue({ maybeSingle: mockMaybeSingle })
+    mockEq.mockReturnValue({ eq: mockEq, limit: mockLimit })
+    mockSelect.mockReturnValue({ eq: mockEq })
+    mockFrom.mockReturnValue({ select: mockSelect })
+
+    const state = await getCustomerOrderPurchaseState('cust-1', 'reseller-1')
+    expect(state.canBuy).toBe(false)
+    expect(state.blockReason).toBe('PURCHASE_UNDER_REVIEW')
   })
 
   it('blocks another purchase when a queued order exists without an active order', async () => {

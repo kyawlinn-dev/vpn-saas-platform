@@ -22,11 +22,14 @@ PUBLIC_KEY="${2:?Usage: $0 <reality_private_key> <reality_public_key>}"
 
 MARZNODE_DIR="/opt/marznode"
 DATA_DIR="/var/lib/marznode"
+XRAY_VERSION="25.5.16"
+XRAY_IMAGE="ghcr.io/xtls/xray-core@sha256:be505df0b9a8602a09d54f87a4f8e57153262f44b4ce93d84dcab8bb9adac841"
+XRAY_BINARY="$DATA_DIR/xray-$XRAY_VERSION"
 SERVICE_PORT="62050"        # gRPC port for panel ↔ node communication
 SS_PORT="1080"              # Shadowsocks
 VLESS_PORT="2443"           # VLESS Reality (443 might conflict with future use)
-REALITY_DEST="www.yahoo.com:443"
-REALITY_SNI="www.yahoo.com"
+REALITY_DEST="www.apple.com:443"
+REALITY_SNI="www.apple.com"
 SHORT_ID="$(openssl rand -hex 8)"
 
 echo "=== Marznode Setup for Trial Server ==="
@@ -133,7 +136,7 @@ services:
     network_mode: host
     environment:
       SERVICE_PORT: "$SERVICE_PORT"
-      XRAY_EXECUTABLE_PATH: "/usr/local/bin/xray"
+      XRAY_EXECUTABLE_PATH: "$XRAY_BINARY"
       XRAY_ASSETS_PATH: "/usr/local/lib/xray"
       XRAY_CONFIG_PATH: "/var/lib/marznode/xray_config.json"
       SSL_CLIENT_CERT_FILE: "/var/lib/marznode/client.pem"
@@ -155,6 +158,11 @@ echo "✓ Firewall rules added"
 # 7. Pull and start
 cd "$MARZNODE_DIR"
 docker compose pull
+docker pull "$XRAY_IMAGE"
+STAGE_CONTAINER="$(docker create "$XRAY_IMAGE")"
+docker cp "$STAGE_CONTAINER:/usr/bin/xray" "$XRAY_BINARY"
+docker rm "$STAGE_CONTAINER" >/dev/null
+chmod 755 "$XRAY_BINARY"
 docker compose up -d
 
 echo ""

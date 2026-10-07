@@ -6,11 +6,12 @@
  *
  * Safe: refuses to run against the production database.
  */
+import "../src/lib/loadEnv.js";
 import { createClient } from "@supabase/supabase-js";
 
 const DEV_URL = "https://huqmzvlzfcexycdrsxpn.supabase.co";
 const DEV_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1cW16dmx6ZmNleHljZHJzeHBuIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDI4NDkxMywiZXhwIjoyMDg5ODYwOTEzfQ.9dY1LRUMapO1jhGhu1T4m9xzJnAgPdRr9Rb3UdZtG9g";
+  process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (DEV_URL.includes("daenwusz")) {
   console.error("❌ ABORT: This is the PRODUCTION database!");

@@ -37,10 +37,24 @@ const {
   getPackageCommissionPercent,
   getPackageServerTier,
   stopOrder,
+  activateScheduledOrder,
 } =
   await import('../services/orderLifecycleService.js')
 
 beforeEach(() => vi.clearAllMocks())
+
+describe('scheduled purchase activation', () => {
+  it('never provisions an unconfirmed queued purchase', async () => {
+    await expect(activateScheduledOrder({
+      id: 'queued-1',
+      customer_id: 'customer-1',
+      reseller_id: 'reseller-1',
+      review_status: 'pending_review',
+      payment_status: 'unpaid',
+    })).rejects.toMatchObject({ code: 'PAYMENT_UNDER_REVIEW', status: 409 })
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+})
 
 // ─── OrderLifecycleError ──────────────────────────────────────────────────────
 
