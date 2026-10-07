@@ -11,6 +11,9 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: 3000,
+        // The Droplet has no working IPv6 route. Node 22's family race can
+        // abandon Telegram's slower IPv4 connection before it completes.
+        NODE_OPTIONS: "--no-network-family-autoselection",
       },
     },
   ],

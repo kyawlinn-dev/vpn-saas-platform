@@ -102,6 +102,11 @@ Backend env:
 /var/www/novanet/backend/.env.production
 ```
 
+The PM2 ecosystem sets `NODE_OPTIONS=--no-network-family-autoselection` because
+the production Droplet has no working IPv6 route and Telegram's IPv4 handshake
+can exceed Node 22's default family-race timeout. Keep this setting unless the
+Droplet gains verified IPv6 connectivity.
+
 Required public URL values:
 
 ```text

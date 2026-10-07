@@ -94,6 +94,11 @@ async function startBotForReseller(row) {
   }
   if (!botInfo) throw lastGetMeErr;
 
+  // Telegraf otherwise calls getMe again before handling the first update.
+  // Cache the identity we already fetched so transient Telegram API latency
+  // cannot block an otherwise valid incoming webhook.
+  bot.botInfo = botInfo;
+
   setupHandlers(bot, {
     resellerId: reseller_id,
     brandName: brand_name || "",
