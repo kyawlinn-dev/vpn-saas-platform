@@ -179,6 +179,25 @@ dashboard deployment is deliberately separate: run the `Deploy` workflow
 manually after CI passes. Configure the GitHub `production` environment with a
 required reviewer so a merge cannot silently become a customer-facing release.
 
+## Branch And Promotion Strategy
+
+- `develop` is the integration branch for completed local work.
+- Short-lived `feature/*` and `fix/*` branches start from `develop` and merge
+  back after local tests pass.
+- `staging` receives fast-forward promotions from `develop` for release
+  validation against staging configuration.
+- `main` contains production-ready source only. Promote `staging` through a
+  pull request after all four CI jobs pass.
+- `main` requires an up-to-date branch, linear history, resolved conversations,
+  and successful `backend`, `admin-dashboard`, `reseller-dashboard`, and
+  `miniapp` checks. Force pushes and branch deletion are disabled.
+- Local and production differences belong in ignored environment files and
+  provider configuration, never in a long-lived `local` branch.
+
+Merging to `main` does not deploy the backend or Mini App. Run their Ansible
+playbooks manually after the release gate. Dashboard deployment remains the
+separate manual `Deploy` workflow.
+
 ## Domains
 
 Recommended production mapping:
