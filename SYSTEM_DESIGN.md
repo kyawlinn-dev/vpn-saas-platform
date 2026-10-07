@@ -4,11 +4,11 @@ NovaNet MM is a multi-tenant VPN reseller platform. One platform owner manages
 servers, plans, resellers, and oversight. Each reseller owns a branded Telegram
 Mini App workspace and sells Marzneshin-backed VPN access to their customers.
 
-This document describes the target `feature/marzneshin` implementation. As of
-2026-10-03, the deployed backend still manages existing customers through the
-Outline Manager API; Marznode is installed and client-tested alongside it.
-The provider/database cutover has not been deployed. See the cutover gate in
-`DEPLOYMENT.md` before releasing this branch.
+This document describes the current production system. The Marzneshin provider
+cutover completed on 2026-10-06: all active Shadowsocks and VLESS access is
+managed through Marzneshin/Marznode. Outline Manager API integration and
+Outline containers are retired. Historical Outline database rows remain only
+where required to preserve foreign-key and order history.
 
 ## Tenancy Model
 

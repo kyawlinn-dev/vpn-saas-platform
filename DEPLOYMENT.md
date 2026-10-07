@@ -20,21 +20,18 @@ The following gate records the pre-cutover rollout. It is not the current
 deployment procedure. All active production keys now use Marzneshin; legacy
 Outline server rows are retained only for historical foreign-key references.
 
-The `feature/marzneshin` branch is **not** a drop-in backend deployment over the
-current Outline production database. Existing active keys store Outline `ss://`
-URLs and numeric Outline key IDs. The dual-provider backend identifies their
-provider from the server row and keeps their configuration delivery, usage
-sync, and stop operations on Outline. Applying schema migrations alone does
-not convert keys, and this release must not bulk-convert them.
+During the 2026-10 provider cutover, the `feature/marzneshin` branch was not a
+drop-in deployment over the Outline production database. Existing keys were
+migrated in controlled batches, with dynamic access URLs preserved and each
+canary verified before Outline was retired. The historical procedure remains in
+`PROVIDER_COEXISTENCE_RUNBOOK.md`; do not use it as the current deployment
+workflow or re-enable dual-provider behavior.
 
-Before deploying the new backend, follow `PROVIDER_COEXISTENCE_RUNBOOK.md`:
-verify the production schema, restore-test a database backup, rehearse the
-migrations on production-shaped data, and verify existing Outline access and
-new-provider canary behavior. Keep Outline running until its last active key
-is retired. Do not copy encrypted panel-password
-values from the development database: its `BOT_TOKEN_ENCRYPTION_KEY` differs
-from production. Encrypt panel credentials with the production key and verify
-all production server rows have their intended service IDs and tier.
+Development and production continue to use different encryption keys. Never
+copy encrypted panel-password values between their databases. New server rows
+must be encrypted with the destination environment's
+`BOT_TOKEN_ENCRYPTION_KEY` and verified against their intended service IDs and
+tier.
 
 Local `.env.local` and production `.env.production` use different Supabase
 projects. The backend loads `.env` first, then `.env.production` when PM2 sets
@@ -42,7 +39,7 @@ projects. The backend loads `.env` first, then `.env.production` when PM2 sets
 credentials in `MARZNESHIN_PANEL_*` are for one-off operator scripts; normal
 backend requests use per-server encrypted credentials stored in `vpn_servers`.
 
-| Concern | Local development | Production cutover |
+| Concern | Local development | Production |
 |---|---|---|
 | Database | Development Supabase project | Production Supabase project; migrate and verify separately |
 | Encryption | Local `BOT_TOKEN_ENCRYPTION_KEY` | Keep the existing production key; re-encrypt any imported panel credential with it |
