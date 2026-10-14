@@ -15,6 +15,8 @@ step. Paid purchases start automatically without a current paid package, or
 become the next queued package when there is one. Unpaid dashboard purchases
 wait for payment confirmation. Internal provisioning and safe setup retries
 remain required. This is planned behavior, not current deployed behavior.
+The owner approved a scoped durable setup/replay migration on 2026-10-15 after
+reviewing the missing per-customer setup claim; migration 0037 is that prerequisite.
 
 ## Intent and agreed decisions
 
@@ -239,7 +241,7 @@ Run relevant backend tests, dashboard builds, Mini App lint/build, and targeted 
    and failure-recovery tests; preserve existing Telegram policy.
 4. Compare common fixtures across channels and complete the affected builds/CI.
 5. Prepare a scoped release excluding unfinished workspace changes. Keep promotion and deployment aligned with the repository workflow; choose the isolated implementation checkout in the written plan.
-6. With separate explicit production authorization, deploy compatible backend changes before dependent clients; deploy bot/backend and Mini App through manual Ansible playbooks and dashboards through GitHub Actions/Cloudflare Pages. Verify matching real records read-only after release.
+6. With separate explicit production authorization, apply reviewed migration 0037 before compatible backend changes and dependent clients; deploy bot/backend and Mini App through manual Ansible playbooks and dashboards through GitHub Actions/Cloudflare Pages. Verify matching real records read-only after release.
 
 Preserve a rollback reference per deployed component. Roll back dependent clients before removing backend compatibility. This design does not authorize deployment, production customer-data edits, online payment processing, new authentication behavior, or unrelated product features. The approved dashboard change records manually received payments through existing ledger services.
 

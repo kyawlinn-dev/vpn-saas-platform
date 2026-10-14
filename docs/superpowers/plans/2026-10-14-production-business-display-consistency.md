@@ -14,7 +14,7 @@
 explicit queued-payment rule: confirmation records received money immediately;
 only VPN package activation waits. The owner also approved removing routine manual
 dashboard activation in favor of automatic start/queue and setup retry (Task 6A).
-This is still an unexecuted implementation plan.
+Implementation started 2026-10-15 in the isolated codex worktree; see the validation report and Git commits for execution evidence.
 
 ## Global Constraints
 
@@ -42,7 +42,7 @@ This is still an unexecuted implementation plan.
 - Unknown, zero and unlimited are distinct. A zero ledger sum must never trigger cached-money fallback.
 - Preserve compatibility aliases, branding, translation and existing layout patterns. Public payloads must not expose staff commission/platform-due summaries.
 - Use synthetic fixtures. Do not run jobs, provider mutations or notification sends against production during implementation.
-- No new schema migration is planned. If an existing schema cannot support a requirement, document the precise gap and review a migration separately; do not silently depend on Messenger migrations.
+- Owner approved the scoped Task 6A prerequisite on 2026-10-15: migration 0037 adds durable dashboard purchase/setup operations. It depends on core production schema, not Messenger 0027–0036. No production schema application is authorized.
 - Isolate from the dirty `develop` checkout and unfinished Messenger work. Production deployment requires a separate explicit request.
 
 ## Review Focus
@@ -250,7 +250,7 @@ and `order_id` to affected mutation responses. Add staff summary
 derive from durable evidence, never infer failed solely from absence of a key.
 Use existing scoped activate endpoints as guarded retries, retaining compatibility;
 retry reuses ledger rows and cannot record another sale. Public projection omits
-staff recovery controls. No new database status or migration is assumed.
+staff recovery controls. The owner subsequently approved migration 0037 for this durable coordination; see SCHEMA.md and the setup safety proposal.
 
 - [ ] Trace current manual create, payment-status update, confirm, activate,
   commission and queue paths on the isolated production baseline. Record how
@@ -339,7 +339,7 @@ create `reseller-dashboard/tests/businessDisplayRunner.test.mjs`,
 `docs/DOCUMENTATION.md`, `docs/API_ROUTE_INVENTORY.md`, `MINIAPP_TEXT.md`,
 `BURMESE_TEXT.md` and affected knowledge/skill references when implementation
 changes their facts. Update `SCHEMA.md` only for a separately reviewed schema
-change; this plan introduces none.
+change; Task 6A now includes the separately approved migration 0037.
 
 **Interfaces:** Browser runner exports `validateBaseUrls(urls) -> void`, accepts `ADMIN_BASE_URL`, `RESELLER_BASE_URL`, `MINIAPP_BASE_URL`, defaults to loopback ports 3001/3002/3003, and refuses non-loopback hosts. Direct CLI execution runs cases; importing it must not launch browsers. It mocks auth/data/mutations/provider requests and renders the common fixture cases. Validation report records command, commit, result, viewport/locale/time zone and gaps.
 
@@ -355,7 +355,7 @@ change; this plan introduces none.
   after regression and rendered verification; retain historical evidence and
   development/production stage labels. Do not claim future deployment from a local
   passing test or change an existing settlement snapshot.
-- [ ] Write release order: compatible backend first, dependent dashboards/Mini App after; preserve per-component rollback references and old API aliases. Document that old dashboard clients may still submit an activate request after automatic setup: it must safely return the existing active order without repeating payment/provisioning. Document behavior rollback for paid pending/setup-failed orders without undoing recorded money or bulk reactivation. Add the read-only post-release comparison checklist using current live values, not frozen Ye Yint readings. No deployments occur in this task.
+- [ ] Write release order: approved migration 0037 first, compatible backend second, dependent dashboards/Mini App after; preserve per-component rollback references and old API aliases. Document that old dashboard clients may still submit an activate request after automatic setup: it must safely return the existing active order without repeating payment/provisioning. Document behavior rollback for paid pending/setup-failed orders without undoing recorded money or bulk reactivation. Add the read-only post-release comparison checklist using current live values, not frozen Ye Yint readings. No deployments occur in this task.
 - [ ] Run `git diff --check`, inspect exact release diff and perform the selected execution method's final code review; resolve findings, rerun affected checks, then commit `test: verify production business display consistency` and report files, tests and explicit deployment follow-up.
 
 ## Self-review and execution handoff

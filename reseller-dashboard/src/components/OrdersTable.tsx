@@ -485,11 +485,13 @@ export function OrdersTable({
       const res = await api.post(`/reseller/order-actions/${order.id}/activate`);
       await refreshAll();
 
+      setDetailsDialog({open:false,order:null});
       const data = res?.data;
       const accessUrl: string = getPreferredAccessUrlFromPayload(data);
       const customerName = order.customer?.full_name || "Customer";
 
-      if (accessUrl) {
+      if (["setup_failed","setup_in_progress","queued","awaiting_payment"].includes(data?.purchase_outcome)) { setMessage(data.message || "Purchase recorded; setup is pending."); }
+      else if (accessUrl) {
         setAccessKeyDialog({
           open: true,
           customerName,
@@ -726,13 +728,23 @@ export function OrdersTable({
     }
 
     if (!isTelegramCustomer) {
+      if(order.order_type !== "trial" && order.payment_status === "unpaid" && order.review_status !== "rejected" && ["pending","scheduled"].includes(order.status)) {
+        actions.push({label:"Confirm payment",icon:<Check size={14}/>,disabled:!!loadingId,onSelect:async()=>{
+          try {
+            setLoadingId(order.id+":confirm");
+            const result=await api.post(`/reseller/order-actions/${order.id}/confirm-payment`);
+            setMessage(result.data.message || "Payment confirmed");
+            await refreshAll();
+            setDetailsDialog({open:false,order:null});
+          } catch(err:any) { setError(err?.response?.data?.error || "Could not confirm payment"); }
+          finally { setLoadingId(""); }
+        }});
+      }
       if (
-        order.status === "pending" &&
-        order.payment_status === "paid" &&
-        order.review_status !== "rejected"
+        (order.order_type === "trial" || order.business_summary?.can_retry_setup) && order.status === "pending" && order.payment_status === "paid"
       ) {
         actions.push({
-          label: loadingId === `${order.id}:activate` ? "Activating..." : "Activate",
+          label: loadingId === `${order.id}:activate` ? "Setting up..." : order.order_type === "trial" ? "Activate trial" : "Retry setup",
           icon: <KeyRound size={14} />,
           disabled: loadingId === `${order.id}:activate`,
           onSelect: () => void runActivate(order),
@@ -742,7 +754,7 @@ export function OrdersTable({
       if (order.status === "active") {
         actions.push(
           {
-            label: loadingId === `${order.id}:extend` ? "Extending..." : "Extend",
+            label: loadingId === `${order.id}:extend` ? "Saving..." : "Buy next package",
             icon: <RefreshCw size={14} />,
             disabled: loadingId === `${order.id}:extend`,
             onSelect: () => openRenewDialog(order, "extend"),

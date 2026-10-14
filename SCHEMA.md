@@ -832,3 +832,48 @@ rejecting customer-initiated checkout for inactive identities.
 - DEPLOYMENT.md: verified production release process and development migration gates.
 - FINAL_DATA_MODEL.md: historical target design with partial implementation status; not permission to drop current fields.
 - docs/DOCUMENTATION.md: document authority and stage index.
+
+## Pending implementation migration 0037 (not deployed)
+
+Owner-approved on 2026-10-15. The production OpenAPI snapshot above remains
+unchanged until separately authorized deployment. 0037 depends on existing core
+0022/0026 effects and does not depend on the development 0027–0036 chain.
+
+### dashboard_purchase_operations
+
+Backend-only durable manual-purchase replay/setup coordination. RLS enabled;
+no anon/authenticated policies or grants. service_role owns access.
+
+| Column | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| id | uuid | yes | PK, generated UUID |
+| reseller_id | uuid | yes | Tenant FK; part of both composite ownership FKs |
+| request_key | uuid | yes | Unique with reseller_id; stable per submitted purchase |
+| request_hash | text | yes | Canonical normalized request fingerprint; changed-payload replay rejected |
+| customer_id | uuid | yes | Composite FK to vpn_customers(id,reseller_id) |
+| order_id | uuid | yes | Unique; composite FK to vpn_orders(id,reseller_id) |
+| plan_snapshot | jsonb | yes | Purchased plan values for setup/retry; legacy adoption uses recorded payment snapshot where available, otherwise labelled catalogue provenance |
+| state | text | yes | not_started, awaiting_payment, queued, running, ready or failed |
+| setup_owner | uuid | no | Non-null exactly while running; owner checked on completion |
+| claimed_at | timestamptz | no | Claim time; never authorizes automatic takeover |
+| last_error_code | text | no | Sanitized setup code; separate from ledger apply_error |
+| created_at | timestamptz | yes | Default now() |
+| updated_at | timestamptz | yes | Default now(); updated by RPC |
+
+Partial unique index permits at most one running operation per reseller/customer.
+Service-role-only RPCs: prepare_dashboard_purchase(uuid,uuid,text,jsonb) atomically
+creates/replays a manual purchase and records paid receipt through the existing
+apply_confirmed_payment RPC; ensure_dashboard_purchase_operation(uuid,uuid) adopts
+an explicitly acted-on legacy dashboard order; claim_dashboard_purchase_setup
+(uuid,uuid,uuid) chooses start/queue/wait and claims setup;
+finish_dashboard_purchase_setup(uuid,uuid,uuid,text,text) verifies the owner and
+records ready/failed. Provider calls occur outside transactions. A running owner
+is never stolen by timeout; crash recovery requires operator reconciliation.
+
+Local isolated PGlite execution verifies SQL/RPC behavior and permissions against
+a synthetic core schema; this does not certify live constraints or apply SQL to
+Supabase. Recheck live production prerequisites before deployment.
+
+Operation ownership FKs cascade only when the owning order/customer is explicitly
+deleted through existing authorized cleanup; no independent purge is introduced.
+Keep operation rows for as long as the purchase exists to preserve replay identity.

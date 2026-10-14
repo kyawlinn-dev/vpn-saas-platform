@@ -176,7 +176,8 @@ async function fetchEnrichedCustomer(customerId, req) {
         `*,
         plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb),
         reseller:resellers(id, name),
-        payments:order_payments(
+        dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
+          payments:order_payments(
           id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
           commission_amount_mmk, platform_due_mmk, review_status, payment_type,
           apply_status, source, payment_method, payment_note, created_at, submitted_at,
@@ -184,7 +185,7 @@ async function fetchEnrichedCustomer(customerId, req) {
         ),
         keys:vpn_keys!vpn_keys_order_tenant_fk(
           id, order_id, customer_id, reseller_id, server_id, outline_key_id,
-          key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
+          key_name, access_url, protocol, data_limit_bytes, used_bytes, status, created_at,
           deleted_at
         )`
       )
@@ -399,7 +400,8 @@ router.get("/overview", async (req, res) => {
         .select(
           `id, customer_id, reseller_id, status, payment_status, review_status, order_type,
           source, price_mmk, total_paid_mmk, commission_percent, commission_amount_mmk,
-          created_at, reseller:resellers(id, name, commission_percent), payments:order_payments(id)`
+          created_at, reseller:resellers(id, name, commission_percent), dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
+          payments:order_payments(id)`
         )
         .eq("payment_status", "paid")
         .eq("review_status", "confirmed"),
@@ -477,6 +479,7 @@ router.get("/analytics", async (req, res) => {
           reseller:resellers(id, name, email, commission_percent),
           customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username),
           plan:vpn_plans(id, name),
+          dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
           payments:order_payments(id)`
         )
         .gte("created_at", monthWindow.start.toISOString())
@@ -504,6 +507,7 @@ router.get("/analytics", async (req, res) => {
           reseller:resellers(id, name, email, commission_percent),
           customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username),
           plan:vpn_plans(id, name),
+          dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
           payments:order_payments(id)`
         )
         .eq("payment_status", "paid")
@@ -743,7 +747,8 @@ router.get("/customers", async (req, res) => {
             `*,
             plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb),
             reseller:resellers(id, name),
-            payments:order_payments(
+            dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
+          payments:order_payments(
               id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
               commission_amount_mmk, platform_due_mmk, review_status, payment_type,
               apply_status, source, payment_method, payment_note, created_at, submitted_at,
@@ -751,7 +756,7 @@ router.get("/customers", async (req, res) => {
             ),
             keys:vpn_keys!vpn_keys_order_tenant_fk(
               id, order_id, customer_id, reseller_id, server_id, outline_key_id,
-              key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
+              key_name, access_url, protocol, data_limit_bytes, used_bytes, status, created_at,
               deleted_at
             )`
           )
@@ -834,7 +839,8 @@ router.get("/orders", async (req, res) => {
         customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username, phone, protocol_preference, ssconf_token),
         plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb),
         reseller:resellers(id, name),
-        payments:order_payments(
+        dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
+          payments:order_payments(
           id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
           commission_amount_mmk, platform_due_mmk, review_status, payment_type,
           apply_status, source, payment_method, payment_note, created_at, submitted_at,
@@ -842,7 +848,7 @@ router.get("/orders", async (req, res) => {
         ),
         keys:vpn_keys!vpn_keys_order_tenant_fk(
           id, order_id, customer_id, reseller_id, server_id, outline_key_id,
-          key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
+          key_name, access_url, protocol, data_limit_bytes, used_bytes, status, created_at,
           deleted_at
         )`,
         { count: "exact" }

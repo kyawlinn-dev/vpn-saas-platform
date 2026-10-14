@@ -127,8 +127,9 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
           ? { plan_id: planId || order.plan_id, idempotency_key: crypto.randomUUID() }
           : undefined;
 
-      await api.post(`/admin/order-actions/${order.id}/${action}`, body);
-      setMessage(`${action.replace(/-/g, ' ')} completed.`);
+      const result=await api.post(`/admin/order-actions/${order.id}/${action}`, body);
+      setSelectedOrder(null);
+      setMessage(result.data?.message || `${action.replace(/-/g, ' ')} completed.`);
       setTimeout(() => setMessage(''), 5000);
       refresh();
       await onSuccess();
@@ -176,13 +177,13 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
         onSelect: () => setConfirmReject(order),
       },
       {
-        label: 'Activate',
+        label: order.order_type === 'trial' ? 'Activate trial' : 'Retry setup',
         icon: <Play size={14} />,
-        disabled: busy || order.status !== 'pending',
+        disabled: busy || order.status !== 'pending' || (order.order_type !== 'trial' && !order.business_summary?.can_retry_setup),
         onSelect: () => void runAction(order, 'activate'),
       },
       {
-        label: order.status === 'active' ? 'Extend package' : 'Renew package',
+        label: order.status === 'active' ? 'Buy next package' : 'Renew package',
         icon: <PackagePlus size={14} />,
         disabled: busy || !['active', 'expired', 'stopped'].includes(order.status),
         onSelect: () => openExtend(order),

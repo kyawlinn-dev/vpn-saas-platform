@@ -14,7 +14,8 @@ const VALID_PROTOCOLS = ["shadowsocks", "vless", "hysteria2"];
 const ORDER_SELECT_FOR_CUSTOMERS = `
   *,
   plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb, max_devices, allowed_regions),
-  payments:order_payments(
+  dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
+          payments:order_payments(
     id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
     commission_amount_mmk, platform_due_mmk, review_status, payment_type,
     apply_status, source, payment_method, payment_note, created_at, submitted_at,
@@ -22,7 +23,7 @@ const ORDER_SELECT_FOR_CUSTOMERS = `
   ),
   keys:vpn_keys!vpn_keys_order_tenant_fk(
     id, order_id, customer_id, reseller_id, server_id, outline_key_id,
-    key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
+    key_name, access_url, protocol, data_limit_bytes, used_bytes, status, created_at,
     deleted_at
   )
 `;

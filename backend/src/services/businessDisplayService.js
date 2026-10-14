@@ -35,6 +35,8 @@ export function summarizeOrderBusiness(order, { quota = order?.quota || null, fr
   const payments = paymentsLoaded ? order?.payments || [] : [];
   const review = (v) => ({pending_review: "awaiting_review", confirmed: "confirmed", rejected: "rejected"}[v] || "unknown");
   const state = order?.status;
+  const setup = Array.isArray(order?.dashboard_setup) ? order.dashboard_setup[0] : order?.dashboard_setup;
+  const manualPending = order?.source === "dashboard" && order?.order_type === "purchase" && state === "pending" && order?.payment_status === "paid" && order?.review_status === "confirmed" && Object.hasOwn(order,"dashboard_setup") && !setup;
   return {
     access_status: state === "scheduled" ? "queued" : state === "active" && expiry.expired ? "expired" : ["active", "pending", "stopped", "expired"].includes(state) ? state : "unknown",
     payment_review_status: order?.order_type === "trial" ? "no_payment_required" : payments.length ? oneOrMixed(payments.map((p) => review(p.review_status))) : paymentsLoaded ? order?.payment_status === "unpaid" ? "unpaid" : review(order?.review_status) : "unknown",
@@ -45,8 +47,9 @@ export function summarizeOrderBusiness(order, { quota = order?.quota || null, fr
     quota: toQuotaPayload(quota),
     usage_freshness: freshness || { last_synced_at: null, state: "unknown" },
     snapshot_basis: { quota: order?.quota_limit_bytes != null || order?.quota_is_unlimited === true ? "order_snapshot" : quota ? "derived" : "unavailable", duration: payments.some((p) => p.package_duration_days != null) ? "payment_snapshot" : order?.plan?.duration_days != null ? "catalogue" : "unavailable" },
-    setup_status: (order?.keys || []).some((k) => k.status === "active") && state === "active" ? "ready" : "unknown",
-    can_retry_setup: false,
+    setup_in_progress: setup?.state === "running",
+    setup_status: manualPending ? "not_started" : state === "active" && (order?.keys || []).some(k=>k.status === "active") ? "ready" : setup?.state === "failed" ? "failed" : setup?.state === "not_started" || setup?.state === "awaiting_payment" ? "not_started" : "unknown",
+    can_retry_setup: (manualPending || ["failed","not_started"].includes(setup?.state)) && order?.source === "dashboard" && order?.payment_status === "paid" && order?.review_status === "confirmed" && ["pending","scheduled"].includes(state),
   };
 }
 

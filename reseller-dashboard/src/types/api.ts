@@ -407,6 +407,6 @@ export interface BusinessSummary {
  quota:OrderQuota|null;
  usage_freshness:{last_synced_at:string|null;state:'fresh'|'stale'|'unknown'};
  snapshot_basis:{quota:string;duration:string};
- setup_status?:'not_started'|'ready'|'failed'|'unknown'; can_retry_setup?:boolean;
+ setup_in_progress?:boolean; setup_status?:'not_started'|'ready'|'failed'|'unknown'; can_retry_setup?:boolean;
 }
 export interface MoneySummary {basis:'ledger'|'legacy'|'unavailable';confirmed_mmk:number|null;recognized_gross_mmk:number|null;commission_mmk:number|null;platform_due_mmk:number|null;awaiting_review_mmk:number|null;rejected_mmk:number|null;}

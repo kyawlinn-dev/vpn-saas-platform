@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
@@ -20,6 +20,7 @@ const initialForm = {
   plan_id: "",
   payment_note: "",
   notes: "",
+  payment_status: "paid" as "paid" | "unpaid",
   protocol_preference: "shadowsocks" as "shadowsocks" | "vless",
 };
 
@@ -81,6 +82,9 @@ function PlanPreview({ plan }: { plan: Plan | undefined }) {
 
 export function OrderForm({ plans, onSuccess, onCancel }: Props) {
   const [form, setForm] = useState(initialForm);
+  const request = useRef({key:crypto.randomUUID(),fingerprint:""});
+  const submitting = useRef(false);
+  const [recordedOrderId,setRecordedOrderId] = useState("");
   const durations = useMemo(
     () => Array.from(new Set(plans.map((plan) => plan.duration_days))).sort((a, b) => a - b),
     [plans]
@@ -106,10 +110,11 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
     [plans, form.plan_id]
   );
 
-  const canSubmit = form.full_name.trim().length > 0 && !!form.plan_id && !loading;
+  const canSubmit = form.full_name.trim().length > 0 && !!form.plan_id && !loading && !recordedOrderId;
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || submitting.current) return;
+    submitting.current=true;
 
     try {
       setLoading(true);
@@ -117,10 +122,14 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
 
       const { phone, telegram_username } = splitContact(form.contact);
 
-      await api.post("/reseller/orders", {
+      const fingerprint=JSON.stringify(form);
+      if(request.current.fingerprint && request.current.fingerprint!==fingerprint)request.current.key=crypto.randomUUID();
+      request.current.fingerprint=fingerprint;
+      const result = await api.post("/reseller/orders", {
+        idempotency_key:selectedPlan?.is_trial ? undefined : request.current.key,
         full_name: form.full_name.trim(),
         plan_id: form.plan_id,
-        payment_status: "paid",
+        payment_status: form.payment_status,
         payment_note: form.payment_note.trim() || null,
         notes: form.notes.trim() || null,
         phone: phone || null,
@@ -128,6 +137,11 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
         protocol_preference: form.protocol_preference,
       });
 
+      if(["setup_failed","setup_in_progress"].includes(result.data.purchase_outcome)) {
+        setRecordedOrderId(result.data.order_id || result.data.id);
+        setError(result.data.message);
+        return;
+      }
       setForm({
         ...initialForm,
         plan_id: plans[0]?.id || "",
@@ -139,6 +153,7 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
       const data = (e?.response as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
       setError((data?.error as string) || (e?.message as string) || "Failed to create order");
     } finally {
+      submitting.current=false;
       setLoading(false);
     }
   };
@@ -160,7 +175,16 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
         </div>
       ) : null}
 
-      <div className="space-y-4 pb-4">
+      {recordedOrderId && <Button type="button" disabled={loading} onClick={async()=>{
+        try {
+          setLoading(true);
+          const result=await api.post(`/reseller/order-actions/${recordedOrderId}/activate`);
+          if(["active","queued"].includes(result.data.purchase_outcome)||result.data.already_active) await onSuccess();
+          else setError(result.data.message || "Setup is still pending. Do not pay again.");
+        } catch { setError("Setup could not finish. Retry this order without paying again."); }
+        finally { setLoading(false); }
+      }}>Retry setup</Button>}
+      <fieldset disabled={loading || !!recordedOrderId} className="space-y-4 pb-4">
         <FormField label="Customer name" required>
           <Input
             value={form.full_name}
@@ -257,6 +281,12 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
           </div>
         </div>
 
+        {!selectedPlan?.is_trial && <FormField label="Payment">
+          <Select value={form.payment_status} onChange={e=>setForm(p=>({...p,payment_status:e.target.value as "paid"|"unpaid"}))}>
+            <option value="paid">Payment received</option><option value="unpaid">Awaiting payment</option>
+          </Select>
+          <p className="mt-1 text-xs text-muted-foreground">Paid purchases start now or queue behind the current package.</p>
+        </FormField>}
         <FormField label="Payment note">
           <Input
             value={form.payment_note}
@@ -275,7 +305,7 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
             rows={2}
           />
         </FormField>
-      </div>
+      </fieldset>
 
       <div className="sticky bottom-0 -mx-4 mt-auto flex flex-col-reverse gap-2 border-t border-border/70 bg-card/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:-mx-0 sm:flex-row sm:justify-end sm:border-t-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:backdrop-blur-none">
         {onCancel ? (
@@ -291,7 +321,7 @@ export function OrderForm({ plans, onSuccess, onCancel }: Props) {
           </Button>
         ) : null}
         <Button variant="primary" disabled={!canSubmit} type="submit" fullWidth className="sm:w-auto">
-          {loading ? "Creating…" : "Create Order"}
+          {loading ? "Saving…" : selectedPlan?.is_trial ? "Create trial" : form.payment_status === "unpaid" ? "Save awaiting payment" : "Create & start package"}
         </Button>
       </div>
     </form>

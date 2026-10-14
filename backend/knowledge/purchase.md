@@ -42,3 +42,10 @@ A_EN: Initial access is delivered before receipt review. The reseller still need
 ## Notifications and recovery
 
 Production dashboard reviews can be picked up by scheduled Telegram recovery; some Telegram callback paths send immediately. The local shared immediate-delivery service is not yet a production promise. For an uncertain purchase, ask support to inspect the existing order/payment before submitting another receipt.
+
+## Planned dashboard flow (implementation branch; not deployed yet)
+
+Paid manual purchases will start or queue automatically. Unpaid manual purchases
+will wait for confirmation. If setup fails after payment, staff will retry setup
+on the same order without another payment. This needs migration 0037; it is not a
+change to the existing Telegram immediate-access/review policy.

@@ -11,7 +11,7 @@ export async function run() {
  const order={...fixture.switched.order,customer:{id:'customer-a',full_name:'Fixture Customer',customer_type:'normal'},reseller:{id:'tenant-a',name:'Fixture Brand'},plan,quota:fixture.switched.quota,keys:fixture.switched.keys,total_used_bytes:78739049472,payments:[],business_summary:summarizeOrderBusiness(fixture.switched.order,{quota:fixture.switched.quota,now:new Date(fixture.now_iso),paymentsLoaded:true}),money_summary:{basis:'ledger',recognized_gross_mmk:0,commission_mmk:0,platform_due_mmk:0,awaiting_review_mmk:0}};
  const browser=await chromium.launch({headless:true});
  try {for(const [index,base] of bases.slice(0,2).entries()){
- const context=await browser.newContext({viewport:{width:1440,height:1000},timezoneId:'America/Los_Angeles'});const page=await context.newPage();const unexpected=[];page.setDefaultTimeout(12000);page.on("pageerror",e=>console.error("Browser error:",e.message));
+ const context=await browser.newContext({viewport:{width:1440,height:1000},timezoneId:'America/Los_Angeles'});const page=await context.newPage();const createdRequests=[],retryRequests=[];const unexpected=[];page.setDefaultTimeout(12000);page.on("pageerror",e=>console.error("Browser error:",e.message));
  await page.route('**/*',async route=>{const req=route.request(),u=new URL(req.url());if(u.pathname.startsWith('/api/')){
  let body;const p=u.pathname;
  if(p.endsWith('/auth/reseller/me')||p.endsWith('/admin/auth/me'))body={user:{id:'test-user'},admin:{id:'test-admin',full_name:'Fixture Admin'}};
@@ -21,6 +21,8 @@ export async function run() {
  else if(p.endsWith('/reseller/me'))body={...order.reseller,status:'active',has_miniapp:true};
  else if(p.endsWith('/workspace'))body={brand_name:'Fixture Brand',is_enabled:true};
  else if(p.endsWith('/orders/counts'))body={status:{all:1,active:1},telegram_review:{total:0,pending:0}};
+ else if(p.endsWith('/orders')&&req.method()==='POST'){const payload=req.postDataJSON();createdRequests.push(payload);body={id:'created-fixture',order_id:'created-fixture',purchase_outcome:payload.payment_status==='unpaid'?'awaiting_payment':'setup_failed',message:payload.payment_status==='unpaid'?'Awaiting payment':'Payment confirmed. Setup failed; retry setup without paying again.'};}
+ else if(p.endsWith('/created-fixture/activate')){retryRequests.push(p);body={success:true,purchase_outcome:'active',order_id:'created-fixture'};}
  else if(p.endsWith('/orders'))body={data:[order],total:1,page:1,limit:10};
  else {unexpected.push(req.method()+' '+p);await route.abort();return;}
  await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});return;
@@ -30,7 +32,7 @@ export async function run() {
  console.log("Checking",base);await page.goto(base+(index===0?'/orders':'/app/orders'));await page.getByText('Fixture Customer',{exact:true}).first().waitFor();
  if(index===1){await page.getByRole('button',{name:'More actions',exact:true}).first().click();await page.getByText('View details',{exact:true}).click();}
  const text=await page.locator('body').innerText();assert.match(text,/100\.00 GB/);assert.match(text,/73%/);assert.match(text,/26\.67 GB/);assert.equal(unexpected.length,0,'Unmatched requests: '+unexpected.join(','));
- console.log((index===0?'admin':'reseller')+': switched package shows full total — passed');await context.close();
+ console.log((index===0?'admin':'reseller')+': switched package shows full total — passed');if(index===1 && process.env.CHECK_DASHBOARD_PURCHASES==='1'){await page.keyboard.press('Escape');await page.getByRole('button',{name:'Create Order',exact:true}).click();await page.getByPlaceholder('Enter customer name').fill('New Fixture');await page.getByRole('button',{name:'Create & start package',exact:true}).click();await page.getByRole('button',{name:'Retry setup',exact:true}).waitFor();assert.match(await page.locator('body').innerText(),/Payment confirmed/);await page.getByRole('button',{name:'Retry setup',exact:true}).click();await page.getByRole('button',{name:'Create Order',exact:true}).waitFor();assert.equal(createdRequests.length,1);assert.equal(retryRequests.length,1);assert.match(createdRequests[0].idempotency_key,/^[0-9a-f-]{36}$/);console.log('reseller: paid setup failure retries same order without another purchase — passed');await page.getByRole('button',{name:'Create Order',exact:true}).click();await page.getByPlaceholder('Enter customer name').fill('Unpaid Fixture');await page.locator('form select').filter({has:page.locator('option[value="unpaid"]')}).selectOption('unpaid');await page.getByRole('button',{name:'Save awaiting payment',exact:true}).click();await page.getByRole('button',{name:'Create Order',exact:true}).waitFor();assert.equal(createdRequests[1].payment_status,'unpaid');assert.equal(retryRequests.length,1);console.log('reseller: unpaid purchase waits without setup — passed');}await context.close();
  }
  for(const active of [true,false]) {
  const context=await browser.newContext({viewport:{width:390,height:844},timezoneId:'America/Los_Angeles'});const page=await context.newPage();page.setDefaultTimeout(12000);const unexpected=[];

@@ -970,7 +970,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
 
     const orderQuota = activeOrder ? await getOrderQuotaSnapshot(activeOrder.id) : null;
     const freshness = await loadUsageFreshness([currentKeyRow?.server_id]);
-    const {data:history,error:historyError} = await readAllRows(() => supabase.from("vpn_orders").select("id,status,order_type,plan_id,start_date,activated_at,expiry_date,created_at,payment_status,review_status,payments:order_payments(review_status,apply_status,package_duration_days),vpn_plans(name,duration_days,data_limit_gb)").eq("customer_id",customer.id).eq("reseller_id",miniapp.reseller_id).in("status",["expired","stopped"]).order("id"));
+    const {data:history,error:historyError} = await readAllRows(() => supabase.from("vpn_orders").select("id,status,order_type,plan_id,start_date,activated_at,expiry_date,created_at,payment_status,review_status,payments:order_payments(review_status,apply_status,package_duration_days),vpn_plans(name,duration_days,data_limit_gb)").eq("customer_id",customer.id).eq("reseller_id",miniapp.reseller_id).in("status",["expired","stopped","active"]).order("id"));
     if(historyError) throw new Error("Failed to load package history");
     const lastOrder = selectCustomerPackages(history || []).last_order;
     const lastQuota = lastOrder ? await getOrderQuotaSnapshot(lastOrder.id) : null;

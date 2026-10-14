@@ -1,5 +1,6 @@
+import {prepareDashboardPurchase} from "../../services/dashboardPurchaseService.js";
+import {startOrQueueDashboardPurchase,getResellerScopedOrder} from "../../services/orderLifecycleService.js";
 import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
-import { businessDateOnly } from "../../utils/businessTime.js";
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import {
@@ -50,6 +51,7 @@ const ORDER_SELECT = `
     allowed_regions,
     is_trial
   ),
+  dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
   payments:order_payments (
     id,
     amount_mmk,
@@ -62,7 +64,7 @@ const ORDER_SELECT = `
   ),
   keys:vpn_keys!vpn_keys_order_tenant_fk (
     id, order_id, customer_id, reseller_id, server_id, outline_key_id,
-    key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
+    key_name, access_url, protocol, data_limit_bytes, used_bytes, status, created_at,
     deleted_at,
     server:vpn_servers (id, name, region, region_code, display_country, display_city, flag_emoji, server_tier)
   )
@@ -404,6 +406,13 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "full_name and plan_id are required" });
     }
 
+    if(req.body.idempotency_key) {
+      const op=await prepareDashboardPurchase({resellerId:reseller.id,requestKey:req.body.idempotency_key,payload:{full_name,phone,telegram_username,notes,plan_id,customer_id,payment_status:requestedPaymentStatus === "paid" ? "paid" : "unpaid",payment_note,payment_screenshot_url,protocol_preference}});
+      const outcome=await startOrQueueDashboardPurchase({orderId:op.order_id,resellerId:reseller.id});
+      const recorded=await getResellerScopedOrder(op.order_id,reseller.id);
+      return res.status(201).json({...recorded,...outcome});
+    }
+
     const { data: plan, error: planError } = await supabase
       .from("vpn_plans")
       .select("*")
@@ -515,7 +524,7 @@ router.post("/", async (req, res) => {
     }
 
     const priceMmk = Number(plan.price_mmk || 0);
-    const commissionPercent = Number(reseller.commission_percent || 20);
+    const commissionPercent = Number(reseller.commission_percent ?? 20);
     const initialPaymentReviewStatus =
       payment_status === "paid" ? review_status : "pending_review";
     const initialPaymentAmounts = calculatePaymentAmounts({
@@ -598,7 +607,7 @@ router.post("/", async (req, res) => {
     return res.status(201).json(responseOrder);
   } catch (err) {
     console.error("POST /api/reseller/orders crash:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(err.status || 500).json({ error:err.status ? err.message : "Internal server error",code:err.code });
   }
 });
 

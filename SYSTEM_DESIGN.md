@@ -322,3 +322,16 @@ runtime; Meta public access remains a separate review/publishing step.
 - Scope reseller data by `reseller_id`.
 - Keep service-role keys backend-only.
 - Preserve current customer access when retiring legacy paths.
+
+## Dashboard purchase simplification — implementation branch, pending release
+
+The approved display-consistency release also adds owner-approved migration 0037
+for durable dashboard purchase replay and setup ownership. Paid manual purchases
+start automatically without current paid access or become the next queue. Unpaid
+purchases wait; confirmation starts/queues the same purchase. Payment is recorded
+before provider calls, so failure retains received money and shows Retry setup.
+An exclusive persisted per-customer setup owner prevents concurrent cleanup.
+A crashed running attempt needs reconciliation; there is no timeout-only takeover.
+Trials and Telegram policy remain as described above. Older dashboard clients
+without the request key retain manual creation compatibility during rollout.
+See SCHEMA.md and SKILL_API_CONTRACTS.md for staged contracts and prerequisites.

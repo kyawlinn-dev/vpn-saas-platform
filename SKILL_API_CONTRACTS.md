@@ -950,3 +950,29 @@ projection excludes money_summary, commission/due and staff retry controls.
 Usage freshness is fresh within two hours of the oldest relevant successful server
 sync, stale beyond it, unknown with missing evidence. Missing monitoring metadata
 does not fabricate a successful sync. Package dates use Asia/Bangkok.
+
+### Dashboard start/queue and setup recovery (implementation branch; migration 0037 required)
+
+POST /api/reseller/orders accepts a UUID idempotency_key for non-trial dashboard
+purchases. The key must stay the same across retries of one normalized payload;
+changed-payload replay returns REQUEST_CONFLICT. The backend derives plan price,
+commission, customer/tenant ownership and source. A paid receipt is confirmed and
+applied atomically before provider setup; unpaid orders have no received-payment
+entry. Existing active paid access causes a separate queue; an unreviewed current
+purchase or second queue is rejected under existing eligibility rules.
+
+The compatible order response adds order_id and purchase_outcome: active, queued,
+awaiting_payment, setup_failed or setup_in_progress. setup_failed/in_progress are
+recorded purchase outcomes, not a request to purchase/pay again. Missing setup RPCs
+fail closed with SETUP_UNAVAILABLE (503). Legacy clients without the request key
+keep their existing manual create flow until migrated. Trials retain their existing
+no-payment eligibility. New clients remove normal Activate VPN and use Retry setup
+for eligible recorded purchases; pending legacy orders can be explicitly recovered.
+
+Existing staff activate endpoints remain guarded/idempotent and now coordinate
+dashboard setup; payment confirmation/mark-paid starts or queues the same dashboard
+order. Telegram initial-access/review behavior stays unchanged. Staff summaries
+include setup_status, setup_in_progress and can_retry_setup from persisted setup
+evidence; public summaries omit staff recovery controls. Never infer a provider
+failure solely from no key. Already running setup requires reconciliation after a
+crash rather than stealing the owner or resubmitting a purchase.
