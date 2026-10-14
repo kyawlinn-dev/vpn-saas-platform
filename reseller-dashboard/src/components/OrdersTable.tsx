@@ -1,3 +1,5 @@
+import {BusinessStatus} from "./BusinessStatus";
+import {PackageUsage} from "./PackageUsage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, Plus, Copy, Info, Loader2, Crown, Gift,
@@ -13,7 +15,6 @@ import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { UsageBar } from "@/components/ui/usage-bar";
 import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/ui/action-button";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
@@ -185,36 +186,9 @@ function getPreferredAccessUrlFromPayload(data: any) {
   );
 }
 
-function getOrderUsageGb(key?: VpnKey | null) {
-  if (!key) return 0;
-  if (typeof key.order_total_used_gb === "number") return key.order_total_used_gb;
-  if (typeof key.order_total_used_bytes === "number") {
-    return key.order_total_used_bytes / 1024 / 1024 / 1024;
-  }
-  if (typeof key.used_gb_30d === "number") return key.used_gb_30d;
-  // Orders now embed keys straight from the DB (no live Prometheus fetch on
-  // every list load) — used_bytes is the cumulative usage kept in sync by
-  // syncUsageJob, the best available figure without a live metrics call.
-  if (typeof key.used_bytes === "number") return key.used_bytes / 1024 / 1024 / 1024;
-  return 0;
-}
 
-function getOrderRemainingGb(key?: VpnKey | null) {
-  if (!key) return null;
-  if (typeof key.order_total_remaining_gb === "number") return key.order_total_remaining_gb;
-  if (key.remaining_gb_30d != null) return Number(key.remaining_gb_30d);
-  if (typeof key.data_limit_bytes === "number" && typeof key.used_bytes === "number") {
-    return Math.max((key.data_limit_bytes - key.used_bytes) / 1024 / 1024 / 1024, 0);
-  }
-  return null;
-}
 
-function getOrderLimitGb(key?: VpnKey | null) {
-  if (!key) return 0;
-  if (typeof key.data_limit_gb === "number") return key.data_limit_gb;
-  if (typeof key.data_limit_bytes === "number") return key.data_limit_bytes / 1024 / 1024 / 1024;
-  return 0;
-}
+
 
 function getActiveKeyForOrder(order: Order): VpnKey | undefined {
   return order.keys?.find((key) => key.status === "active");
@@ -650,17 +624,7 @@ export function OrdersTable({
     }
   };
 
-  const renderUsageCompact = (key?: VpnKey) => {
-    if (!key) return <span className="text-muted-foreground">-</span>;
-    return (
-      <UsageBar
-        used={getOrderUsageGb(key)}
-        limit={getOrderLimitGb(key)}
-        remaining={getOrderRemainingGb(key)}
-        connections={Number(key.recent_connections_24h || 0)}
-      />
-    );
-  };
+  const renderUsageCompact = (order:Order) => <PackageUsage quota={order.business_summary?.quota} freshness={order.business_summary?.usage_freshness} />;
 
   const renderAccessDetails = (order: Order) => {
     const key = getAnyKeyForOrder(order);
@@ -1104,7 +1068,7 @@ export function OrdersTable({
                           {order.customer?.telegram_username || order.customer?.phone || "-"}
                         </div>
                       </div>
-                      <StatusBadge status={order.status} />
+                      <BusinessStatus summary={order.business_summary} />
                     </div>
 
                     <div className="mt-3 flex gap-6">
@@ -1183,7 +1147,7 @@ export function OrdersTable({
                         <ProtocolBadge protocol={order.protocol} className="mt-1" />
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
-                        <StatusBadge status={order.status} />
+                        <BusinessStatus summary={order.business_summary} />
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
                         <StatusBadge status={getPaymentDisplayStatus(order)} />
@@ -1196,7 +1160,7 @@ export function OrdersTable({
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
                         <div className="text-xs">
-                          {key ? formatUsageGb(getOrderUsageGb(key)) : "-"}
+                          {<PackageUsage quota={order.business_summary?.quota} />}
                         </div>
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
@@ -1567,7 +1531,7 @@ export function OrdersTable({
                     </div>
                   </div>
                 </div>
-                <StatusBadge status={liveDetailsOrder.status} />
+                <BusinessStatus summary={liveDetailsOrder.business_summary} />
               </div>
 
               <div className="grid gap-2 lg:grid-cols-[0.82fr_1.18fr]">
@@ -1620,7 +1584,7 @@ export function OrdersTable({
 
                   <div className="rounded-md border border-border bg-card p-2.5">
                     <div className="mb-1.5 text-xs font-bold">Usage</div>
-                    {renderUsageCompact(getActiveKeyForOrder(liveDetailsOrder))}
+                    {renderUsageCompact(liveDetailsOrder)}
                   </div>
                 </div>
 

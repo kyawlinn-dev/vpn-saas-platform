@@ -1,3 +1,4 @@
+import {BusinessStatus} from "../components/BusinessStatus";
 import { useEffect, useState } from "react";
 import {
   RefreshCw, Image as ImageIcon, ExternalLink, CheckCircle2, XCircle, Bot,
@@ -391,7 +392,7 @@ export function TelegramOrdersPage() {
                         </TableCell>
 
                         <TableCell>
-                          <AccessChip value={order.status} />
+                          <BusinessStatus summary={order.business_summary} />
                         </TableCell>
 
                         <TableCell>
@@ -442,7 +443,7 @@ export function TelegramOrdersPage() {
                       </div>
                       <div className="flex flex-col gap-1 items-end shrink-0">
                         <ReviewChip value={order.review_status} />
-                        <AccessChip value={order.status} />
+                        <BusinessStatus summary={order.business_summary} />
                       </div>
                     </div>
 

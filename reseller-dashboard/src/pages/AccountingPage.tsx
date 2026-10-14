@@ -1,3 +1,4 @@
+import {businessMonth} from "../lib/businessDisplay";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -40,10 +41,7 @@ interface PlatformPayment {
   updated_at: string | null;
 }
 
-function currentMonthValue() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
+function currentMonthValue() { return businessMonth(); }
 
 function readableMonth(value: string) {
   const [year, month] = value.split("-").map(Number);
@@ -336,7 +334,7 @@ export function AccountingPage() {
         <MoneyCard
           label="Your commission"
           value={summary?.reseller_commission_mmk ?? 0}
-          caption={`${snapshot?.reseller.commission_percent ?? 0}% retained by reseller`}
+          caption="Commission recorded on each payment"
           icon={<CheckCircle2 size={15} />}
           tone="success"
         />
@@ -372,7 +370,7 @@ export function AccountingPage() {
 
           <div className="rounded-lg border border-border bg-muted/55 p-3">
             <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-              Payable to platform owner
+              Live payable to platform owner
             </p>
             <p className="mt-1 font-display text-3xl font-black leading-none text-foreground">
               {formatMMK(summary?.platform_due_mmk ?? 0)}
@@ -403,9 +401,11 @@ export function AccountingPage() {
           <div className="mt-2 flex items-start gap-2 rounded-md border border-border bg-card px-2.5 py-2 text-[11px] text-muted-foreground">
             <AlertCircle size={14} className="mt-0.5 shrink-0 text-primary" />
             <p>
-              This workflow uses order creation month and includes paid purchase orders after payment review is confirmed.
+              Live totals use payment creation month and confirmed, recorded payments, including queued packages. Legacy orders without ledger history use order creation month.
             </p>
           </div>
+
+          {settlement && <div className="mt-2 rounded border border-border p-2 text-xs">Frozen submission: {formatMMK(settlement.platform_due_mmk)} due · {formatMMK(settlement.gross_paid_mmk)} gross. Later payment changes affect live totals only.</div>}
 
           {(platformPayment?.payment_accounts?.length || platformPayment?.settlement_instructions) && (
             <div className="mt-2 rounded-lg border border-primary/25 bg-primary/5 p-3">

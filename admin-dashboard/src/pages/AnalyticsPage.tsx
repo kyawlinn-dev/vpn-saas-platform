@@ -1,3 +1,4 @@
+import {businessMonth} from "../lib/businessDisplay";
 import { useEffect, useMemo, useState } from 'react';
 import {
   Area,
@@ -25,10 +26,7 @@ import type { AdminAnalytics, OrderPayment } from '@/types/api';
 
 const CHART_COLORS = ['#7c3aed', '#06b6d4', '#16a34a', '#f97316', '#eab308'];
 
-function currentMonthValue() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
+function currentMonthValue() { return businessMonth(); }
 
 function shortDate(value: string) {
   const date = new Date(`${value}T00:00:00`);

@@ -1,19 +1,12 @@
+import {formatBusinessDate,formatUsageBytes,daysLeft} from "./businessDisplay";
 export function formatMMK(value: number | null | undefined) {
+  if(value == null) return "Unavailable";
   return `${new Intl.NumberFormat("en-US").format(Number(value || 0))} MMK`;
 }
 
-export function formatDate(value?: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString();
-}
+export function formatDate(value?:string|null) { return formatBusinessDate(value,{dateOnly:true}); }
 
-export function formatBytes(value?: number | null) {
-  if (!value) return "-";
-  const gb = value / (1024 * 1024 * 1024);
-  return `${gb.toFixed(2)} GB`;
-}
+export function formatBytes(value?:number|null) { return formatUsageBytes(value); }
 
 export function formatUsageGb(value?: number | null) {
   return `${Number(value || 0).toFixed(2)} GB`;
@@ -38,28 +31,9 @@ export function getStatusColor(status: string) {
   }
 }
 
-export function isExpiringSoon(expiryDate?: string | null, days = 7) {
-  if (!expiryDate) return false;
+export function isExpiringSoon(expiryDate?:string|null,days=7) { const left=daysLeft(expiryDate);return left!=null && left>=0 && left<=days; }
 
-  const now = new Date();
-  const expiry = new Date(expiryDate);
-
-  if (Number.isNaN(expiry.getTime())) return false;
-
-  const diffMs = expiry.getTime() - now.getTime();
-  const diffDays = diffMs / (1000 * 60 * 60 * 24);
-
-  return diffDays >= 0 && diffDays <= days;
-}
-
-export function getDaysLeft(expiryDate?: string | null) {
-  if (!expiryDate) return null;
-  const expiry = new Date(expiryDate);
-  if (Number.isNaN(expiry.getTime())) return null;
-
-  const diffMs = expiry.getTime() - Date.now();
-  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-}
+export function getDaysLeft(expiryDate?:string|null) { return daysLeft(expiryDate); }
 
 export function formatDaysLeft(expiryDate?: string | null) {
   const days = getDaysLeft(expiryDate);

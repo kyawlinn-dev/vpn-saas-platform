@@ -1,3 +1,4 @@
+import {businessMonth} from "../lib/businessDisplay";
 import { useMemo, useState } from 'react';
 import {
   Calculator,
@@ -32,10 +33,7 @@ interface Props {
   resellers: Reseller[];
 }
 
-function currentMonthValue() {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
+function currentMonthValue() { return businessMonth(); }
 
 function SettlementBadge({ status }: { status: string }) {
   const variant =
