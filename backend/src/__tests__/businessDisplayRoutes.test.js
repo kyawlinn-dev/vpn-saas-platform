@@ -1,0 +1,9 @@
+import {it,expect,vi} from 'vitest';
+import {enrichCustomer,enrichOrderAccess} from '../services/customerOrderEnrichmentService.js';
+import {toPublicBusinessSummary} from '../services/businessDisplayService.js';
+const order={id:'o',reseller_id:'r',customer_id:'c',status:'stopped',start_date:'2026-09-01',expiry_date:'2026-09-30',quota_limit_bytes:107374182400,keys:[{id:'k',status:'deleted',used_bytes:78739049472}],payments:[]};
+it('list and customer detail share full quota and explicit historical selection',()=>{const detail=enrichOrderAccess(order);const customer=enrichCustomer({id:'c',reseller_id:'r'},{orders:[order]});expect(customer.current_order).toBeNull();expect(customer.last_order.business_summary).toEqual(detail.business_summary);expect(detail.business_summary.quota.limit_bytes).toBe(107374182400);expect(customer.last_order.money_summary.basis).toBe('ledger');});
+it('customer enrichment never includes another tenant records even for reused customer id',()=>{expect(enrichCustomer({id:'c',reseller_id:'r'},{orders:[{...order,reseller_id:'other'}]}).orders).toEqual([]);});
+it('public business projection excludes staff finance',()=>{const publicOrder=toPublicBusinessSummary(enrichOrderAccess({...order,commission_mmk:1000}).business_summary);expect(publicOrder).not.toHaveProperty('money_summary');expect(JSON.stringify(publicOrder)).not.toContain('commission_mmk');expect(JSON.stringify(publicOrder)).not.toContain('platform_due_mmk');});
+
+it('uses the oldest successful sync and leaves missing evidence unknown',async()=>{const {summarizeUsageFreshness}=await import('../services/usageFreshnessService.js');const now=new Date('2026-10-15T12:00:00Z');expect(summarizeUsageFreshness([{last_usage_sync_at:'2026-10-15T11:00:00Z'},{last_usage_sync_at:'2026-10-15T08:00:00Z'}],{now}).state).toBe('stale');expect(summarizeUsageFreshness([{last_usage_sync_at:'2026-10-15T11:00:00Z'},{}],{now}).state).toBe('unknown');});

@@ -932,3 +932,21 @@ Responses:
 - `200`: update accepted
 - `403`: invalid webhook secret
 - `404`: reseller bot not running
+
+## Business display summaries (implementation branch; pending production release)
+
+Staff order GET payloads add business_summary (access_status, payment_review_status,
+application_status, pending_review_count, has_active_key, is_expiring_soon, quota,
+usage_freshness, snapshot_basis, setup_status, can_retry_setup) and money_summary
+(basis, confirmed_mmk, recognized_gross_mmk, commission_mmk, platform_due_mmk,
+awaiting_review_mmk, rejected_mmk). Missing money inputs are null/unavailable,
+not cached fallback. Quota uses exact order bytes; key cap is not package total.
+Staff customer payloads add current_order, queued_order and last_order; active_order
+is retained as a compatibility alias. No ended order substitutes for current access.
+Mini App auth adds public business_summary to subscription and queued_subscription,
+and a separate last_subscription without keys/access links. Checkout order adds
+public business_summary and amount_mmk from its recorded payment. Explicit public
+projection excludes money_summary, commission/due and staff retry controls.
+Usage freshness is fresh within two hours of the oldest relevant successful server
+sync, stale beyond it, unknown with missing evidence. Missing monitoring metadata
+does not fabricate a successful sync. Package dates use Asia/Bangkok.

@@ -44,7 +44,7 @@ export function summarizeOrderBusiness(order, { quota = order?.quota || null, fr
     is_expiring_soon: state === "active" && expiry.is_expiring_soon,
     quota: toQuotaPayload(quota),
     usage_freshness: freshness || { last_synced_at: null, state: "unknown" },
-    snapshot_basis: { quota: order?.data_limit_bytes != null || order?.quota_is_unlimited === true ? "order_snapshot" : quota ? "derived" : "unavailable", duration: payments.some((p) => p.duration_days != null) ? "payment_snapshot" : order?.plan?.duration_days != null ? "catalogue" : "unavailable" },
+    snapshot_basis: { quota: order?.quota_limit_bytes != null || order?.quota_is_unlimited === true ? "order_snapshot" : quota ? "derived" : "unavailable", duration: payments.some((p) => p.package_duration_days != null) ? "payment_snapshot" : order?.plan?.duration_days != null ? "catalogue" : "unavailable" },
     setup_status: (order?.keys || []).some((k) => k.status === "active") && state === "active" ? "ready" : "unknown",
     can_retry_setup: false,
   };

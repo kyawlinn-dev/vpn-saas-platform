@@ -81,7 +81,7 @@ router.get("/overview", async (req, res) => {
     const rows = orders ?? [];
     const allPayments = rows.flatMap((order) => order.payments ?? []);
 
-    const activeOrders = rows.filter((order) => order.status === "active");
+    const activeOrders = rows.filter((order) => order.status === "active" && (!order.expiry_date || order.expiry_date >= today));
     const pendingOrders = rows.filter((order) => order.status === "pending");
     const activeCustomers = new Set(activeOrders.map((order) => order.customer_id)).size;
 

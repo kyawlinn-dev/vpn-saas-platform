@@ -1,3 +1,5 @@
+import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
+import { businessDateOnly } from "../../utils/businessTime.js";
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import {
@@ -272,6 +274,8 @@ router.get("/", gateTelegramScope, async (req, res) => {
       query = query.or(orParts.join(","));
     }
 
+    if (status === "active") query = query.gte("expiry_date", businessDateOnly());
+
     // Sort by creation: each row is an immutable sale/subscription period. A
     // renew inserts a NEW row (which sorts to the top by its own created_at)
     // and leaves the old row frozen in place — so existing rows never move.
@@ -301,15 +305,16 @@ router.get("/", gateTelegramScope, async (req, res) => {
         .from("vpn_orders")
         .select("customer_id")
         .eq("reseller_id", reseller.id)
-        .eq("status", "active")
+        .eq("status", "active").gte("expiry_date", businessDateOnly())
         .eq("order_type", "purchase")
         .in("customer_id", customerIds);
       activeCustomerIds = new Set((activeRows ?? []).map((r) => r.customer_id));
     }
 
+    const freshness = await loadUsageFreshness(rows.flatMap(o=>(o.keys || []).map(k=>k.server_id)));
     return res.json({
       data: rows.map((order) => ({
-        ...enrichOrderAccess({ ...order, reseller: { name: accessLabel } }, req),
+        ...enrichOrderAccess({ ...order, reseller: { name: accessLabel } }, req, {freshness}),
         customer_has_active_order: activeCustomerIds.has(order.customer_id),
       })),
       total: count ?? 0,
@@ -353,11 +358,11 @@ router.get("/counts", async (req, res) => {
     const status = {
       all: rows.length,
       pending: rows.filter((row) => row.status === "pending").length,
-      active: rows.filter((row) => row.status === "active").length,
+      active: rows.filter((row) => row.status === "active" && (!row.expiry_date || row.expiry_date >= today)).length,
       scheduled: rows.filter((row) => row.status === "scheduled").length,
       expiring: rows.filter(isExpiringRow).length,
       overdue: rows.filter((row) => row.status === "overdue").length,
-      expired: rows.filter((row) => row.status === "expired").length,
+      expired: rows.filter((row) => row.status === "expired" || (row.status === "active" && row.expiry_date && row.expiry_date < today)).length,
       stopped: rows.filter((row) => row.status === "stopped").length,
     };
 

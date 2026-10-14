@@ -1,3 +1,5 @@
+import { businessDateOnly } from "../../utils/businessTime.js";
+import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
 import { readAllRows } from "../../utils/readAllRows.js";
 import { legacyOrderMoney } from "../../services/paymentSummaryService.js";
 import express from "express";
@@ -383,7 +385,7 @@ router.get("/overview", async (req, res) => {
       { data: legacyPaidOrders },
       { data: recentOrders },
     ] = await Promise.all([
-      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active"),
+      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active").gte("expiry_date",businessDateOnly()),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "stopped"),
       supabase.from("vpn_keys").select("*", { count: "exact", head: true }).eq("status", "active"),
@@ -447,7 +449,7 @@ router.get("/analytics", async (req, res) => {
       { data: recentPayments, error: recentPaymentsError },
       { data: recentLegacyOrders, error: recentLegacyOrdersError },
     ] = await Promise.all([
-      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active"),
+      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active").gte("expiry_date",businessDateOnly()),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("vpn_keys").select("*", { count: "exact", head: true }).eq("status", "active"),
       supabase.from("resellers").select("*", { count: "exact", head: true }).eq("status", "active"),
@@ -780,11 +782,13 @@ router.get("/customers", async (req, res) => {
       }
     }
 
+    const freshness = await loadUsageFreshness([...ordersByCustomerId.values()].flat().flatMap(o=>(o.keys || []).map(k=>k.server_id)));
     return res.json({
       data: customers.map((customer) =>
         enrichCustomer(customer, {
           orders: ordersByCustomerId.get(customer.id) ?? [],
           telegramLink: telegramByCustomerId.get(customer.id) ?? null,
+          freshness,
           req,
         })
       ),
@@ -849,6 +853,7 @@ router.get("/orders", async (req, res) => {
     if (status && status !== "all") {
       query = query.eq("status", status);
     }
+    if (status === "active") query = query.gte("expiry_date",businessDateOnly());
     if (resellerId && resellerId !== "all") {
       query = query.eq("reseller_id", resellerId);
     }
@@ -909,8 +914,9 @@ router.get("/orders", async (req, res) => {
       console.error("admin GET orders error:", error);
       return res.status(500).json({ error: error.message });
     }
+    const freshness = await loadUsageFreshness((data || []).flatMap(o=>(o.keys || []).map(k=>k.server_id)));
     return res.json({
-      data: (data ?? []).map((order) => enrichOrderAccess(order, req)),
+      data: (data ?? []).map((order) => enrichOrderAccess(order, req, {freshness})),
       total: count ?? 0,
       page,
       limit,

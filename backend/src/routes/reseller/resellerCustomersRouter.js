@@ -1,3 +1,5 @@
+import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
+import { expiryBusinessState, businessDateOnly } from "../../utils/businessTime.js";
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { parsePagination, sanitizeSearchTerm } from "../../utils/pagination.js";
@@ -25,13 +27,7 @@ const ORDER_SELECT_FOR_CUSTOMERS = `
   )
 `;
 
-function isExpiringSoon(expiryDate, days = 7) {
-  if (!expiryDate) return false;
-  const expiry = new Date(expiryDate).getTime();
-  if (Number.isNaN(expiry)) return false;
-  const diffDays = (expiry - Date.now()) / (1000 * 60 * 60 * 24);
-  return diffDays >= 0 && diffDays <= days;
-}
+function isExpiringSoon(expiryDate) { return expiryBusinessState(expiryDate).is_expiring_soon; }
 
 // GET /api/reseller/customers
 // Paginated, reseller-scoped customer list. Mirrors /api/admin/customers'
@@ -95,7 +91,7 @@ router.get("/", async (req, res) => {
         .from("vpn_orders")
         .select("customer_id, expiry_date")
         .eq("reseller_id", reseller.id)
-        .eq("status", "active");
+        .eq("status", "active").gte("expiry_date", businessDateOnly());
 
       if (error) {
         console.error("GET /api/reseller/customers active orders error:", error);
@@ -201,6 +197,7 @@ router.get("/", async (req, res) => {
       }
     }
 
+    const freshness = await loadUsageFreshness([...ordersByCustomerId.values()].flat().flatMap(o=>(o.keys || []).map(k=>k.server_id)));
     return res.json({
       data: customerList.map((customer) =>
         enrichCustomer(
@@ -208,6 +205,7 @@ router.get("/", async (req, res) => {
           {
             orders: ordersByCustomerId.get(customer.id) ?? [],
             telegramLink: telegramByCustomerId.get(customer.id) ?? null,
+          freshness,
             req,
           }
         )
@@ -242,7 +240,7 @@ router.get("/counts", async (req, res) => {
         .from("vpn_orders")
         .select("customer_id, expiry_date")
         .eq("reseller_id", reseller.id)
-        .eq("status", "active"),
+        .eq("status", "active").gte("expiry_date", businessDateOnly()),
     ]);
 
     if (allError || linksError || ordersError) {
