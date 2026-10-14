@@ -340,3 +340,8 @@ export async function ensureCustomerSsconfToken(customerId) {
   }
   return updated.ssconf_token;
 }
+
+export async function getLastCustomerPackage(customerId,resellerId) {
+ const {data,error}=await supabase.from("vpn_orders").select("id,start_date,activated_at,expiry_date,plan:vpn_plans(name)").eq("customer_id",customerId).eq("reseller_id",resellerId).in("status",["stopped","expired"]).not("start_date","is",null).order("start_date",{ascending:false}).order("created_at",{ascending:false}).limit(1).maybeSingle();
+ if(error)throw new Error("Failed to load last package");return data ? {planName:data.plan?.name,expiryDate:data.expiry_date} : null;
+}

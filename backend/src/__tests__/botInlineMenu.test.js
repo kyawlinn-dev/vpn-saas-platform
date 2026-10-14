@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../bot/botCustomerService.js", () => ({
   ensureCustomerAndLink: mocks.ensureCustomerAndLink,
   resolveCustomerByTelegram: mocks.resolveCustomerByTelegram,
+  getLastCustomerPackage: vi.fn().mockResolvedValue(null),
   getBestActiveOrder: mocks.getBestActiveOrder,
   getCustomerTrialInfo: mocks.getCustomerTrialInfo,
   resolveActiveKey: mocks.resolveActiveKey,

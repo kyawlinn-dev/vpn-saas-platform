@@ -1,3 +1,4 @@
+const escapeHtml = (value) => String(value).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 /**
  * strings.js — All Burmese UI text for the NovaNet MM bot.
  *
@@ -140,11 +141,19 @@ export function balanceText({
   expiryDate,
   formatBurmeseDate,
   queuedPlan = null,
+  totalGb = null,
+  businessSummary = null,
+  lastPackage = null,
 }) {
+  if (businessSummary && businessSummary.access_status !== "active") {
+    return "📊 VPN ဒေတာအခြေအနေ\n\nအသုံးပြုနေသော ပက်ကေ့ချ်မရှိပါ။" + (lastPackage ? "\n\nနောက်ဆုံးအသုံးပြုခဲ့သော ပက်ကေ့ချ်: <b>"+escapeHtml(lastPackage.planName || "Package")+"</b>"+(lastPackage.expiryDate ? "\n"+formatBurmeseDate(lastPackage.expiryDate) : "") : "");
+  }
+  const gb = (n) => n == null ? "မရနိုင်သေးပါ" : Number(n) === 0 ? "0 GB" : Number(n) < 0.01 ? "&lt;0.01 GB" : Number(n).toFixed(2)+" GB";
+  const totalLine = isUnlimited ? "Unlimited" : gb(totalGb);
   const remainingLine = isUnlimited
     ? "🔓 အကန့်အသတ်မရှိ (Unlimited)"
     : remainingGb != null
-      ? `${remainingGb} GB`
+      ? gb(remainingGb)
       : "-";
 
   let queuedSection = "";
@@ -162,7 +171,8 @@ export function balanceText({
 
   return (
     "📊 <b>သင်၏ VPN ဒေတာနှင့် သက်တမ်း အခြေအနေ:</b>\n\n" +
-    `📈 အသုံးပြုထားသော ဒေတာ: <b>${usedGb} GB</b>\n` +
+    `📦 စုစုပေါင်း ဒေတာ: <b>${totalLine}</b>\n` +
+    `📈 အသုံးပြုထားသော ဒေတာ: <b>${gb(usedGb)}</b>\n` +
     `📉 ကျန်ရှိသော ဒေတာ: <b>${remainingLine}</b>` +
     expiryLine +
     queuedSection +

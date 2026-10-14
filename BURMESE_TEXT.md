@@ -6,7 +6,7 @@ Exported declarations from the implementation source. Inline handler copy and re
 Exported declarations: 93.
 ## backend/src/bot/strings.js
 
-Source SHA-256 (LF-normalized): f0a33fd1af0c249ab53ec656df1aee8ec9af78e8db87d56bdfd4da0a49463224
+Source SHA-256 (LF-normalized): 35cde6f0c61f1d3e2a3a6141ebe11771f69fc7a06f88ca45d260b0a2ed38f7f2
 
 ```javascript
 export const BTN = {
@@ -166,11 +166,19 @@ export function balanceText({
   expiryDate,
   formatBurmeseDate,
   queuedPlan = null,
+  totalGb = null,
+  businessSummary = null,
+  lastPackage = null,
 }) {
+  if (businessSummary && businessSummary.access_status !== "active") {
+    return "📊 VPN ဒေတာအခြေအနေ\n\nအသုံးပြုနေသော ပက်ကေ့ချ်မရှိပါ။" + (lastPackage ? "\n\nနောက်ဆုံးအသုံးပြုခဲ့သော ပက်ကေ့ချ်: <b>"+escapeHtml(lastPackage.planName || "Package")+"</b>"+(lastPackage.expiryDate ? "\n"+formatBurmeseDate(lastPackage.expiryDate) : "") : "");
+  }
+  const gb = (n) => n == null ? "မရနိုင်သေးပါ" : Number(n) === 0 ? "0 GB" : Number(n) < 0.01 ? "&lt;0.01 GB" : Number(n).toFixed(2)+" GB";
+  const totalLine = isUnlimited ? "Unlimited" : gb(totalGb);
   const remainingLine = isUnlimited
     ? "🔓 အကန့်အသတ်မရှိ (Unlimited)"
     : remainingGb != null
-      ? `${remainingGb} GB`
+      ? gb(remainingGb)
       : "-";
 
   let queuedSection = "";
@@ -188,7 +196,8 @@ export function balanceText({
 
   return (
     "📊 <b>သင်၏ VPN ဒေတာနှင့် သက်တမ်း အခြေအနေ:</b>\n\n" +
-    `📈 အသုံးပြုထားသော ဒေတာ: <b>${usedGb} GB</b>\n` +
+    `📦 စုစုပေါင်း ဒေတာ: <b>${totalLine}</b>\n` +
+    `📈 အသုံးပြုထားသော ဒေတာ: <b>${gb(usedGb)}</b>\n` +
     `📉 ကျန်ရှိသော ဒေတာ: <b>${remainingLine}</b>` +
     expiryLine +
     queuedSection +

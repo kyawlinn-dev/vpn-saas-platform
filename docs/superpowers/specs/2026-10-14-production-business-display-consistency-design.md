@@ -171,7 +171,7 @@ UI actions and feedback must reflect backend eligibility/error results. Refresh 
 - Payment, creation, review and sync timestamps display in Bangkok with a clear time-zone indication where useful. Date-only history uses a consistent localized date format without a clock.
 - Expiring-soon indicators/filters use the same inclusive seven-day business-date window across backend and clients. Monthly defaults and totals use the same Bangkok period definition.
 - Preserve raw timestamps and date-only fields in API responses; formatting remains a presentation concern.
-- Preserve existing `Asia/Yangon` notification scheduling/quiet-hour boundaries.
+- Preserve existing `Asia/Yangon` notification selection boundaries; quiet-hour gating stays disabled.
   Display/business-date consistency does not change reminder timing or job cadence.
 
 ### Protocol, location and operational information

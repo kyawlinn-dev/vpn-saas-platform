@@ -37,7 +37,7 @@ Current protocol comes from the active key. Shadowsocks uses an assigned server 
 
 ## Notifications
 
-Production scheduling: jobs/customerNotificationsJob.js, services/notificationService.js, bot/notificationTemplates.js. The scheduled pass runs every 10 minutes after startup delay; usage sync runs hourly and checks warnings at 80% and exhaustion at 100%. Existing pause, deduplication and reminder cap rules apply. Notification scheduling/quiet-hour rules use Asia/Yangon; package expiry and accounting business boundaries use Asia/Bangkok. Do not silently change either policy during copy work.
+Production scheduling: jobs/customerNotificationsJob.js, services/notificationService.js, bot/notificationTemplates.js. The scheduled pass runs every 10 minutes after startup delay; usage sync runs hourly and checks warnings at 80% and exhaustion at 100%. Existing pause, deduplication and reminder cap rules apply. Notification selection uses Asia/Yangon; quiet-hour gating is currently disabled (since 2026-08-24); package expiry and accounting business boundaries use Asia/Bangkok. Do not silently change either policy during copy work.
 
 Resellers can edit their notification templates through the dashboard; defaults live in notificationTemplates.js. Some Telegram callback review paths send immediately, while the production dashboard review path can rely on scheduled recovery. Do not promise that the newer immediate shared delivery service is already deployed.
 

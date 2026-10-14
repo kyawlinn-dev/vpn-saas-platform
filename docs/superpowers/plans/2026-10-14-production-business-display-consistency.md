@@ -34,7 +34,7 @@ This is still an unexecuted implementation plan.
 - A confirmed paid queue starts automatically after existing access stops/expires
   (including data exhaustion). Activation must not create another payment or
   recognize the same money again; unconfirmed queues cannot activate.
-- Keep existing `Asia/Yangon` notification scheduling/quiet hours and job cadence.
+- Keep existing `Asia/Yangon` notification scheduling and job cadence; quiet-hour gating stays disabled.
   `Asia/Bangkok` remains the business/expiry/accounting time zone.
 - Keep settlement snapshots frozen, reseller reads scoped by `reseller_id`,
   service-role credentials backend-only, and provisioning reservation/ownership/

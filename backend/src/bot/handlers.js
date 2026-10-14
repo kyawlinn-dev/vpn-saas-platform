@@ -1,3 +1,4 @@
+import {getLastCustomerPackage} from "./botCustomerService.js";
 import QRCode from "qrcode";
 import { Markup } from "telegraf";
 import {
@@ -544,9 +545,10 @@ export function setupHandlers(bot, {
           if (order) {
             const quota = await getOrderQuotaSnapshot(order.id);
             text = balanceText({
-              usedGb: bytesToGb(quota.totalUsedBytes),
+              totalGb: quota.totalAllowanceBytes == null ? null : quota.totalAllowanceBytes/1024**3,
+              usedGb: quota.totalUsedBytes/1024**3,
               remainingGb:
-                typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
+                typeof quota.remainingBytes === "number" ? quota.remainingBytes/1024**3 : null,
               isUnlimited: quota.isUnlimited,
               expiryDate: order.expiry_date,
               formatBurmeseDate,
@@ -554,6 +556,9 @@ export function setupHandlers(bot, {
             });
           } else if (queuedPlan) {
             text = balanceQueuedOnlyText({ queuedPlan });
+          } else {
+            const lastPackage = await getLastCustomerPackage(customer.customerId,resellerId);
+            text = balanceText({businessSummary:{access_status:"unknown"},lastPackage,formatBurmeseDate});
           }
         }
       }
