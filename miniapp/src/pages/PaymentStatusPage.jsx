@@ -34,7 +34,7 @@ export default function PaymentStatusPage({ data, checkoutPlan, paymentResult, o
       : isPending
         ? isQueued ? t("payment.queuedPendingDescription") : t("payment.pending.description")
         : isQueuedConfirmed
-          ? t("payment.queuedNoticeDesc")
+          ? t("business.confirmedQueue")
         : isApproved
           ? t("payment.approved.description")
           : t("payment.noActiveOrder");

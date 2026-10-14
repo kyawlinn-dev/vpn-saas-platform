@@ -1,16 +1,14 @@
-# Burmese Bot Text — Current Exported Copy Reference
+# Telegram Text — Current Source Reference
 
-Generated on 2026-10-15 from the source files below. This records current exported constants and rendering functions verbatim; it does not claim handler-inline text or reseller-customized templates are identical. Dynamic values are supplied by code. Editing this reference alone does not update the runtime.
+Exported declarations from the implementation source. Inline handler copy and reseller overrides are outside this snapshot. No claim of deployment.
 
-New navigation uses inline callbacks and a commands menu. LEGACY_BTN labels remain accepted for old chats; they are not the current keyboard design. Default notifications can be overridden per reseller. The local delivery-adapter changes are development-only; see SKILL_BOT.md and DEPLOYMENT.md.
 
+Exported declarations: 93.
 ## backend/src/bot/strings.js
 
-Source SHA-256 (LF-normalized): `f0a33fd1af0c249ab53ec656df1aee8ec9af78e8db87d56bdfd4da0a49463224`.
+Source SHA-256 (LF-normalized): f0a33fd1af0c249ab53ec656df1aee8ec9af78e8db87d56bdfd4da0a49463224
 
-### BTN
-
-```js
+```javascript
 export const BTN = {
   KEY:      "🔑 ကျွန်ုပ်၏ VPN Key",
   BALANCE:  "📊 ဒေတာနှင့် သက်တမ်းစစ်ရန်",
@@ -20,9 +18,7 @@ export const BTN = {
 };
 ```
 
-### LEGACY_BTN
-
-```js
+```javascript
 export const LEGACY_BTN = {
   KEY: "🔑 VPN Key ရယူရန်",
   BALANCE: "📊 လက်ကျန်စစ်ရန်",
@@ -34,153 +30,107 @@ export const LEGACY_BTN = {
 };
 ```
 
-### BTN_TRIAL
-
-```js
+```javascript
 export const BTN_TRIAL = "🎁 အခမဲ့ စမ်းသုံးမည်";
 ```
 
-### startWelcome
-
-```js
+```javascript
 export function startWelcome(brandName) {
   return `🌐 <b>${brandName}</b> မှ နွေးထွေးစွာ ကြိုဆိုပါသည်! 🎉\n\nလိုင်းပိတ်ပင်မှုမရှိဘဲ လုံခြုံစွာ အင်တာနက် အသုံးပြုနိုင်ရန် VPN ဝန်ဆောင်မှု ပေးနေပါသည်။`;
 }
 ```
 
-### START_CTA_TEXT
-
-```js
+```javascript
 export const START_CTA_TEXT = "အောက်ပါခလုတ်များမှ မိမိအသုံးပြုလိုရာကို ရွေးချယ်ပါ 👇";
 ```
 
-### MENU_MY_VPN
-
-```js
+```javascript
 export const MENU_MY_VPN = "🛡️ ကျွန်ုပ်၏ VPN";
 ```
 
-### MENU_HELP
-
-```js
+```javascript
 export const MENU_HELP = "💬 အကူအညီနှင့် လမ်းညွှန်";
 ```
 
-### MENU_BACK
-
-```js
+```javascript
 export const MENU_BACK = "⬅️ နောက်သို့";
 ```
 
-### MENU_HOME
-
-```js
+```javascript
 export const MENU_HOME = "🏠 ပင်မသို့";
 ```
 
-### MENU_MY_VPN_TEXT
-
-```js
+```javascript
 export const MENU_MY_VPN_TEXT = "<b>ကျွန်ုပ်၏ VPN</b>\nအသုံးပြုလိုသည့်အရာကို ရွေးချယ်ပါ။";
 ```
 
-### MENU_HELP_TEXT
-
-```js
+```javascript
 export const MENU_HELP_TEXT = "<b>အကူအညီနှင့် လမ်းညွှန်</b>\nသိလိုသည့်အရာကို ရွေးချယ်ပါ။";
 ```
 
-### START_BTN_ADMIN
-
-```js
+```javascript
 export const START_BTN_ADMIN        = "👤 Admin / Support";
 ```
 
-### START_BTN_TRIAL_KEY
-
-```js
+```javascript
 export const START_BTN_TRIAL_KEY    = BTN_TRIAL;
 ```
 
-### START_BTN_GET_KEY
-
-```js
+```javascript
 export const START_BTN_GET_KEY      = BTN.KEY;
 ```
 
-### START_BTN_BUY_PACKAGE
-
-```js
+```javascript
 export const START_BTN_BUY_PACKAGE  = "🛒 ပက်ကေ့ဂျ် ဝယ်ယူမည်";
 ```
 
-### START_CB_GET_KEY
-
-```js
+```javascript
 export const START_CB_GET_KEY   = "start:get_key";
 ```
 
-### START_CB_GET_TRIAL
-
-```js
+```javascript
 export const START_CB_GET_TRIAL = "start:get_trial";
 ```
 
-### appOpenText
-
-```js
+```javascript
 export function appOpenText(brandName) {
   const name = brandName || "VPN";
   return `📱 <b>${name} Mini App</b> တွင် ဆာဗာများ၊ ပက်ကေ့ဂျ်များနှင့် အကောင့်အချက်အလက်များကို စီမံခန့်ခွဲနိုင်ပါသည် 👇`;
 }
 ```
 
-### APP_BTN_OPEN
-
-```js
+```javascript
 export const APP_BTN_OPEN = "📱 Mini App ဖွင့်ရန်";
 ```
 
-### APP_UNAVAILABLE
-
-```js
+```javascript
 export const APP_UNAVAILABLE = "⚠️ Mini App ကို ယခု ဖွင့်၍ မရသေးပါ။ ခဏအကြာတွင် ထပ်မံကြိုးစားပါ။";
 ```
 
-### COMMAND_START_REQUIRED
-
-```js
+```javascript
 export const COMMAND_START_REQUIRED = "ပထမဆုံး /start ကို နှိပ်ပြီး အကောင့်ဖွင့်ပါ။ ထို့နောက် ဤလုပ်ဆောင်ချက်ကို ပြန်ရွေးနိုင်ပါသည်။";
 ```
 
-### keyFoundHeader
-
-```js
+```javascript
 export function keyFoundHeader(customerName) {
   return `🔑 <b>${customerName}</b> အတွက် VPN ချိတ်ဆက်ရန် Key:`;
 }
 ```
 
-### keyServerLine
-
-```js
+```javascript
 export function keyServerLine(flag, serverName) {
   return `🌐 ချိတ်ဆက်ထားသော ဆာဗာ: ${flag} <b>${serverName}</b>`;
 }
 ```
 
-### KEY_COPY_INSTRUCTIONS_SS
-
-```js
+```javascript
 export const KEY_COPY_INSTRUCTIONS_SS =
   "📋 <b>အသုံးပြုနည်း:</b>\n၁။ အထက်ပါ Key ကို နှိပ်ပြီး Copy ယူပါ\n" +
   "၂။ <b>Outline App</b> ကိုဖွင့်ပြီး ထည့်သွင်းပါ\n၃။ <b>Connect</b> ကိုနှိပ်ပါ ✅\n\n" +
   "App မရှိသေးပါက အောက်ပါ 📥 VPN App ရယူရန် ကို နှိပ်ပါ။";
 ```
 
-### KEY_COPY_INSTRUCTIONS
-
-```js
+```javascript
 export const KEY_COPY_INSTRUCTIONS =
   "📋 <b>အသုံးပြုနည်း:</b>\n၁။ အထက်ပါ QR ကို Scan ဖတ်ပါ (သို့) Key ကို Copy ယူပါ\n" +
   "၂။ <b>Happ / Hiddify / V2Box</b> ထဲတွင် ထည့်သွင်းပါ\n" +
@@ -188,37 +138,27 @@ export const KEY_COPY_INSTRUCTIONS =
   "App မရှိသေးပါက အောက်ပါ 📥 VPN App ရယူရန် ကို နှိပ်ပါ။";
 ```
 
-### KEY_BTN_DOWNLOAD
-
-```js
+```javascript
 export const KEY_BTN_DOWNLOAD = BTN.DOWNLOAD;
 ```
 
-### KEY_NO_ACTIVE
-
-```js
+```javascript
 export const KEY_NO_ACTIVE =
   "လက်ရှိ အသုံးပြုနိုင်သော VPN Key မရှိပါ။\n\nအောက်ပါခလုတ်မှ ပက်ကေ့ဂျ် ဝယ်ယူနိုင်ပါသည် 👇";
 ```
 
-### KEY_ERROR
-
-```js
+```javascript
 export const KEY_ERROR =
   "⚠️ Key ရယူရာတွင် အမှားဖြစ်သွားသည်။ ခဏကြာပြီးနောက် ထပ်ကြိုးစားပါ။";
 ```
 
-### BALANCE_TEXT
-
-```js
+```javascript
 export const BALANCE_TEXT =
   "📊 <b>သင်၏ VPN ဒေတာနှင့် သက်တမ်း အခြေအနေ</b>\n\n" +
   "အသေးစိတ်အချက်အလက်များကို Mini App တွင် ကြည့်ရှုနိုင်ပါသည်။";
 ```
 
-### balanceText
-
-```js
+```javascript
 export function balanceText({
   usedGb,
   remainingGb,
@@ -257,9 +197,7 @@ export function balanceText({
 }
 ```
 
-### balanceQueuedOnlyText
-
-```js
+```javascript
 export function balanceQueuedOnlyText({ queuedPlan }) {
   const qData = queuedPlan.dataLimitGb ? `${queuedPlan.dataLimitGb} GB` : "Unlimited";
   const qDays = queuedPlan.durationDays ? `${queuedPlan.durationDays} ရက်` : "";
@@ -274,53 +212,39 @@ export function balanceQueuedOnlyText({ queuedPlan }) {
 }
 ```
 
-### BALANCE_BTN_OPEN
-
-```js
+```javascript
 export const BALANCE_BTN_OPEN = "📱 Mini App ဖွင့်ရန်";
 ```
 
-### SERVER_BTN_OPEN
-
-```js
+```javascript
 export const SERVER_BTN_OPEN = "🌐 Change Server";
 ```
 
-### SERVER_NO_ACCOUNT
-
-```js
+```javascript
 export const SERVER_NO_ACCOUNT =
   "⚠️ အကောင့် မရှိပါ။ /start ကို ဦးစွာ နှိပ်ပါ။";
 ```
 
-### SERVER_NO_ACTIVE
-
-```js
+```javascript
 export const SERVER_NO_ACTIVE =
   "ဆာဗာ ပြောင်းလဲရန် လက်ရှိအသုံးပြုနိုင်သော ပက်ကေ့ဂျ် လိုအပ်ပါသည်။ အောက်ပါခလုတ်မှ ဝယ်ယူနိုင်ပါသည် 👇";
 ```
 
-### SERVER_VLESS_EXPLAIN
-
-```js
+```javascript
 export const SERVER_VLESS_EXPLAIN =
   "🌐 <b>ဆာဗာ ရွေးချယ်မှု လမ်းညွှန်</b>\n\n" +
   "အသုံးပြုနိုင်သော ဆာဗာများကို <b>Happ / Hiddify / V2Box</b> App ထဲတွင် ကြည့်ရှုနိုင်ပါသည်။\n\n" +
   "ဆာဗာ ပြောင်းလဲလိုပါက App ထဲရှိ ဆာဗာစာရင်းမှ ရွေးချယ်ပါ။";
 ```
 
-### SERVER_VLESS_TRIAL
-
-```js
+```javascript
 export const SERVER_VLESS_TRIAL =
   "⚡ <b>အစမ်းသုံး ဆာဗာ သီးသန့် ချိတ်ဆက်မှု</b>\n\n" +
   "အစမ်းသုံး Key ဖြင့် သတ်မှတ်ထားသော အစမ်းသုံး ဆာဗာကိုသာ ချိတ်ဆက်နိုင်ပါသည်။\n\n" +
   "အခြားဆာဗာများ အသုံးပြုလိုပါက ပက်ကေ့ဂျ် ဝယ်ယူနိုင်ပါသည်။";
 ```
 
-### serverChooseText
-
-```js
+```javascript
 export function serverChooseText(isTrial) {
   const trialNote = isTrial
     ? "\n\n🔒 Premium ဆာဗာများ အသုံးပြုရန် ဝယ်ယူထားသော ပက်ကေ့ဂျ် လိုအပ်ပါသည်။"
@@ -333,16 +257,12 @@ export function serverChooseText(isTrial) {
 }
 ```
 
-### SERVER_SWITCHING
-
-```js
+```javascript
 export const SERVER_SWITCHING =
   "⏳ ဆာဗာ ပြောင်းလဲပေးနေပါသည်... ခဏစောင့်ဆိုင်းပေးပါ 🙏";
 ```
 
-### serverSwitchSuccess
-
-```js
+```javascript
 export function serverSwitchSuccess(flag, name) {
   return (
     `✅ <b>${flag} ${name}</b> သို့ ပြောင်းလဲပြီးပါပြီ!\n\n` +
@@ -351,40 +271,30 @@ export function serverSwitchSuccess(flag, name) {
 }
 ```
 
-### SERVER_TRIAL_LOCKED
-
-```js
+```javascript
 export const SERVER_TRIAL_LOCKED =
   "🔒 <b>Premium ဆာဗာ ဖြစ်ပါသည်</b>\n\n" +
   "အစမ်းသုံး ပက်ကေ့ဂျ်ဖြင့် အစမ်းသုံး ဆာဗာကိုသာ ချိတ်ဆက်နိုင်ပါသည်။\n" +
   "Premium ဆာဗာ အသုံးပြုရန် ပင်မသို့ ပြန်သွားပြီး ပက်ကေ့ဂျ် ဝယ်ယူပါ။";
 ```
 
-### SERVER_ALREADY_LINKED
-
-```js
+```javascript
 export const SERVER_ALREADY_LINKED =
   "✅ လက်ရှိတွင် ဤဆာဗာနှင့် ချိတ်ဆက်ထားပြီး ဖြစ်ပါသည်";
 ```
 
-### SERVER_NO_KEY
-
-```js
+```javascript
 export const SERVER_NO_KEY =
   "⚠️ VPN Key မရှိသေးပါ။\n\n" +
   "ပင်မသို့ ပြန်သွားပြီး ကျွန်ုပ်၏ VPN မှ Key ကို စစ်ဆေးပါ။ ထို့နောက် ဆာဗာ ပြောင်းနိုင်ပါသည်။";
 ```
 
-### SERVER_SWITCH_ERROR
-
-```js
+```javascript
 export const SERVER_SWITCH_ERROR =
   "⚠️ Server ပြောင်းရာတွင် အမှားဖြစ်သွားသည်။ ခဏကြာပြီးနောက် ထပ်ကြိုးစားပါ။";
 ```
 
-### DL_CB
-
-```js
+```javascript
 export const DL_CB = {
   // Level 1
   PROTO:   "dl:proto",
@@ -403,25 +313,19 @@ export const DL_CB = {
 };
 ```
 
-### DOWNLOAD_PICKER_TEXT
-
-```js
+```javascript
 export const DOWNLOAD_PICKER_TEXT =
   "<b>App ဒေါင်းလုဒ်</b>\n\nဘယ် App ကို သုံးမလဲ?";
 ```
 
-### DL_PROTO_BTNS
-
-```js
+```javascript
 export const DL_PROTO_BTNS = {
   SS:    "📱 Outline",
   VLESS: "Hiddify / Happ / V2Box",
 };
 ```
 
-### DL_OS_BTNS
-
-```js
+```javascript
 export const DL_OS_BTNS = {
   IOS:     "🍎 iPhone / iPad",
   ANDROID: "🤖 Android",
@@ -431,25 +335,19 @@ export const DL_OS_BTNS = {
 };
 ```
 
-### DL_SS_TEXT
-
-```js
+```javascript
 export const DL_SS_TEXT =
   `${EMO.OUTLINE} <b>Outline — Platform ရွေးချယ်ပါ</b>\n\n` +
   "<b>Outline</b> app သည် Outline key ကို တိုက်ရိုက် ထည့်သွင်းနိုင်သည်။\n" +
   "Device ကို ရွေးချယ်ပါ 👇";
 ```
 
-### DL_VLESS_TEXT
-
-```js
+```javascript
 export const DL_VLESS_TEXT =
   `${EMO.HIDDIFY} <b>Hiddify / Happ / V2Box</b>\n\nသုံးမည့်စက်ကို ရွေးပါ။`;
 ```
 
-### DL_SS_PLATFORMS
-
-```js
+```javascript
 export const DL_SS_PLATFORMS = {
   ios: {
     text:
@@ -490,9 +388,7 @@ export const DL_SS_PLATFORMS = {
 };
 ```
 
-### DL_VLESS_PLATFORMS
-
-```js
+```javascript
 export const DL_VLESS_PLATFORMS = {
   ios: {
     text:
@@ -532,51 +428,37 @@ export const DL_VLESS_PLATFORMS = {
 };
 ```
 
-### BTN_BUY
-
-```js
+```javascript
 export const BTN_BUY = "🛒 ပက်ကေ့ဂျ် ဝယ်ယူမည်";
 ```
 
-### BUY_SELECT_PROTOCOL
-
-```js
+```javascript
 export const BUY_SELECT_PROTOCOL =
   "<b>အသုံးပြုလိုသည့် App ရွေးချယ်ပါ</b>\n\n" +
   "📱 <b>Outline App</b>\n🌐 <b>Happ / Hiddify / V2Box</b>";
 ```
 
-### BUY_PROTO_SS_BTN
-
-```js
+```javascript
 export const BUY_PROTO_SS_BTN   = "📱 Outline";
 ```
 
-### BUY_PROTO_VLESS_BTN
-
-```js
+```javascript
 export const BUY_PROTO_VLESS_BTN = "Hiddify / Happ / V2Box";
 ```
 
-### BUY_SELECT_PLAN
-
-```js
+```javascript
 export const BUY_SELECT_PLAN =
   "🛒 <b>ပက်ကေ့ဂျ် ရွေးချယ်ရန်</b>\n\n" +
   "အသုံးပြုလိုသည့် ဒေတာပမာဏနှင့် သက်တမ်းကို ရွေးချယ်ပါ 👇";
 ```
 
-### BUY_NO_PLANS
-
-```js
+```javascript
 export const BUY_NO_PLANS =
   "⚠️ ယခုအချိန်တွင် ဝယ်ယူ၍ရသော package မရှိပါ။\n" +
   "ခဏကြာပြီးနောက် ထပ်ကြိုးစားပါ သို့မဟုတ် Admin ကို ဆက်သွယ်ပါ။";
 ```
 
-### buyPaymentInstructions
-
-```js
+```javascript
 export function buyPaymentInstructions(plan, paymentMethods) {
   const methodLines = (paymentMethods || [])
     .map((m) => `   • <b>${m.method}</b>: ${m.account_number}${m.account_name ? ` (${m.account_name})` : ""}`)
@@ -597,16 +479,12 @@ export function buyPaymentInstructions(plan, paymentMethods) {
 }
 ```
 
-### BUY_PROCESSING
-
-```js
+```javascript
 export const BUY_PROCESSING =
   "⏳ ပြေစာကို လက်ခံရရှိပြီး ဆောင်ရွက်နေပါသည်... ခဏစောင့်ဆိုင်းပေးပါ 🙏";
 ```
 
-### buySuccessText
-
-```js
+```javascript
 export function buySuccessText(planName, dynamicUrl, expiryDate, formatBurmeseDate) {
   return [
     `✅ <b>${planName}</b> ပက်ကေ့ဂျ် စတင်ပါပြီ!`,
@@ -623,33 +501,25 @@ export function buySuccessText(planName, dynamicUrl, expiryDate, formatBurmeseDa
 }
 ```
 
-### BUY_ALREADY_QUEUED
-
-```js
+```javascript
 export const BUY_ALREADY_QUEUED =
   "ℹ️ လက်ရှိပက်ကေ့ဂျ်အပြင် ကြိုတင်ဝယ်ယူထားသော နောက်ပက်ကေ့ဂျ်တစ်ခု ရှိပြီးဖြစ်ပါသည်။\n\n" +
   "နောက်ထပ် ဝယ်ယူနိုင်မည့်အချိန်တွင် ပြန်လည်ကြိုးစားပါ။\n" +
   "အသေးစိတ်ကြည့်ရန် ပင်မသို့ ပြန်သွားပြီး ဒေတာနှင့် သက်တမ်းကို စစ်ဆေးပါ။";
 ```
 
-### BUY_PAYMENT_UNDER_REVIEW
-
-```js
+```javascript
 export const BUY_PAYMENT_UNDER_REVIEW =
   "⏳ လက်ရှိဝယ်ယူမှု၏ ငွေပေးချေမှုကို စစ်ဆေးနေပါသည်။ အတည်ပြုပြီးမှ နောက်ပက်ကေ့ဂျ်ကို ဝယ်ယူနိုင်ပါမည်။";
 ```
 
-### BUY_ALREADY_ACTIVE
-
-```js
+```javascript
 export const BUY_ALREADY_ACTIVE =
   "ℹ️ လက်ရှိ ပက်ကေ့ဂျ် ရှိနေပါသည်။ ဤဝယ်ယူမှုကို ဆက်မလုပ်ဆောင်နိုင်ခဲ့ပါ။\n\n" +
   "ပင်မသို့ ပြန်သွားပြီး ထပ်မံကြိုးစားပါ။ အဆင်မပြေပါက သင့်ရောင်းချသူထံ ဆက်သွယ်ပါ။";
 ```
 
-### buyExtendSuccessText
-
-```js
+```javascript
 export function buyExtendSuccessText(planName, durationDays, dataLimitGb) {
   return [
     `✅ <b>${planName}</b> ကို နောက်အသုံးပြုမည့် ပက်ကေ့ဂျ်အဖြစ် မှတ်တမ်းတင်ပြီးပါပြီ။`,
@@ -663,32 +533,24 @@ export function buyExtendSuccessText(planName, durationDays, dataLimitGb) {
 }
 ```
 
-### BUY_CANCELLED
-
-```js
+```javascript
 export const BUY_CANCELLED =
   "ပက်ကေ့ဂျ် ဝယ်ယူမှုကို ပယ်ဖျက်လိုက်ပါပြီ။\n\n" +
   "ပြန်လည်ဝယ်ယူလိုပါက ပင်မမှ ပက်ကေ့ဂျ် ဝယ်ယူမည်ကို ရွေးချယ်နိုင်ပါသည်။";
 ```
 
-### BUY_ERROR
-
-```js
+```javascript
 export const BUY_ERROR =
   "⚠️ ဝယ်ယူမှုတွင် အမှားဖြစ်သွားသည်။ ထပ်ကြိုးစားပါ သို့မဟုတ် Admin ကို ဆက်သွယ်ပါ။";
 ```
 
-### BUY_NO_SESSION
-
-```js
+```javascript
 export const BUY_NO_SESSION =
   "📸 ပြေစာကို ရရှိပါသည်။ သို့သော် ၎င်းကို ချိတ်ဆက်ရန် ဝယ်ယူမှုအဆင့် မရှိပါ။\n\n" +
   "/start ဖြင့် ပင်မသို့ ပြန်သွားပါ။ ပက်ကေ့ဂျ်ကို ရွေးပြီး ငွေပေးချေမှုအဆင့်တွင် ပြေစာကို ထပ်မံပေးပို့ပါ။";
 ```
 
-### resellerNotifyCaption
-
-```js
+```javascript
 export function resellerNotifyCaption({ customerName, planName, priceMmk, durationDays, dataLimitGb, orderId, isExtend = false }) {
   const header = isExtend
     ? "💰 <b>ကြိုတင်ဝယ်ယူမှု ငွေလွှဲပြေစာ ရောက်ရှိလာပါပြီ</b>"
@@ -708,110 +570,80 @@ export function resellerNotifyCaption({ customerName, planName, priceMmk, durati
 }
 ```
 
-### NOTIFY_CONFIRM_BTN
-
-```js
+```javascript
 export const NOTIFY_CONFIRM_BTN = "✅ ပြေစာ အတည်ပြုမည်";
 ```
 
-### NOTIFY_REJECT_BTN
-
-```js
+```javascript
 export const NOTIFY_REJECT_BTN  = "❌ ပြေစာ ငြင်းပယ်မည်";
 ```
 
-### NOTIFY_CONFIRMED
-
-```js
+```javascript
 export const NOTIFY_CONFIRMED = "\n\n✅ <b>ငွေပေးချေမှု အတည်ပြုပြီး</b>";
 ```
 
-### NOTIFY_REJECTED
-
-```js
+```javascript
 export const NOTIFY_REJECTED  = "\n\n❌ <b>ငြင်းပယ်ပြီး — ဝန်ဆောင်မှု ရပ်နားသွားမည်</b>";
 ```
 
-### CUSTOMER_PAYMENT_CONFIRMED
-
-```js
+```javascript
 export const CUSTOMER_PAYMENT_CONFIRMED =
   "✅ <b>ငွေပေးချေမှု အတည်ပြုပြီးပါပြီ</b>\n\n" +
   "လက်ရှိ Key ကို ကြည့်ရန် /start ကို နှိပ်ပြီး ကျွန်ုပ်၏ VPN ကို ဖွင့်ပါ။ " +
   "ကြိုတင်ဝယ်ယူထားသော ပက်ကေ့ဂျ်ဖြစ်ပါက လက်ရှိပက်ကေ့ဂျ် ကုန်ဆုံးပြီးမှ စတင်ပါမည်။";
 ```
 
-### CUSTOMER_PAYMENT_REJECTED
-
-```js
+```javascript
 export const CUSTOMER_PAYMENT_REJECTED =
   "⚠️ <b>ငွေပေးချေမှု အတည်မပြုနိုင်ပါ</b>\n\n" +
   "ပေးပို့ထားသော ငွေလွှဲပြေစာကို အတည်မပြုနိုင်သဖြင့် ဤဝယ်ယူမှု၏ အသုံးပြုခွင့်ကို ရပ်နားထားပါသည်။\n\n" +
   "အသေးစိတ် သိရှိလိုပါက သင့်ရောင်းချသူထံ ဆက်သွယ်ပါ။";
 ```
 
-### TRIAL_SELECT_PROTOCOL
-
-```js
+```javascript
 export const TRIAL_SELECT_PROTOCOL =
   "🎁 <b>အခမဲ့ စမ်းသုံးမည့် App ရွေးချယ်ပါ</b>\n\n" +
   "📱 <b>Outline App</b>\n🌐 <b>Happ / Hiddify / V2Box</b>";
 ```
 
-### TRIAL_PROCESSING
-
-```js
+```javascript
 export const TRIAL_PROCESSING =
   "⏳ အစမ်းသုံး VPN Key ဖန်တီးပေးနေပါသည်... ခဏစောင့်ဆိုင်းပေးပါ 🙏";
 ```
 
-### TRIAL_ALREADY_USED
-
-```js
+```javascript
 export const TRIAL_ALREADY_USED =
   "ℹ️ အခမဲ့စမ်းသုံးခွင့်ကို ရယူပြီးဖြစ်ပါသည်။\n\n" +
   "ဆက်လက်အသုံးပြုလိုပါက အောက်ပါ ပက်ကေ့ဂျ် ဝယ်ယူမည် ကို နှိပ်ပါ။";
 ```
 
-### TRIAL_NO_ACCOUNT
-
-```js
+```javascript
 export const TRIAL_NO_ACCOUNT =
   "⚠️ အကောင့် မရှိပါ။ /start ကို ဦးစွာ နှိပ်ပါ။";
 ```
 
-### TRIAL_ERROR
-
-```js
+```javascript
 export const TRIAL_ERROR =
   "⚠️ အစမ်းသုံး Key ဖန်တီး၍ မရသေးပါ။\n" +
   "ခဏအကြာတွင် ထပ်မံကြိုးစားပါ။ အကူအညီလိုအပ်ပါက သင့်ရောင်းချသူထံ ဆက်သွယ်ပါ။";
 ```
 
-### HOWTO_BTN_SS
-
-```js
+```javascript
 export const HOWTO_BTN_SS = "📱 Outline အသုံးပြုနည်း";
 ```
 
-### HOWTO_BTN_VLESS
-
-```js
+```javascript
 export const HOWTO_BTN_VLESS = "Hiddify / Happ / V2Box အသုံးပြုနည်း";
 ```
 
-### HOWTO_CB
-
-```js
+```javascript
 export const HOWTO_CB = {
   SS: "howto:ss",
   VLESS: "howto:vless",
 };
 ```
 
-### howtoQueuedNotice
-
-```js
+```javascript
 export function howtoQueuedNotice(queuedProtocol) {
   const isQueuedSs = queuedProtocol === "shadowsocks";
   const appName = isQueuedSs ? "Outline" : "Hiddify / Happ / V2Box";
@@ -822,9 +654,7 @@ export function howtoQueuedNotice(queuedProtocol) {
 }
 ```
 
-### howToUseSS
-
-```js
+```javascript
 export function howToUseSS(queuedNotice = "") {
   return [
     "<b>Outline အသုံးပြုနည်း</b>",
@@ -838,9 +668,7 @@ export function howToUseSS(queuedNotice = "") {
 }
 ```
 
-### howToUseVless
-
-```js
+```javascript
 export function howToUseVless(queuedNotice = "") {
   return [
     "<b>Hiddify / Happ / V2Box အသုံးပြုနည်း</b>",
@@ -854,9 +682,7 @@ export function howToUseVless(queuedNotice = "") {
 }
 ```
 
-### howToUse
-
-```js
+```javascript
 export function howToUse() {
   return [
     "<b>VPN အသုံးပြုနည်း</b>",
@@ -868,11 +694,9 @@ export function howToUse() {
 
 ## backend/src/bot/notificationTemplates.js
 
-Source SHA-256 (LF-normalized): `5103891ad88d384a72f9ed61058a8ff724237bb353bde8dd24cd3b34aeb9e8c1`.
+Source SHA-256 (LF-normalized): 5103891ad88d384a72f9ed61058a8ff724237bb353bde8dd24cd3b34aeb9e8c1
 
-### formatBurmeseDate
-
-```js
+```javascript
 export function formatBurmeseDate(value) {
   if (!value) return "";
   const s = String(value).slice(0, 10);
@@ -882,9 +706,7 @@ export function formatBurmeseDate(value) {
 }
 ```
 
-### NOTIFICATION_EVENT_TYPES
-
-```js
+```javascript
 export const NOTIFICATION_EVENT_TYPES = [
   "trial_ending_24h",
   "trial_expired",
@@ -897,9 +719,7 @@ export const NOTIFICATION_EVENT_TYPES = [
 ];
 ```
 
-### EVENT_META
-
-```js
+```javascript
 export const EVENT_META = {
   trial_ending_24h: {
     label: "Trial ကုန်ဆုံးရန် ၂၄ နာရီ ကျန်",
@@ -961,9 +781,7 @@ export const EVENT_META = {
 };
 ```
 
-### DEFAULT_TEMPLATES
-
-```js
+```javascript
 export const DEFAULT_TEMPLATES = {
   // No raw {deep_link_url} in the body — it's attached as a "Package ဝယ်ရန်"
   // inline WebApp button instead (see DEEP_LINK_BUTTON_EVENTS in
@@ -1042,9 +860,7 @@ export const DEFAULT_TEMPLATES = {
 };
 ```
 
-### renderTemplate
-
-```js
+```javascript
 export function renderTemplate(text, data = {}) {
   return String(text || "").replace(/\{(\w+)\}/g, (_, key) =>
     data[key] != null ? String(data[key]) : ""
@@ -1052,9 +868,7 @@ export function renderTemplate(text, data = {}) {
 }
 ```
 
-### renderNotification
-
-```js
+```javascript
 export function renderNotification(eventType, data, customText = null) {
   if (!NOTIFICATION_EVENT_TYPES.includes(eventType)) return null;
   if (customText) return renderTemplate(customText, data);

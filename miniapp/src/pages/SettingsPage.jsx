@@ -1,3 +1,4 @@
+import {PackageSummary} from "../components/business/PackageSummary";
 import {
   ChevronRight,
   Clock,
@@ -11,7 +12,6 @@ import {
 import { createElement, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Chip, GlassCard, PageHeader } from "../components/ui/primitives";
-import { formatDate } from "../lib/format";
 import { TAB_KEYS } from "../constants/routes";
 import { useLanguage } from "../i18n/language";
 import { openTelegramNativeLink } from "../lib/telegram";
@@ -45,35 +45,6 @@ function SettingsSection({ title, rows }) {
   );
 }
 
-// Inline-styled rejected chip — no destructive tone in chipTones, so styled directly.
-function RejectedChip() {
-  const { t } = useLanguage();
-
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-destructive/25 bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-red-400">
-      {t("payment.rejected.title")}
-    </span>
-  );
-}
-
-// Right-aligned "View Packages >" link used in rejected and none states.
-function ViewPackagesLink({ onTabChange }) {
-  const { t } = useLanguage();
-
-  return (
-    <div className="mt-2 flex justify-end">
-      <button
-        type="button"
-        onClick={() => onTabChange(TAB_KEYS.PACKAGES)}
-        className="flex items-center gap-0.5 text-[13px] font-semibold text-primary"
-      >
-        {t("settings.viewPackages")}
-        <ChevronRight size={14} />
-      </button>
-    </div>
-  );
-}
-
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 function protocolLabel(protocol) {
@@ -90,22 +61,9 @@ export default function SettingsPage({ data, onTabChange, prevTab }) {
   const brand = data?.config?.brand || null;
   const supportHandle = String(brand?.support_username || "").trim().replace(/^@/, "");
   const hasSupport = /^[A-Za-z0-9_]{5,32}$/.test(supportHandle);
-  const recentRejection = data?.recent_rejection || null;
   const activeProtocol = data?.vpn_key?.protocol || data?.protocol_preference || null;
 
   const queuedSub = data?.queued_subscription || null;
-
-  const isPurchase = sub?.type === "purchase";
-  const isTrial = sub?.type === "trial";
-  const isPending = sub?.review_status === "pending_review";
-
-  // Priority: active (purchase or trial) > pending > rejected > none
-  const planStatus =
-    isTrial && sub?.status === "active" ? "active"
-    : isPurchase && !isPending ? "active"
-    : isPending ? "pending"
-    : recentRejection ? "rejected"
-    : "none";
 
   const handleBack = () => onTabChange(prevTab || TAB_KEYS.HOME);
   const toggleLanguage = () => setLanguage(language === "MM" ? "EN" : "MM");
@@ -117,105 +75,9 @@ export default function SettingsPage({ data, onTabChange, prevTab }) {
     >
       <PageHeader title={t("settings.title")} onBack={handleBack} centerTitle />
 
-      {/* Current Plan — status-aware */}
-      <GlassCard className="aurora-glow p-3">
-        <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
-            {t("common.currentPlan")}
-          </span>
-          {planStatus === "active" && (
-            <Chip tone="success" icon={<span className="h-1.5 w-1.5 rounded-full bg-success" />}>
-              {t("common.active")}
-            </Chip>
-          )}
-          {planStatus === "pending" && (
-            <Chip tone="warning">{t("payment.pending")}</Chip>
-          )}
-          {planStatus === "rejected" && <RejectedChip />}
-        </div>
+      <GlassCard className="aurora-glow p-3"><PackageSummary subscription={sub} />{!sub&&data?.last_subscription&&<div className="mt-3 border-t border-border pt-3"><PackageSummary subscription={data.last_subscription} mode="last" /></div>}{sub&&activeProtocol&&<p className="mt-2 text-xs text-primary">{protocolLabel(activeProtocol)}</p>}</GlassCard>
 
-        {planStatus === "active" && (
-          <>
-            <p className="text-[15px] font-semibold text-foreground">
-              {sub.plan_name || t("common.premiumPlan")}
-            </p>
-            <p className="text-[12px] text-muted-foreground">
-              {sub.expiry_date
-                ? t("access.validUntil", { date: formatDate(sub.expiry_date) })
-                : t("common.active")}
-            </p>
-            {activeProtocol && (
-              <div className="mt-2 flex items-center gap-1.5">
-                <Zap size={12} className="text-primary" />
-                <span className="text-[12px] font-medium text-primary">
-                  {protocolLabel(activeProtocol)}
-                </span>
-              </div>
-            )}
-          </>
-        )}
-
-        {planStatus === "pending" && (
-          <>
-            <p className="text-[15px] font-semibold text-foreground">
-              {sub.plan_name || t("common.premiumPlan")}
-            </p>
-            <p className="text-[12px] text-muted-foreground">{t("payment.pending")}</p>
-          </>
-        )}
-
-        {planStatus === "rejected" && (
-          <>
-            {recentRejection.plan_name && (
-              <p className="text-[15px] font-semibold text-foreground">
-                {recentRejection.plan_name}
-              </p>
-            )}
-            <p className="text-[12px] text-muted-foreground">
-              {t("payment.rejected.description")}
-            </p>
-            <ViewPackagesLink onTabChange={onTabChange} />
-          </>
-        )}
-
-        {planStatus === "none" && (
-          <>
-            <p className="text-[14px] text-muted-foreground">{t("access.noActivePackage")}</p>
-            <ViewPackagesLink onTabChange={onTabChange} />
-          </>
-        )}
-      </GlassCard>
-
-      {/* Queued Plan — shown if customer has a scheduled order waiting to activate */}
-      {queuedSub && (
-        <GlassCard className="border-cyan/25 bg-cyan/5 p-3">
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-cyan-400">
-              {t("settings.queuedPlan")}
-            </span>
-            <Chip tone="cyan" icon={<Clock size={11} className="text-cyan" />}>
-              {t("settings.queuedBadge")}
-            </Chip>
-          </div>
-          <p className="text-[15px] font-semibold text-foreground">
-            {queuedSub.plan_name || t("common.premiumPlan")}
-          </p>
-          <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted-foreground">
-            {queuedSub.duration_days && (
-              <span>{t("common.days", { count: queuedSub.duration_days })}</span>
-            )}
-            {queuedSub.data_limit_gb && (
-              <>
-                <span className="h-1 w-1 rounded-full bg-muted-foreground/60" />
-                <span>{queuedSub.data_limit_gb} GB</span>
-              </>
-            )}
-          </div>
-          <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground">
-            {t("settings.queuedDesc")}
-          </p>
-        </GlassCard>
-      )}
+      {queuedSub&&<GlassCard className="p-3"><PackageSummary subscription={queuedSub} mode="queued" /></GlassCard>}
 
       <SettingsSection
         title={t("common.support")}

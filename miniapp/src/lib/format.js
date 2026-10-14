@@ -1,15 +1,5 @@
-export function formatDate(value) {
-  if (!value) return "-";
-
-  try {
-    return new Date(value).toLocaleString("en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  } catch {
-    return value;
-  }
-}
+import {formatBusinessDate} from "./businessDisplay";
+export function formatDate(value) { return formatBusinessDate(value,{dateOnly:true}); }
 
 const MYANMAR_DIGITS = ["၀", "၁", "၂", "၃", "၄", "၅", "၆", "၇", "၈", "၉"];
 

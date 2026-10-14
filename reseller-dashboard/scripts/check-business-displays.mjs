@@ -31,6 +31,18 @@ export async function run() {
  if(index===1){await page.getByRole('button',{name:'More actions',exact:true}).first().click();await page.getByText('View details',{exact:true}).click();}
  const text=await page.locator('body').innerText();assert.match(text,/100\.00 GB/);assert.match(text,/73%/);assert.match(text,/26\.67 GB/);assert.equal(unexpected.length,0,'Unmatched requests: '+unexpected.join(','));
  console.log((index===0?'admin':'reseller')+': switched package shows full total — passed');await context.close();
- }}finally{await browser.close();}
+ }
+ for(const active of [true,false]) {
+ const context=await browser.newContext({viewport:{width:390,height:844},timezoneId:'America/Los_Angeles'});const page=await context.newPage();page.setDefaultTimeout(12000);const unexpected=[];
+ await context.addInitScript(()=>{localStorage.setItem('novanet.miniapp.language','EN');window.Telegram={WebApp:{initData:'fixture-init-data',initDataUnsafe:{start_param:'fixture'},ready(){},expand(){},onEvent(){},offEvent(){},setHeaderColor(){},setBackgroundColor(){}}};});
+ const subscription={order_id:'order-a',type:'purchase',status:'active',review_status:'pending_review',plan_name:plan.name,expiry_date:'2026-10-20',quota:fixture.switched.quota,business_summary:{...order.business_summary,payment_review_status:'awaiting_review'}};
+ await page.route('**/*',async route=>{const u=new URL(route.request().url());if(u.pathname.startsWith('/api/miniapp/fixture/')){let data;if(u.pathname.endsWith('/config'))data={brand:{name:'Fixture Brand'},features:{}};else if(u.pathname.endsWith('/auth'))data={user:{customer_id:'customer-a',telegram_user_id:123},subscription:active?subscription:null,last_subscription:active?null:{...subscription,status:'expired',business_summary:{...subscription.business_summary,access_status:'expired'}},vpn_key:active?{protocol:'vless',subscription_url:'https://fixture.invalid/sub'}:null,protocol_preference:'vless'};else if(u.pathname.endsWith('/plans'))data={plans:[plan]};else if(u.pathname.endsWith('/servers'))data={servers:[]};else if(u.pathname.endsWith('/events'))data={};else{unexpected.push(u.pathname);await route.abort();return;}await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({success:true,data})});return;}
+ if(u.origin===bases[2]){await route.continue();return;}if(['telegram.org','fonts.googleapis.com'].includes(u.hostname)){await route.fulfill({status:200,body:''});return;}unexpected.push(u.href);await route.abort();});
+ await page.goto(bases[2]+'/?slug=fixture');await page.getByText('Fixture Brand',{exact:true}).first().waitFor();
+ let text=await page.locator('body').innerText();if(active){assert.match(text,/100\.00 GB/);assert.match(text,/73%/);assert.match(text,/26\.67 GB/);assert.match(text,/review/i);}else{assert.match(text,/No active package/i);assert.match(text,/Last package/);}
+ await page.getByRole('button',{name:'Settings',exact:true}).click();text=await page.locator('body').innerText();if(active){assert.match(text,/73%/);assert.match(text,/review/i);}else{assert.match(text,/No active package/i);assert.match(text,/Last package/);}
+ assert.equal(unexpected.length,0,'Unmatched Mini App requests: '+unexpected.join(','));console.log('miniapp: Home/Settings '+(active?'active awaiting review quota':'no current plus last package')+' — passed');await context.close();
+ }
+ }finally{await browser.close();}
 }
 if(process.argv[1] && fileURLToPath(import.meta.url)===fs.realpathSync(process.argv[1]))run().catch(error=>{console.error(error);process.exitCode=1;});

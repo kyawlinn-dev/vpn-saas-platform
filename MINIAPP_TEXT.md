@@ -1,10 +1,10 @@
 # Mini App Text — Current Source Reference
 
-Generated from miniapp/src/i18n/language.jsx on 2026-10-15. Scope: the current source dictionary, not proof that a future source edit is deployed. MM is the default; EN is selectable. Runtime source owns copy; this document is its review snapshot.
+Generated from miniapp/src/i18n/language.jsx. Runtime source owns copy; this is an implementation-branch snapshot, not proof of deployment. MM is default; EN is selectable.
 
-Source SHA-256 (LF-normalized): `fcd1e2c2194ada59de0d464186b7020fcf3a7d47f7002c256f3360d893ae75f6`.
+Source SHA-256 (LF-normalized): 3f068aca4d5ff57ab56ea7e3612d2f3ca55f50bd1f9e058dca48f1952595dc24.
 
-All 176 MM keys are listed with English. Values are HTML-escaped for this table; `<br>` represents a newline. Keep placeholders exactly as in source. Missing/removed keys or changed strings require regeneration, not a claim that editing Markdown changes the app. These strings are not reseller-editable.
+All 186 MM keys with EN. Preserve placeholders.
 
 | Key | Burmese (MM) | English (EN) |
 | --- | --- | --- |
@@ -13,7 +13,6 @@ All 176 MM keys are listed with English. Values are HTML-escaped for this table;
 | access.alreadyActive | သင့်မှာ active package ရှိပြီးသားပါ | You already have an active package |
 | access.chooseServer | ဆာဗာရွေးမည် | Choose server |
 | access.chooseServer.description | ပက်ကေ့ချ်အသုံးပြုနိုင်ပါပြီ။ VPN key ဖန်တီးရန် premium ဆာဗာတစ်ခုကို ရွေးပါ။ | Your package is active. Select a server to create your VPN key. |
-| access.subscriptionCopied | Subscription link ကူးပြီးပါပြီ | Subscription link copied! |
 | access.dataUsed | အသုံးပြုပြီးသော ဒေတာ | Data used this month |
 | access.noActivePackage | အသုံးပြုနေသော ပက်ကေ့ချ်မရှိပါ | No active package |
 | access.packageLinked | သင့်အကောင့် ချိတ်ဆက်ပြီးပါပြီ။ VPN စတင်အသုံးပြုရန် ပက်ကေ့ချ်ရွေးပါ။ | Your account is linked. Choose a package to start secure VPN access. |
@@ -22,10 +21,21 @@ All 176 MM keys are listed with English. Values are HTML-escaped for this table;
 | access.premiumAccess | ပရီမီယံ အသုံးပြုခွင့် | Premium Access |
 | access.quickActions | အမြန်လုပ်ဆောင်မှုများ | Quick Actions |
 | access.shareKey | Key မျှဝေမည် | Share Key |
+| access.subscriptionCopied | Subscription link ကူးပြီးပါပြီ | Subscription link copied! |
 | access.trial | စမ်းသုံးခွင့် | Trial Access |
 | access.validUntil | {date} အထိ အသုံးပြုနိုင်သည် | Valid until {date} |
 | access.validUntilMissing | သက်တမ်းမပြထားပါ | No expiry shown |
 | app.subtitle | လုံခြုံသော VPN ဝန်ဆောင်မှု | Secure private access |
+| business.confirmedQueue | ငွေပေးချေမှု အတည်ပြုပြီးပါပြီ။ လက်ရှိပက်ကေ့ချ်ကုန်ဆုံးလျှင် နောက်ပက်ကေ့ချ် အလိုအလျောက် စတင်ပါမည်။ | Payment confirmed. Your next package starts automatically when the current package ends. |
+| business.lastPackage | နောက်ဆုံးအသုံးပြုခဲ့သော ပက်ကေ့ချ် | Last package |
+| business.noPayment | ငွေပေးချေရန်မလိုပါ | No payment required |
+| business.queued | နောက်တစ်ခုအတွက် စောင့်ဆိုင်းနေသည် | Queued |
+| business.remaining | ကျန်ဒေတာ | Remaining |
+| business.stale | ဒေတာ အပ်ဒိတ်နောက်ကျနေသည် | Usage update delayed |
+| business.syncUnknown | ဒေတာနောက်ဆုံးစစ်ဆေးချိန် မရနိုင်ပါ | Sync time unavailable |
+| business.synced | ဒေတာနောက်ဆုံးစစ်ဆေးချိန် | Last synced |
+| business.unavailable | အချက်အလက် မရနိုင်သေးပါ | Usage unavailable |
+| business.unlimited | အကန့်အသတ်မရှိ | Unlimited |
 | common.active | အသုံးပြုနိုင်သည် | Active |
 | common.backToHome | မူလသို့ ပြန်မည် | Back to Home |
 | common.cancel | မလုပ်တော့ပါ | Cancel |
@@ -51,33 +61,26 @@ All 176 MM keys are listed with English. Values are HTML-escaped for this table;
 | error.title | ဖွင့်၍ မရပါ | Unable to load |
 | features.devices | Device {count} ခုအထိ | Up to {count} device(s) |
 | features.noLog | No-log policy | No-log policy |
-| protocol.choose | သုံးမည့် App ရွေးပါ | VPN Protocol |
-| protocol.ssDesc | Outline app နှင့် သုံးနိုင်သည် | Use with Outline app. |
-| protocol.vlessDesc | Happ၊ Hiddify၊ V2Box app များနှင့် သုံးနိုင်သည် | Use with Happ, Hiddify, or V2Box. |
-| protocol.subtitle | သင်သုံးမည့် VPN app ကို ရွေးပါ။ | Choose the VPN app you will use. |
-| protocol.continue | ဆက်လက်ဆောင်ရွက်မည် | Continue |
-| protocol.recommended | အကြံပြု | Recommended |
-| protocol.worksWith | သုံးနိုင်သော app များ | Works with |
 | nav.home | မူလ | Home |
 | nav.packages | ပက်ကေ့ချ် | Packages |
 | nav.servers | ဆာဗာ | Servers |
 | packages.activePackageWarning | သင့်တွင် လက်ရှိသုံးနေသော ပက်ကေ့ချ်ရှိပြီးဖြစ်ပါသည်။ သက်တမ်းမကုန်မချင်း ထပ်မံဝယ်ယူ၍မရပါ။ လိုအပ်ပါက သင့် reseller ကို ဆက်သွယ်ပါ။ | You already have an active package. You can't buy another until it expires. Contact your reseller if you need help. |
-| packages.alreadyQueuedWarning | သင့်တွင် လက်ရှိပက်ကေ့ချ်အပြင် စောင့်ဆိုင်းနေသော (Queue) ပက်ကေ့ချ်တစ်ခု ရှိနေပြီးဖြစ်ပါသည်။ သက်တမ်းကုန်ဆုံးပြီးမှသာ ထပ်မံဝယ်ယူနိုင်ပါမည်။ | You already have an active package and a queued package. You can purchase again after they expire. |
-| packages.paymentUnderReview | လက်ရှိဝယ်ယူမှု၏ ငွေပေးချေမှုကို စစ်ဆေးနေပါသည်။ အတည်ပြုပြီးမှ နောက်ပက်ကေ့ချ်ကို ဝယ်ယူနိုင်ပါမည်။ | Your current payment is under review. You can buy another package once it is confirmed. |
 | packages.activePlan | လက်ရှိ ပက်ကေ့ချ် | Current Plan |
+| packages.alreadyQueuedWarning | သင့်တွင် လက်ရှိပက်ကေ့ချ်အပြင် စောင့်ဆိုင်းနေသော (Queue) ပက်ကေ့ချ်တစ်ခု ရှိနေပြီးဖြစ်ပါသည်။ သက်တမ်းကုန်ဆုံးပြီးမှသာ ထပ်မံဝယ်ယူနိုင်ပါမည်။ | You already have an active package and a queued package. You can purchase again after they expire. |
 | packages.backToPackages | ပက်ကေ့ချ်များသို့ ပြန်မည် | Back to Packages |
 | packages.buyAgain | ထပ်ဝယ်မည် · {price} | Buy More · {price} |
+| packages.buyGuide.step1 | လိုချင်တဲ့ ပက်ကေ့ချ်ကို ရွေးပါ။ | Choose your desired plan. |
+| packages.buyGuide.step2 | ဝယ်မည် ကို နှိပ်ပါ။ | Tap Buy Now. |
+| packages.buyGuide.step3 | ငွေလွှဲပြီး ငွေလွှဲပြေစာပုံ တင်ပါ။ | Transfer to the bank account and upload your screenshot. |
+| packages.buyGuide.step4 | တင်ပြီးတာနဲ့ VPN သုံးနိုင်ပါပြီ။ ငွေပေးချေမှုကို စစ်ဆေးပေးပါမည်။ | You can connect right after submitting while admin reviews payment. |
 | packages.buyNow | ဝယ်မည် · {price} | Buy Now · {price} |
 | packages.choosePlan | ပက်ကေ့ချ် ရွေးပါ | Choose Your Plan |
 | packages.empty.description | နောက်မှ ပြန်စစ်ပါ သို့မဟုတ် manual activation အတွက် support ဆက်သွယ်ပါ။ | Please check back later or contact support for manual activation. |
 | packages.empty.title | ပက်ကေ့ချ် မရှိသေးပါ | No packages available |
 | packages.noPlanSelected | ပက်ကေ့ချ် မရွေးရသေးပါ။ | No plan selected. |
+| packages.paymentUnderReview | လက်ရှိဝယ်ယူမှု၏ ငွေပေးချေမှုကို စစ်ဆေးနေပါသည်။ အတည်ပြုပြီးမှ နောက်ပက်ကေ့ချ်ကို ဝယ်ယူနိုင်ပါမည်။ | Your current payment is under review. You can buy another package once it is confirmed. |
 | packages.popular | လူကြိုက်များ | Popular |
 | packages.subtitle | ဝယ်ယူနည်း | How to buy |
-| packages.buyGuide.step1 | လိုချင်တဲ့ ပက်ကေ့ချ်ကို ရွေးပါ။ | Choose your desired plan. |
-| packages.buyGuide.step2 | ဝယ်မည် ကို နှိပ်ပါ။ | Tap Buy Now. |
-| packages.buyGuide.step3 | ငွေလွှဲပြီး ငွေလွှဲပြေစာပုံ တင်ပါ။ | Transfer to the bank account and upload your screenshot. |
-| packages.buyGuide.step4 | တင်ပြီးတာနဲ့ VPN သုံးနိုင်ပါပြီ။ ငွေပေးချေမှုကို စစ်ဆေးပေးပါမည်။ | You can connect right after submitting while admin reviews payment. |
 | packages.waitingReview.description | Premium access အသုံးပြုနိုင်ပါပြီ။ သင့် reseller က payment screenshot ကို စစ်ဆေးပါမည်။ | Premium access is active. Your reseller will review the payment screenshot. |
 | packages.waitingReview.title | ဝယ်ယူမှု စစ်ဆေးနေသည် | Purchase waiting for review |
 | payment.accountName | အကောင့်အမည် | Account name |
@@ -95,7 +98,6 @@ All 176 MM keys are listed with English. Values are HTML-escaped for this table;
 | payment.copySuccess | အကောင့်နံပါတ် copy လုပ်ပြီးပါပြီ | Account number copied |
 | payment.duration | သက်တမ်း | Duration |
 | payment.exactAmount | {amount} တိတိ ဤအကောင့်သို့ လွှဲပြီး screenshot တင်ပါ။ | Transfer exactly {amount} to this account, then upload your screenshot below. |
-| payment.noVpnInTransferNote | သတိ! ငွေလွှဲရာ၌ မှတ်ချက်တွင် VPN ဟု မရေးရ။ | Warning! Do not write "VPN" in the transfer note/remark. |
 | payment.expired | သက်တမ်းကုန်သည် | Expired |
 | payment.failedSubmit | ဝယ်ယူမှု တင်သွင်း၍ မရပါ | Failed to submit purchase |
 | payment.jpegHint | JPEG · PNG · WebP · အများဆုံး 5 MB | JPEG · PNG · WebP · max 5 MB |
@@ -106,6 +108,7 @@ All 176 MM keys are listed with English. Values are HTML-escaped for this table;
 | payment.noMethod | ငွေပေးချေမှုနည်းလမ်း မထည့်ရသေးပါ။ Support ဆက်သွယ်ပါ။ | No payment methods configured. Please contact support. |
 | payment.noPackage.description | ဆာဗာချိတ်ရန် active package လိုအပ်ပါသည်။ စတင်ရန် ပက်ကေ့ချ်ရွေးပါ။ | You need an active package to connect to a server. Choose a package to get started. |
 | payment.noPackage.title | အသုံးပြုနေသော ပက်ကေ့ချ်မရှိပါ | No active package |
+| payment.noVpnInTransferNote | သတိ! ငွေလွှဲရာ၌ မှတ်ချက်တွင် VPN ဟု မရေးရ။ | Warning! Do not write "VPN" in the transfer note/remark. |
 | payment.note | ငွေပေးချေမှု မှတ်ချက် | Payment Note |
 | payment.noteOptional | (optional) | (optional) |
 | payment.notePlaceholder | ဥပမာ KBZPay ဖြင့် 3:10 PM တွင် ပေးချေပြီး | e.g. Paid with KBZPay at 3:10 PM |
@@ -116,6 +119,10 @@ All 176 MM keys are listed with English. Values are HTML-escaped for this table;
 | payment.pending.title | Payment တင်ပြီးပါပြီ | Payment Submitted! |
 | payment.plan | ပက်ကေ့ချ် | Plan |
 | payment.previewAlt | Payment screenshot preview | Payment screenshot preview |
+| payment.queuedNoticeDesc | သင့်တွင် လက်ရှိအသုံးပြုနေသော ပက်ကေ့ချ်ရှိပြီးဖြစ်သဖြင့် ယခုဝယ်ယူမည့် ပက်ကေ့ချ်သည် လက်ရှိပက်ကေ့ချ် သက်တမ်းကုန်ဆုံးပါက အလိုအလျောက် စတင်အသုံးပြုနိုင်မည်ဖြစ်ပါသည်။ | You have an active package. This new package will be queued and activate automatically when your current package ends. |
+| payment.queuedNoticeTitle | စောင့်ဆိုင်းနေမည့် ပက်ကေ့ချ် (Queue Plan) | Queued Package (Queue Plan) |
+| payment.queuedPendingDescription | ငွေပေးချေမှုကို စစ်ဆေးနေပါသည်။ ဤပက်ကေ့ချ်သည် လက်ရှိပက်ကေ့ချ် ကုန်ဆုံးပြီးမှ စတင်ပါမည်။ | Your payment is under review. This package will start after your current package ends. |
+| payment.queuedPendingNote | လက်ရှိ VPN ကို ဆက်သုံးနိုင်ပါသည်။ ဤပက်ကေ့ချ်အတွက် ငွေပေးချေမှုကို အတည်ပြုပြီးမှ တန်းစီထားပါမည်။ | Your current VPN stays active. The next package will be queued after payment approval. |
 | payment.rejected | Reject ဖြစ်သည် | Rejected |
 | payment.rejected.description | Admin မှ ဤငွေပေးချေမှုကို အတည်မပြုနိုင်ပါ။ VPN access ဖယ်ရှားပြီးပါပြီ။ | Admin could not confirm this payment. VPN access has been removed. |
 | payment.rejected.title | Payment Reject ဖြစ်သည် | Payment Rejected |
@@ -131,56 +138,59 @@ All 176 MM keys are listed with English. Values are HTML-escaped for this table;
 | payment.submitting | တင်နေသည်... | Submitting... |
 | payment.upload | ငွေလွှဲပြေစာပုံ တင်မည် | Upload payment screenshot |
 | payment.uploading | Screenshot တင်နေသည်... | Uploading screenshot... |
-| payment.queuedNoticeTitle | စောင့်ဆိုင်းနေမည့် ပက်ကေ့ချ် (Queue Plan) | Queued Package (Queue Plan) |
-| payment.queuedNoticeDesc | သင့်တွင် လက်ရှိအသုံးပြုနေသော ပက်ကေ့ချ်ရှိပြီးဖြစ်သဖြင့် ယခုဝယ်ယူမည့် ပက်ကေ့ချ်သည် လက်ရှိပက်ကေ့ချ် သက်တမ်းကုန်ဆုံးပါက အလိုအလျောက် စတင်အသုံးပြုနိုင်မည်ဖြစ်ပါသည်။ | You have an active package. This new package will be queued and activate automatically when your current package ends. |
-| payment.queuedPendingDescription | ငွေပေးချေမှုကို စစ်ဆေးနေပါသည်။ ဤပက်ကေ့ချ်သည် လက်ရှိပက်ကေ့ချ် ကုန်ဆုံးပြီးမှ စတင်ပါမည်။ | Your payment is under review. This package will start after your current package ends. |
-| payment.queuedPendingNote | လက်ရှိ VPN ကို ဆက်သုံးနိုင်ပါသည်။ ဤပက်ကေ့ချ်အတွက် ငွေပေးချေမှုကို အတည်ပြုပြီးမှ တန်းစီထားပါမည်။ | Your current VPN stays active. The next package will be queued after payment approval. |
+| protocol.choose | သုံးမည့် App ရွေးပါ | VPN Protocol |
+| protocol.continue | ဆက်လက်ဆောင်ရွက်မည် | Continue |
+| protocol.recommended | အကြံပြု | Recommended |
+| protocol.ssDesc | Outline app နှင့် သုံးနိုင်သည် | Use with Outline app. |
+| protocol.subtitle | သင်သုံးမည့် VPN app ကို ရွေးပါ။ | Choose the VPN app you will use. |
+| protocol.vlessDesc | Happ၊ Hiddify၊ V2Box app များနှင့် သုံးနိုင်သည် | Use with Happ, Hiddify, or V2Box. |
+| protocol.worksWith | သုံးနိုင်သော app များ | Works with |
 | servers.bestMs | {ms} ms အကောင်းဆုံး | {ms} ms best |
 | servers.choose | ဆာဗာ ရွေးပါ | Choose Server |
+| servers.connect | ချိတ်မည် | Connect |
+| servers.connected | လက်ရှိ | Connected |
 | servers.count | {count} ဆာဗာ | {count} servers |
 | servers.currentServer | လက်ရှိ ဆာဗာ | Current server |
+| servers.details | ကြည့်မည် | Details |
 | servers.failedLink | ဆာဗာ ချိတ်ဆက်၍ မရပါ | Failed to link server |
-| servers.linked | ချိတ်ဆက်ပြီး | linked |
+| servers.included | ပါဝင်သည် | Included |
 | servers.linkSuccess | ဆာဗာ ချိတ်ဆက်ပြီးပါပြီ | Server linked successfully |
+| servers.linked | ချိတ်ဆက်ပြီး | linked |
+| servers.noneFound | ဆာဗာ မတွေ့ပါ | No servers found |
 | servers.openTelegramAgain | Telegram bot မှ ပြန်ဖွင့်ပါ။ | Open from Telegram bot again. |
+| servers.premiumServers | Premium ဆာဗာများ | Premium Servers |
+| servers.premiumTier | Premium | Premium |
+| servers.regionRestrictedDescription | သင့် package တွင် ဤ Region မပါဝင်သေးပါ။ Support ကို ဆက်သွယ်ပါ။ | Your package does not include this region. Please contact support. |
+| servers.regionRestrictedTitle | ဤ Region ကို မသုံးနိုင်ပါ | Region not included |
+| servers.restrictedDescription | သင့် package သည် ဤဆာဗာအတွက် မကိုက်ညီပါ။ | Your package cannot connect to this server. |
+| servers.restrictedPremiumDescription | Trial package သည် Trial ဆာဗာများကိုသာ ချိတ်ဆက်နိုင်သည်။ Premium ဆာဗာအသုံးပြုရန် package ဝယ်ပါ။ | Trial packages can only connect to trial servers. Buy a premium package to use premium servers. |
+| servers.restrictedPremiumTitle | Premium ဆာဗာအတွက် package လိုအပ်သည် | Premium package required |
+| servers.restrictedTitle | ဤဆာဗာကို ချိတ်ဆက်၍ မရပါ | This server is not available |
 | servers.search | နိုင်ငံ သို့မဟုတ် ဆာဗာ ရှာပါ | Search country or server |
 | servers.select | ရွေးမည် | Select |
 | servers.subtitle | သင့်အတွက် အကောင်းဆုံး ဆာဗာကို ရွေးပါ | Select the best server for you |
-| servers.noneFound | ဆာဗာ မတွေ့ပါ | No servers found |
-| servers.connect | ချိတ်မည် | Connect |
-| servers.connected | လက်ရှိ | Connected |
-| servers.included | ပါဝင်သည် | Included |
-| servers.details | ကြည့်မည် | Details |
-| servers.premiumTier | Premium | Premium |
-| servers.trialTier | Trial | Trial |
-| servers.premiumServers | Premium ဆာဗာများ | Premium Servers |
 | servers.trialServers | Trial ဆာဗာများ | Trial Servers |
+| servers.trialTier | Trial | Trial |
 | servers.vlessAllServers | Server အားလုံး ပါဝင်ပြီး | All Servers Included |
 | servers.vlessDescription | သင့် VLESS subscription တွင် အောက်ဖော်ပြပါ server အားလုံး ပါဝင်သည်။ Happ၊ Hiddify သို့မဟုတ် V2Box app ထဲတွင် server ရွေးချယ်ပါ။ | Your VLESS subscription gives you access to all servers below. Choose a server inside Happ, Hiddify, or V2Box. |
-| servers.vlessTrialBannerTitle | VLESS Trial · Trial Server သာ | VLESS Trial · Trial Server Only |
 | servers.vlessTrialBannerDescription | Trial VLESS key သည် Trial server တစ်ခုသာ ချိတ်ဆက်နိုင်သည်။ Premium package ဝယ်ယူပါက server အားလုံးသို့ ချိတ်ဆက်နိုင်မည်ဖြစ်သည်။ | Your trial VLESS key connects to the Trial server only. Upgrade to a premium package to unlock all servers. |
-| servers.vlessTrialUpgradeTitle | Premium Package လိုအပ်သည် | Premium Package Required |
+| servers.vlessTrialBannerTitle | VLESS Trial · Trial Server သာ | VLESS Trial · Trial Server Only |
 | servers.vlessTrialUpgradeDescription | Trial VLESS ဖြင့် Trial server တစ်ခုသာ ချိတ်ဆက်နိုင်သည်။ Premium package ဝယ်ယူပါက VLESS subscription ဖြင့် server အားလုံးသို့ ချိတ်ဆက်နိုင်မည်ဖြစ်သည်။ | Trial VLESS can only connect to the Trial server. Buy a premium package to access all servers with your VLESS subscription. |
-| servers.restrictedTitle | ဤဆာဗာကို ချိတ်ဆက်၍ မရပါ | This server is not available |
-| servers.restrictedDescription | သင့် package သည် ဤဆာဗာအတွက် မကိုက်ညီပါ။ | Your package cannot connect to this server. |
-| servers.restrictedPremiumTitle | Premium ဆာဗာအတွက် package လိုအပ်သည် | Premium package required |
-| servers.restrictedPremiumDescription | Trial package သည် Trial ဆာဗာများကိုသာ ချိတ်ဆက်နိုင်သည်။ Premium ဆာဗာအသုံးပြုရန် package ဝယ်ပါ။ | Trial packages can only connect to trial servers. Buy a premium package to use premium servers. |
-| servers.regionRestrictedTitle | ဤ Region ကို မသုံးနိုင်ပါ | Region not included |
-| servers.regionRestrictedDescription | သင့် package တွင် ဤ Region မပါဝင်သေးပါ။ Support ကို ဆက်သွယ်ပါ။ | Your package does not include this region. Please contact support. |
+| servers.vlessTrialUpgradeTitle | Premium Package လိုအပ်သည် | Premium Package Required |
 | settings.about | ဤ Mini App အကြောင်း | About this Mini App |
 | settings.aboutDescription | {brand} ၏ VPN ပက်ကေ့ချ်၊ ဆာဗာ၊ ဒေတာနှင့် သက်တမ်းကို ဤနေရာတွင် ကြည့်ရှုနိုင်ပါသည်။ | View your {brand} VPN package, servers, data usage, and expiry here. |
 | settings.faq | FAQ | FAQ |
-| settings.faq.q1 | VPN Key ကို ဘယ်မှာ ရယူမလဲ။ | Where do I get my VPN key? |
 | settings.faq.a1 | မူလစာမျက်နှာတွင် Subscription Link ကို ကူးပြီး သင်ရွေးထားသော VPN App ထဲသို့ ထည့်ပါ။ | Copy the subscription link on Home and import it into your chosen VPN app. |
-| settings.faq.q2 | ဆာဗာကို ဘယ်လို ပြောင်းမလဲ။ | How do I change servers? |
 | settings.faq.a2 | ဆာဗာစာမျက်နှာတွင် ဆာဗာရွေးပါ။ Happ၊ Hiddify၊ V2Box အသုံးပြုသူများသည် VPN App ထဲတွင် ဆာဗာပြောင်းနိုင်ပါသည်။ | Choose a server on the Servers page. Happ, Hiddify, and V2Box users can change nodes inside their VPN app. |
-| settings.faq.q3 | ပက်ကေ့ချ်ကို ဘယ်လို ဝယ်မလဲ။ | How do I buy a package? |
 | settings.faq.a3 | ပက်ကေ့ချ်ရွေးပြီး ငွေလွှဲပြေစာပုံ တင်ပါ။ ငွေပေးချေမှုကို ဆက်လက်စစ်ဆေးပေးပါမည်။ | Choose a package, transfer the payment, and upload the receipt. Your payment will be reviewed. |
+| settings.faq.q1 | VPN Key ကို ဘယ်မှာ ရယူမလဲ။ | Where do I get my VPN key? |
+| settings.faq.q2 | ဆာဗာကို ဘယ်လို ပြောင်းမလဲ။ | How do I change servers? |
+| settings.faq.q3 | ပက်ကေ့ချ်ကို ဘယ်လို ဝယ်မလဲ။ | How do I buy a package? |
 | settings.general | အထွေထွေ | General |
 | settings.privacy | Privacy Policy | Privacy Policy |
-| settings.queuedPlan | တန်းစီထားသော ပက်ကေ့ချ် | Next in Queue |
 | settings.queuedBadge | စောင့်ဆိုင်းဆဲ | Queued |
 | settings.queuedDesc | လက်ရှိ ပက်ကေ့ချ် သက်တမ်းကုန်လျှင် (သို့) data ကုန်လျှင် အလိုအလျောက် စတင်ပါမည်။ | Activates automatically when your current package expires or data runs out. |
+| settings.queuedPlan | တန်းစီထားသော ပက်ကေ့ချ် | Next in Queue |
 | settings.terms | Terms of Service | Terms of Service |
 | settings.title | ဆက်တင် | Settings |
 | settings.viewPackages | ပက်ကေ့ချ်များ ကြည့်မည် | View Packages |
