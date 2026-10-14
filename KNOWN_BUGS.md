@@ -3,7 +3,7 @@
 Reviewed 2026-10-15. Current open findings are separate from historical decisions
 below. A resolved quota-enforcement issue does not imply all displays are fixed.
 
-## OPEN: reseller usage bar uses carried key cap as package total
+## FIXED IN IMPLEMENTATION BRANCH, NOT DEPLOYED: reseller usage denominator
 
 Confirmed with Ye Yint's order on 2026-10-14. The order quota was 100 GB total,
 73.33 GB used and 26.67 GB remaining. The fresh server key correctly carried
@@ -11,8 +11,8 @@ Confirmed with Ye Yint's order on 2026-10-14. The order quota was 100 GB total,
 used that cap as the total. The bar clamped to 100% instead of approximately 73%.
 
 The September 9 fix (`81c8583`) was removed by the Marzneshin snapshot (`6ca933c`).
-The planned repair uses canonical package quota without changing the customer's
-panel allowance. It is not implemented yet. See the October 14 business-display
+The implementation uses canonical package quota without changing the customer's panel allowance. Synthetic regression and rendered admin/reseller/Mini App checks
+pass. Production deployment remains pending. See the October 14 business-display
 spec/plan under `docs/superpowers/` and the documentation alignment audit.
 
 ## Historical decisions and resolved incidents

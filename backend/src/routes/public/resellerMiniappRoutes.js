@@ -1,6 +1,6 @@
 import { summarizeOrderBusiness, toPublicBusinessSummary, selectCustomerPackages } from "../../services/businessDisplayService.js";
 import { readAllRows } from "../../utils/readAllRows.js";
-import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
+import { loadUsageFreshness,summarizeUsageFreshness } from "../../services/usageFreshnessService.js";
 import express from "express";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
@@ -883,7 +883,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
           order_type,
           payment_status,
           review_status,
-          payments:order_payments(review_status,apply_status),
+          payments:order_payments(review_status,apply_status,package_duration_days,plan_id),
           created_at,
           vpn_plans (
             id,
@@ -910,7 +910,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
           status: scheduledOrder.status,
           plan_name: scheduledOrder.vpn_plans?.name || null,
           data_limit_gb: scheduledOrder.vpn_plans?.data_limit_gb ?? null,
-          duration_days: scheduledOrder.vpn_plans?.duration_days ?? null,
+          duration_days: summarizeOrderBusiness(scheduledOrder).duration_days,
           queued_at: scheduledOrder.created_at || null,
         };
       }
@@ -969,7 +969,9 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
     }
 
     const orderQuota = activeOrder ? await getOrderQuotaSnapshot(activeOrder.id) : null;
-    const freshness = await loadUsageFreshness([currentKeyRow?.server_id]);
+    const {data:usageKeys,error:usageKeysError}=activeOrder ? await supabase.from("vpn_keys").select("server_id").eq("order_id",activeOrder.id).eq("reseller_id",miniapp.reseller_id).eq("status","active").is("deleted_at",null) : {data:[],error:null};
+    const freshnessMap = await loadUsageFreshness((usageKeys || []).map(k=>k.server_id));
+    const freshness = usageKeysError ? {last_synced_at:null,state:"unknown"} : summarizeUsageFreshness((usageKeys || []).map(k=>({last_usage_sync_at:freshnessMap.get(k.server_id)?.last_synced_at})));
     const {data:history,error:historyError} = await readAllRows(() => supabase.from("vpn_orders").select("id,status,order_type,plan_id,start_date,activated_at,expiry_date,created_at,payment_status,review_status,payments:order_payments(review_status,apply_status,package_duration_days),vpn_plans(name,duration_days,data_limit_gb)").eq("customer_id",customer.id).eq("reseller_id",miniapp.reseller_id).in("status",["expired","stopped","active"]).order("id"));
     if(historyError) throw new Error("Failed to load package history");
     const lastOrder = selectCustomerPackages(history || []).last_order;
@@ -1008,7 +1010,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
         last_subscription: lastSubscription,
         subscription: activeOrder
           ? {
-              business_summary: toPublicBusinessSummary(summarizeOrderBusiness({...activeOrder,keys:currentKeyRow ? [{...currentKeyRow,status:"active"}] : []},{quota:toQuotaPayload(orderQuota),freshness:freshness.get(currentKeyRow?.server_id)})),
+              business_summary: toPublicBusinessSummary(summarizeOrderBusiness({...activeOrder,keys:currentKeyRow ? [{...currentKeyRow,status:"active"}] : []},{quota:toQuotaPayload(orderQuota),freshness})),
               order_id: activeOrder.id,
               plan_id: activeOrder.plan_id,
               type: activeOrder.order_type,
@@ -1017,7 +1019,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
               review_status: activeOrder.review_status,
               plan_name: activeOrder.vpn_plans?.name,
               data_limit_gb: activeOrder.vpn_plans?.data_limit_gb,
-              duration_days: activeOrder.vpn_plans?.duration_days,
+              duration_days: summarizeOrderBusiness(activeOrder).duration_days,
               start_date: activeOrder.start_date,
               expiry_date: activeOrder.expiry_date,
               quota: toQuotaPayload(orderQuota),

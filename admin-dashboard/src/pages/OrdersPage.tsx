@@ -1,5 +1,5 @@
 import {PackageUsage} from "../components/PackageUsage";
-import {BusinessStatus} from "../components/BusinessStatus";
+import {BusinessStatus,PaymentReviewStatus} from "../components/BusinessStatus";
 import {daysLeft} from "../lib/businessDisplay";
 import { useMemo, useState } from 'react';
 import {
@@ -290,7 +290,7 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
-                        <StatusBadge status={order.payment_status} />
+                        <PaymentReviewStatus summary={order.business_summary} />
                         {order.review_status ? <StatusBadge status={order.review_status} /> : null}
                       </div>
                       {summary.pendingCount > 0 ? (
@@ -459,7 +459,7 @@ function OrderDetailDialog({
               </div>
               <div className="flex flex-wrap justify-end gap-1.5">
                 <BusinessStatus summary={order.business_summary} />
-                <StatusBadge status={order.payment_status} />
+                <PaymentReviewStatus summary={order.business_summary} />
               </div>
             </div>
 

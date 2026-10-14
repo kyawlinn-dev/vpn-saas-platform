@@ -67,7 +67,9 @@ begin
     end if;
   end if;
   if c.customer_type is distinct from 'normal' or exists(select 1 from telegram_links where customer_id=c.id and reseller_id=p_reseller_id) then raise exception 'TELEGRAM_CUSTOMER_ACTION'; end if;
-  select * into active_order from vpn_orders where reseller_id=p_reseller_id and customer_id=c.id and status='active' and order_type='purchase' limit 1;
+  select * into active_order from vpn_orders where reseller_id=p_reseller_id and customer_id=c.id and order_type='purchase'
+    and (status='active' or (status='pending' and source='dashboard' and payment_status='paid' and review_status='confirmed'))
+    order by created_at,id limit 1;
   if found and active_order.review_status is distinct from 'confirmed' then raise exception 'PURCHASE_UNDER_REVIEW'; end if;
   if exists(select 1 from vpn_orders where reseller_id=p_reseller_id and customer_id=c.id and status='scheduled' and order_type='purchase') then raise exception 'QUEUED_PACKAGE_EXISTS'; end if;
   insert into vpn_orders(reseller_id,customer_id,plan_id,status,payment_status,review_status,order_type,source,price_mmk,total_paid_mmk,commission_percent,commission_amount_mmk,payment_note,payment_screenshot_url,quota_limit_bytes,usage_baseline_bytes)
@@ -112,20 +114,26 @@ begin
   perform 1 from vpn_customers where id=ord.customer_id and reseller_id=p_reseller_id for update;
   select * into op from dashboard_purchase_operations where order_id=p_order_id and reseller_id=p_reseller_id for update;
   if not found then raise exception 'SETUP_NOT_FOUND'; end if;
+  -- Re-read after the ownership locks: another attempt may have completed since
+  -- the initial customer lookup. Never reset an already active order to pending.
+  select * into ord from vpn_orders where id=p_order_id and reseller_id=p_reseller_id for update;
   if ord.source<>'dashboard' or ord.order_type<>'purchase' then raise exception 'INVALID_SOURCE'; end if;
-  if exists(select 1 from dashboard_purchase_operations where reseller_id=p_reseller_id and customer_id=ord.customer_id and state='running') then
-    return jsonb_build_object('claimed',false,'state','running');
-  end if;
   if ord.status='active' then return jsonb_build_object('claimed',false,'state','ready'); end if;
   if ord.status not in ('pending','scheduled') or ord.review_status='rejected' then raise exception 'INVALID_STATUS'; end if;
   if ord.payment_status<>'paid' or ord.review_status<>'confirmed' then return jsonb_build_object('claimed',false,'state','awaiting_payment'); end if;
-  select * into active_order from vpn_orders where reseller_id=p_reseller_id and customer_id=ord.customer_id and status='active' and order_type='purchase' and id<>ord.id limit 1;
+  select * into active_order from vpn_orders where reseller_id=p_reseller_id and customer_id=ord.customer_id and order_type='purchase' and id<>ord.id
+    and (status='active' or (status='pending' and source='dashboard' and payment_status='paid' and review_status='confirmed'
+      and (ord.status='scheduled' or (created_at,id)<(ord.created_at,ord.id))))
+    order by created_at,id limit 1;
   if found then
     if active_order.review_status is distinct from 'confirmed' then raise exception 'PURCHASE_UNDER_REVIEW'; end if;
     if exists(select 1 from vpn_orders where reseller_id=p_reseller_id and customer_id=ord.customer_id and status='scheduled' and order_type='purchase' and id<>ord.id) then raise exception 'QUEUED_PACKAGE_EXISTS'; end if;
     update vpn_orders set status='scheduled',start_date=null,expiry_date=null where id=ord.id and reseller_id=p_reseller_id;
     update dashboard_purchase_operations set state='queued',last_error_code=null,updated_at=now() where id=op.id;
     return jsonb_build_object('claimed',false,'state','queued');
+  end if;
+  if exists(select 1 from dashboard_purchase_operations where reseller_id=p_reseller_id and customer_id=ord.customer_id and state='running') then
+    return jsonb_build_object('claimed',false,'state','running');
   end if;
   -- Reuse the guarded initial activation path; dates start only after successful setup.
   update vpn_orders set status='pending' where id=ord.id and reseller_id=p_reseller_id;

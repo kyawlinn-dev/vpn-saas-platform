@@ -555,7 +555,8 @@ export function setupHandlers(bot, {
               queuedPlan,
             });
           } else if (queuedPlan) {
-            text = balanceQueuedOnlyText({ queuedPlan });
+            const lastPackage = await getLastCustomerPackage(customer.customerId,resellerId).catch(()=>null);
+            text = balanceText({businessSummary:{access_status:"unknown"},lastPackage,formatBurmeseDate})+"\n\n"+balanceQueuedOnlyText({ queuedPlan });
           } else {
             const lastPackage = await getLastCustomerPackage(customer.customerId,resellerId);
             text = balanceText({businessSummary:{access_status:"unknown"},lastPackage,formatBurmeseDate});

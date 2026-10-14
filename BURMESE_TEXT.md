@@ -3,7 +3,7 @@
 Exported declarations from the implementation source. Inline handler copy and reseller overrides are outside this snapshot. No claim of deployment.
 
 
-Exported declarations: 93.
+Exported declarations: 94.
 ## backend/src/bot/strings.js
 
 Source SHA-256 (LF-normalized): 35cde6f0c61f1d3e2a3a6141ebe11771f69fc7a06f88ca45d260b0a2ed38f7f2
@@ -703,7 +703,7 @@ export function howToUse() {
 
 ## backend/src/bot/notificationTemplates.js
 
-Source SHA-256 (LF-normalized): 5103891ad88d384a72f9ed61058a8ff724237bb353bde8dd24cd3b34aeb9e8c1
+Source SHA-256 (LF-normalized): 76faea42994aa7f22274b062b84abd98710ddb39d7e46a32fc8747474906c840
 
 ```javascript
 export function formatBurmeseDate(value) {
@@ -875,6 +875,15 @@ export function renderTemplate(text, data = {}) {
     data[key] != null ? String(data[key]) : ""
   );
 }
+```
+
+```javascript
+export const QUEUED_PAYMENT_CONFIRMED_TEXT = [
+  "<b>✅ ငွေပေးချေမှု အတည်ပြုပြီးပါပြီ</b>",
+  "💰 လက်ခံရရှိငွေ: <b>{amount_mmk} MMK</b>",
+  "📦 နောက်ပက်ကေ့ဂျ်: <b>{plan_name}</b>",
+  "လက်ရှိပက်ကေ့ဂျ် ကုန်ဆုံးပြီးမှ အလိုအလျောက် စတင်ပါမည်။ ထပ်မံ ငွေပေးချေရန် မလိုပါ။",
+].join("\n");
 ```
 
 ```javascript

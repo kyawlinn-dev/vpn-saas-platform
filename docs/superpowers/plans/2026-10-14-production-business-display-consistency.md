@@ -125,16 +125,16 @@ honestly; no historical name/duration backfill is implied.
 
 **Interfaces:** Fixtures contain named scenarios with synthetic tenant/customer/order/payment/key records, `now_iso`, and expected business facts. Inventory maps every spec surface to its route, source file, displayed field, scope and evidence status.
 
-- [ ] Inspect/reconcile deployed relevant backend files and public JS assets with the isolated baseline, documenting verified matches and drift. Do not copy secrets, tokens or customer records into the report.
-- [ ] Record the carried documentation-only manifest and verify refreshed
+- [x] Inspect/reconcile deployed relevant backend files and public JS assets with the isolated baseline, documenting verified matches and drift. Do not copy secrets, tokens or customer records into the report.
+- [x] Record the carried documentation-only manifest and verify refreshed
   `AGENTS.md`, architecture, schema, contracts, deployment guidance and document
   index are present before implementing. Confirm the patch contains no application
   code, environment secrets or development migrations.
-- [ ] Write fixture assertions: finite switch fixture uses `limit_bytes=107374182400`, `used_bytes=78739049472`, `remaining_bytes=28635132928`; pending-active, queue-confirmed, rejected-queue, legacy, mixed-money, no-current, trial, unlimited, unknown, month-boundary and missing-metric scenarios exist with synthetic IDs.
+- [x] Write fixture assertions: finite switch fixture uses `limit_bytes=107374182400`, `used_bytes=78739049472`, `remaining_bytes=28635132928`; pending-active, queue-confirmed, rejected-queue, legacy, mixed-money, no-current, trial, unlimited, unknown, month-boundary and missing-metric scenarios exist with synthetic IDs.
   Pin a named test `switched fixture preserves full package allowance` asserting `expect(quota.limit_bytes).toBe(107374182400)` and `expect(quota.used_bytes + quota.remaining_bytes).toBe(quota.limit_bytes)`.
-- [ ] Run `npm test -- src/__tests__/businessDisplayFixtures.test.js` in backend; missing fixture assertions must fail before adding the fixture file.
-- [ ] Add the validated fixtures; use zero/null distinctly and a known `now_iso` for deterministic dates. Run baseline backend tests and all three app builds, plus Mini App lint. Record existing failures before implementation; do not attribute them to this change.
-- [ ] Commit only inventory and fixture/test files: `test: define cross-channel business display fixtures`.
+- [x] Run `npm test -- src/__tests__/businessDisplayFixtures.test.js` in backend; missing fixture assertions must fail before adding the fixture file.
+- [x] Add the validated fixtures; use zero/null distinctly and a known `now_iso` for deterministic dates. Run baseline backend tests and all three app builds, plus Mini App lint. Record existing failures before implementation; do not attribute them to this change.
+- [x] Commit only inventory and fixture/test files: `test: define cross-channel business display fixtures`.
 
 ### Task 2: Normalize package selection, state and quota read summaries
 
@@ -142,16 +142,16 @@ honestly; no historical name/duration backfill is implied.
 
 **Interfaces:** Export `selectCustomerPackages(orders, { now }) -> PackageSelection`, `summarizeOrderBusiness(order, { quota, freshness, now, paymentsLoaded }) -> OrderBusinessSummary`, `toQuotaPayload(quotaSnapshot) -> OrderQuota|null`, `toPublicBusinessSummary(summary) -> OrderBusinessSummary`. Export `expiryBusinessState(expiryDate, now) -> { days_left:number|null, expired:boolean|null, is_expiring_soon:boolean }` from businessTime.
 
-- [ ] Write failing tests: stopped-only yields `current_order=null`; purchase wins over concurrent trial; confirmed scheduled is queued; most recently started ended order is last; cancelled/unstarted scheduled rows never become last; expired-by-date active row is not current; awaiting review does not change active access; a rejected queue does not change current review.
+- [x] Write failing tests: stopped-only yields `current_order=null`; purchase wins over concurrent trial; confirmed scheduled is queued; most recently started ended order is last; cancelled/unstarted scheduled rows never become last; expired-by-date active row is not current; awaiting review does not change active access; a rejected queue does not change current review.
   Named test `does not promote ended orders to current`: `expect(selectCustomerPackages([stopped], { now }).current_order).toBeNull()` and `expect(selectCustomerPackages([stopped], { now }).last_order.id).toBe(stopped.id)`.
-- [ ] Add assertions: canonical quota serialization preserves the exact fixture bytes; null finite limit is unknown, not unlimited; active order without active key has `has_active_key=false`; trial review is `no_payment_required`; multiple payment states become `mixed` with explicit pending count.
-- [ ] Assert a confirmed/applied scheduled purchase has queued access and recorded
+- [x] Add assertions: canonical quota serialization preserves the exact fixture bytes; null finite limit is unknown, not unlimited; active order without active key has `has_active_key=false`; trial review is `no_payment_required`; multiple payment states become `mixed` with explicit pending count.
+- [x] Assert a confirmed/applied scheduled purchase has queued access and recorded
   payment application. Render **Payment confirmed** plus **Queued**, never
   **Awaiting payment** or **Waiting to apply payment** solely because access has
   not started. Application labels refer to ledger recording, not provisioning.
-- [ ] Run `npm test -- src/__tests__/businessDisplay.test.js src/__tests__/businessTime.test.js`; confirm new behavior tests fail.
-- [ ] Implement pure helpers using Bangkok calendar days and existing quota inputs. Treat missing payment data as unknown; explicit empty loaded data can use the order's legacy review fields. Last-order ordering is descending activation timestamp, else start date, then creation timestamp and stable ID. At `2026-10-20T16:59:59Z`, October 20 is today; at `17:00:00Z` it is expired. Seven-day window is calendar differences 0 through 7.
-- [ ] Re-run those tests and `subscriptionQuota.test.js`; commit `feat: normalize package business read summaries`.
+- [x] Run `npm test -- src/__tests__/businessDisplay.test.js src/__tests__/businessTime.test.js`; confirm new behavior tests fail.
+- [x] Implement pure helpers using Bangkok calendar days and existing quota inputs. Treat missing payment data as unknown; explicit empty loaded data can use the order's legacy review fields. Last-order ordering is descending activation timestamp, else start date, then creation timestamp and stable ID. At `2026-10-20T16:59:59Z`, October 20 is today; at `17:00:00Z` it is expired. Seven-day window is calendar differences 0 through 7.
+- [x] Re-run those tests and `subscriptionQuota.test.js`; commit `feat: normalize package business read summaries`.
 
 ### Task 3: Centralize money rules and reconcile period aggregates
 
@@ -159,22 +159,22 @@ honestly; no historical name/duration backfill is implied.
 
 **Interfaces:** Export `summarizeOrderMoney(order, { paymentsLoaded }) -> MoneySummary`, `isRecognizedPayment(payment) -> boolean`, `isEligibleLegacyOrder(order, { ledgerLoaded }) -> boolean`, `summarizeMoneyInPeriod({ orders, payments, ledgerOrderIds, startIso, endIso }) -> MoneySummary`. No DB reads occur inside these pure helpers. Route/services provide complete scoped input, not frontend pagination.
 
-- [ ] Write failing assertions: recognized confirmed/applied 5000 with commission 1000 gives gross 5000/commission 1000/due 4000; confirmed/pending 5000 gives confirmed 5000 and recognized 0; failed/reversed never recognized; pending receipt does not count as confirmed; zero recognized sum stays zero despite cached 5000.
+- [x] Write failing assertions: recognized confirmed/applied 5000 with commission 1000 gives gross 5000/commission 1000/due 4000; confirmed/pending 5000 gives confirmed 5000 and recognized 0; failed/reversed never recognized; pending receipt does not count as confirmed; zero recognized sum stays zero despite cached 5000.
   Named test `keeps zero ledger recognition`: `expect(summarizeOrderMoney(orderWithPendingLedgerAndCached5000, { paymentsLoaded: true }).recognized_gross_mmk).toBe(0)`.
-- [ ] Add the actual successful queue fixture: `status = scheduled`, no key,
+- [x] Add the actual successful queue fixture: `status = scheduled`, no key,
   `review_status = confirmed`, `apply_status = applied`, amount 5000, commission
   1000, platform due 4000. Assert recognized gross is 5000 before activation.
   Mark the existing confirmed/pending fixture as an abnormal reconciliation case,
   not the expected state of a queued purchase. Test successful confirmation's
   existing RPC contract produces confirmed/applied sale state without provisioning.
-- [ ] Test activation invariance: compare the same confirmed payment before and
+- [x] Test activation invariance: compare the same confirmed payment before and
   after its order becomes active; gross remains 5000, commission 1000, due 4000
   and payment count one. Preserve the existing transaction policy and creation-time
   period basis; never defer successful queued sales until VPN service starts.
-- [ ] Test mixed month: legacy confirmed-paid 13000 plus recognized ledger 5000 equals 18000, with commission 3600/due 14400. A legacy candidate with any ledger outside the month must not receive fallback. Missing ledger is unavailable; actual loaded empty ledger can be legacy. A recorded 0% commission remains zero after the reseller changes to 20%.
-- [ ] Run the five targeted money test files; confirm failures.
-- [ ] Replace duplicate eligibility/calculation paths with these helpers. Keep `created_at` half-open period windows. Accounting must combine eligible legacy and ledger entries even when the month contains payments; determine ledger existence outside the period using tenant-scoped IDs. Paginate full-scope backend reads beyond PostgREST limits; preserve compatibility totals and settlement serializer/payload behavior. Query errors must not trigger legacy fallback.
-- [ ] Run targeted tests including settlement snapshot unchanged after later payment changes; commit `fix: reconcile ledger summaries across business views`.
+- [x] Test mixed month: legacy confirmed-paid 13000 plus recognized ledger 5000 equals 18000, with commission 3600/due 14400. A legacy candidate with any ledger outside the month must not receive fallback. Missing ledger is unavailable; actual loaded empty ledger can be legacy. A recorded 0% commission remains zero after the reseller changes to 20%.
+- [x] Run the five targeted money test files; confirm failures.
+- [x] Replace duplicate eligibility/calculation paths with these helpers. Keep `created_at` half-open period windows. Accounting must combine eligible legacy and ledger entries even when the month contains payments; determine ledger existence outside the period using tenant-scoped IDs. Paginate full-scope backend reads beyond PostgREST limits; preserve compatibility totals and settlement serializer/payload behavior. Query errors must not trigger legacy fallback.
+- [x] Run targeted tests including settlement snapshot unchanged after later payment changes; commit `fix: reconcile ledger summaries across business views`.
 
 ### Task 4: Expose compatible summaries and align filters
 
@@ -182,12 +182,12 @@ honestly; no historical name/duration backfill is implied.
 
 **Interfaces:** Export `loadUsageFreshness(serverIds, { now }) -> Map<serverId,{last_synced_at,state}>`. Extend `enrichOrderAccess(order, req, { now, freshness, paymentsLoaded }={})` and `enrichCustomer(customer, { orders, telegramLink, req, now, freshness })`. Existing signatures/callers remain supported.
 
-- [ ] Add failing route/enrichment tests: list/detail summaries match; no-current still retains compatibility alias but new fields are explicit; active/expiring counts and filters agree with summary; queue-only is not active; public projection contains no commission/due/private key data; two tenants cannot access each other's summaries or receipts.
+- [x] Add failing route/enrichment tests: list/detail summaries match; no-current still retains compatibility alias but new fields are explicit; active/expiring counts and filters agree with summary; queue-only is not active; public projection contains no commission/due/private key data; two tenants cannot access each other's summaries or receipts.
   Named test `public business projection excludes staff finance`: `expect(publicOrder).not.toHaveProperty('money_summary')`; assert the serialized object contains neither `commission_mmk` nor `platform_due_mmk`.
-- [ ] Test freshness: successful server sync within 2 hours is fresh; older is stale; absent/unreliable timestamp is unknown. Do not synthesize freshness from key `updated_at`. Multiple active keys use the oldest relevant successful sync; historical deleted-key snapshots need no new sync.
-- [ ] Run `npm test -- src/__tests__/businessDisplayRoutes.test.js src/__tests__/customerOrderEnrichment.test.js`; confirm failures.
-- [ ] Wire the contracts above into GET admin/reseller orders/customers, reseller stats, Mini App auth and existing checkout result serialization. Batch freshness reads with existing `server_health_status`; missing monitoring table yields unknown freshness rather than failure. Use existing lifecycle selectors/policies for mutation paths, not the display selector. Update contract docs with exact public/staff fields and examples.
-- [ ] Run targeted tests and existing purchase/queue tests; commit `feat: expose consistent business display summaries`.
+- [x] Test freshness: successful server sync within 2 hours is fresh; older is stale; absent/unreliable timestamp is unknown. Do not synthesize freshness from key `updated_at`. Multiple active keys use the oldest relevant successful sync; historical deleted-key snapshots need no new sync.
+- [x] Run `npm test -- src/__tests__/businessDisplayRoutes.test.js src/__tests__/customerOrderEnrichment.test.js`; confirm failures.
+- [x] Wire the contracts above into GET admin/reseller orders/customers, reseller stats, Mini App auth and existing checkout result serialization. Batch freshness reads with existing `server_health_status`; missing monitoring table yields unknown freshness rather than failure. Use existing lifecycle selectors/policies for mutation paths, not the display selector. Update contract docs with exact public/staff fields and examples.
+- [x] Run targeted tests and existing purchase/queue tests; commit `feat: expose consistent business display summaries`.
 
 ### Task 5: Add deterministic client formatting and small renderers
 
@@ -195,12 +195,12 @@ honestly; no historical name/duration backfill is implied.
 
 **Interfaces:** All three format modules export `formatUsageBytes(bytes, locale='en-US') -> string`, `formatBusinessDate(value, { locale='en-US', dateOnly=false }={}) -> string`, `businessMonth(now=new Date()) -> YYYY-MM`, `quotaDisplay(quota) -> { kind:finite|unlimited|unknown, used:string, total:string, remaining:string, percent:number|null }`, `statusLabels(summary) -> { access:string, review:string, application:string }`. Dashboard props: `BusinessStatus({ summary, showApplication=false })`; `PackageUsage({ quota, freshness })`.
 
-- [ ] Write Node assertions in each app: exact-byte switch percent is approximately 73.331454%; total is `100.00 GB`, used `73.33 GB`, remaining `26.67 GB`; zero is `0 GB`, one byte `<0.01 GB`, unknown `Usage unavailable`, unlimited has null percentage; date-only October 20 shows no clock.
+- [x] Write Node assertions in each app: exact-byte switch percent is approximately 73.331454%; total is `100.00 GB`, used `73.33 GB`, remaining `26.67 GB`; zero is `0 GB`, one byte `<0.01 GB`, unknown `Usage unavailable`, unlimited has null percentage; date-only October 20 shows no clock.
   Named test `uses package quota instead of key cap`: `assert.equal(quotaDisplay(quota).total, '100.00 GB')`; `assert.ok(Math.abs(quotaDisplay(quota).percent - 73.33145427703857) < 0.000001)`.
-- [ ] Test date/month outputs in child processes with `TZ=UTC`, `America/Los_Angeles`, `Asia/Yangon`: Bangkok midnight/month results must agree. Test status labels **Active**, **Awaiting review**, **Confirmed**, **Queued**, **No payment required**.
-- [ ] Run `node --test tests/businessDisplay.test.mjs` within each app; confirm failures before implementation.
-- [ ] Implement formatting and renderers. New views require summaries; missing summaries show unavailable rather than deriving totals from key cap/current catalogue. Keep each app's existing legacy format helpers until callers migrate. Translate new customer copy in both EN/MM; no backend developer terminology in customer explanations.
-- [ ] Run Node tests and both dashboard builds plus Mini App lint/build; commit `feat: add consistent business display presentation`.
+- [x] Test date/month outputs in child processes with `TZ=UTC`, `America/Los_Angeles`, `Asia/Yangon`: Bangkok midnight/month results must agree. Test status labels **Active**, **Awaiting review**, **Confirmed**, **Queued**, **No payment required**.
+- [x] Run `node --test tests/businessDisplay.test.mjs` within each app; confirm failures before implementation.
+- [x] Implement formatting and renderers. New views require summaries; missing summaries show unavailable rather than deriving totals from key cap/current catalogue. Keep each app's existing legacy format helpers until callers migrate. Translate new customer copy in both EN/MM; no backend developer terminology in customer explanations.
+- [x] Run Node tests and both dashboard builds plus Mini App lint/build; commit `feat: add consistent business display presentation`.
 
 ### Task 6: Adopt summaries throughout the staff dashboards
 
@@ -208,15 +208,15 @@ honestly; no historical name/duration backfill is implied.
 
 **Interfaces:** Consume Tasks 4–5 summaries/renderers. Current/queued/last use explicit selection fields. Financial views consume money summaries with nullish handling. Preserve list/filter URLs and backend mutation routes.
 
-- [ ] Create `reseller-dashboard/scripts/check-business-displays.mjs` with local-only Playwright route fixtures for both dashboards. First assert rendered switched-package total/percentage, separate pending-active labels, no-current plus Last package, valid-through date, and ledger-zero money; these assertions must fail on baseline views. Named browser case `switched package shows full total`: `assert.match(await detail.innerText(), /100\.00 GB/)` and `assert.match(await detail.innerText(), /73%/)`.
-- [ ] Add rendered checks for recognized-versus-confirmed queued money, 0% commission, live-versus-frozen settlement labels, and catalogue-derived historical duration. Label key history **Key usage**, protocol preference **Next provision**, and unavailable connection metrics rather than 0. Preserve genuine server capacity/health facts.
-- [ ] Assert staff views show **Queued · Payment confirmed** with recognized gross
+- [x] Create `reseller-dashboard/scripts/check-business-displays.mjs` with local-only Playwright route fixtures for both dashboards. First assert rendered switched-package total/percentage, separate pending-active labels, no-current plus Last package, valid-through date, and ledger-zero money; these assertions must fail on baseline views. Named browser case `switched package shows full total`: `assert.match(await detail.innerText(), /100\.00 GB/)` and `assert.match(await detail.innerText(), /73%/)`.
+- [x] Add rendered checks for recognized-versus-confirmed queued money, 0% commission, live-versus-frozen settlement labels, and catalogue-derived historical duration. Label key history **Key usage**, protocol preference **Next provision**, and unavailable connection metrics rather than 0. Preserve genuine server capacity/health facts.
+- [x] Assert staff views show **Queued · Payment confirmed** with recognized gross
   5000/commission 1000/due 4000 for the successful queue fixture. Starting it later
   must update access without changing totals or creating another payment row.
-- [ ] Implement the view migrations, removing per-view ledger reductions and truthiness money fallbacks. Overview cards and accounting displays must identify their period/scope. Date defaults use Bangkok; lists and details use the same summary components. Catalogue pages remain catalogue displays. For action success refresh the selected detail and impacted overview/customer/order data; display backend errors without speculative state changes.
-- [ ] Run the targeted browser checks and both builds. Verify responsive list/detail layouts and existing action availability; the check runner must intercept mutation routes and never call production.
+- [x] Implement the view migrations, removing per-view ledger reductions and truthiness money fallbacks. Overview cards and accounting displays must identify their period/scope. Date defaults use Bangkok; lists and details use the same summary components. Catalogue pages remain catalogue displays. For action success refresh the selected detail and impacted overview/customer/order data; display backend errors without speculative state changes.
+- [x] Run the targeted browser checks and both builds. Verify responsive list/detail layouts and existing action availability; the check runner must intercept mutation routes and never call production.
   Run `node scripts/check-business-displays.mjs` from reseller-dashboard with loopback URLs configured; expected exit 0 and each named dashboard case passed. Launch each app using `npm run dev -- --host 127.0.0.1 --port <port> --strictPort`: admin 3001, reseller 3002, Mini App 3003. Set build/dev API URLs to loopback and intercept every API request; refuse unmatched API requests. Do not launch the real backend for these browser fixtures.
-- [ ] Commit `fix: align staff business displays and accounting labels`.
+- [x] Commit `fix: align staff business displays and accounting labels`.
 
 ### Task 6A: Start or queue dashboard purchases and recover setup safely
 
@@ -252,17 +252,17 @@ Use existing scoped activate endpoints as guarded retries, retaining compatibili
 retry reuses ledger rows and cannot record another sale. Public projection omits
 staff recovery controls. The owner subsequently approved migration 0037 for this durable coordination; see SCHEMA.md and the setup safety proposal.
 
-- [ ] Trace current manual create, payment-status update, confirm, activate,
+- [x] Trace current manual create, payment-status update, confirm, activate,
   commission and queue paths on the isolated production baseline. Record how
   existing durable records identify repeated submissions and setup failures.
   If they cannot support safe recovery/idempotency, document the exact gap for
   schema review before implementing; do not borrow Messenger-only persistence.
-- [ ] Write failing service/route tests: paid with no active purchase starts;
+- [x] Write failing service/route tests: paid with no active purchase starts;
   paid with active purchase queues; unpaid never provisions; later confirmation
   starts/queues the same order using current state. Assert one queue maximum,
   existing pending-review purchase restrictions, trial replacement and trial
   no-payment eligibility. Reject cross-tenant/channel actions as before.
-- [ ] Write failure/retry tests: payment remains confirmed/applied and recognized
+- [x] Write failure/retry tests: payment remains confirmed/applied and recognized
   when provider setup fails; retry provisions without inserting another payment,
   commission or order. Repeated confirmation, lost response, double submit,
   concurrent create/confirm, partial key creation and an already-active retry
@@ -270,29 +270,29 @@ staff recovery controls. The owner subsequently approved migration 0037 for this
   and a queue are not treated as two current paid purchases.
   Named test `paid setup retry keeps one sale` asserts recognized gross stays
   5000 and payment count stays one before failure and after successful retry.
-- [ ] Run `npm test -- src/__tests__/dashboardPurchaseFlow.test.js
+- [x] Run `npm test -- src/__tests__/dashboardPurchaseFlow.test.js
   src/__tests__/manualOrderPolicy.test.js src/__tests__/orderLifecycle.test.js
   src/__tests__/businessDisplayRoutes.test.js` from backend as one command;
   confirm the new behavior assertions fail before implementation.
-- [ ] Implement orchestration through existing ledger RPCs and provisioning
+- [x] Implement orchestration through existing ledger RPCs and provisioning
   reservation/ownership/retry guards. Commit payment before provider calls;
   return the recorded order and explicit setup-failed outcome on provider failure
   so the client retries setup rather than resubmitting the purchase. Never mark
   access active or start dates until setup succeeds. Keep Telegram immediate
   initial access and confirmed queue promotion unchanged. Preserve legacy
   manual-activation recovery for existing pending orders without bulk activation.
-- [ ] Add failing rendered cases for **Create & start package**, **Buy next
+- [x] Add failing rendered cases for **Create & start package**, **Buy next
   package**, unpaid **Awaiting payment**, and **Payment confirmed · Setup failed**
   with **Retry setup**. Remove routine **Activate VPN** actions from both staff
   views, retain eligible recovery, disable duplicate submits and refresh order,
   customer and totals after outcomes. Confirm admin recovery uses the selected
   order's reseller context. Mock all mutations/provider calls.
-- [ ] Implement forms/actions and compatible API types; run the targeted backend
+- [x] Implement forms/actions and compatible API types; run the targeted backend
   tests, existing payment/queue regressions, both dashboard builds and loopback
   browser cases. Verify automatic queued start changes access only and preserves
   one payment. Update behavior/API docs in this task's commit; current docs must
   not describe the future flow as already deployed before release.
-- [ ] Commit `feat: start or queue dashboard purchases after payment`.
+- [x] Commit `feat: start or queue dashboard purchases after payment`.
 
 ### Task 7: Adopt summaries throughout the Mini App
 
@@ -300,17 +300,17 @@ staff recovery controls. The owner subsequently approved migration 0037 for this
 
 **Interfaces:** `PackageSummary({ subscription, mode:'current'|'last'|'queued', language })` consumes public summary and Task 5 formatters. `resolvePaymentStatus(data, checkoutPlan, paymentResult)` keeps existing result keys and adds separate access/review/application facts and authorized payment amount.
 
-- [ ] Add failing tests: active pending-review access remains active on Home and Settings; queue receipt refers to queued order, not current subscription; confirmed queued shows waiting to start; expired-only shows No active package and Last package; unlimited omits percentage; VLESS describes included nodes, not connected server.
+- [x] Add failing tests: active pending-review access remains active on Home and Settings; queue receipt refers to queued order, not current subscription; confirmed queued shows waiting to start; expired-only shows No active package and Last package; unlimited omits percentage; VLESS describes included nodes, not connected server.
   Named test `receipt keeps review separate from active access`: `assert.equal(result.accessStatus, 'active')` and `assert.equal(result.reviewStatus, 'awaiting_review')`. These added camelCase fields belong to `resolvePaymentStatus`'s result; the API remains snake_case.
-- [ ] Render the successful queue as **Payment confirmed — your next package
+- [x] Render the successful queue as **Payment confirmed — your next package
   starts when the current package ends**; it is waiting for service activation,
   not payment recording. Mock an existing package stopping/expiring and verify the
   confirmed queued package becomes current after the existing lifecycle promotes
   it; unconfirmed queue fixtures remain unstarted.
-- [ ] Pin freshness precedence: refreshed matching order/payment review supersedes stale checkout review; a refreshed unrelated current order must not replace the submitted queued order. Submitted amount uses recorded event amount over catalogue price. Clear/reset stale result when navigating to a new purchase.
-- [ ] Run `node --test tests/paymentStatus.test.js tests/businessDisplay.test.mjs`; confirm new assertions fail.
-- [ ] Implement common package presentation, preserve auth/link behavior and EN/MM copy, show unavailable/synced usage honestly. Checkout/Packages remain offer displays until an order snapshot exists; Last package exposes no usable expired access link.
-- [ ] Run Node tests, local browser scenarios, `npm run lint` and `npm run build`; commit `fix: align customer package and payment displays`.
+- [x] Pin freshness precedence: refreshed matching order/payment review supersedes stale checkout review; a refreshed unrelated current order must not replace the submitted queued order. Submitted amount uses recorded event amount over catalogue price. Clear/reset stale result when navigating to a new purchase.
+- [x] Run `node --test tests/paymentStatus.test.js tests/businessDisplay.test.mjs`; confirm new assertions fail.
+- [x] Implement common package presentation, preserve auth/link behavior and EN/MM copy, show unavailable/synced usage honestly. Checkout/Packages remain offer displays until an order snapshot exists; Last package exposes no usable expired access link.
+- [x] Run Node tests, local browser scenarios, `npm run lint` and `npm run build`; commit `fix: align customer package and payment displays`.
 
 ### Task 8: Align Telegram and scheduled notification copy
 
@@ -318,16 +318,16 @@ staff recovery controls. The owner subsequently approved migration 0037 for this
 
 **Interfaces:** Extend `balanceText({ usedGb, remainingGb, isUnlimited, expiryDate, formatBurmeseDate, queuedPlan, totalGb, businessSummary, lastPackage })` compatibly. Read quota/state through shared helpers; existing notification variable names remain valid and optional new quota variables are additive.
 
-- [ ] Write mocked-send tests: switched fixture balance shows total/used/remaining consistently; unlimited/unknown differ; no-current shows Last package separately; queued rejection does not describe current access as rejected; dates match Bangkok; purchase receipt uses submitted amount and separate review/access wording.
+- [x] Write mocked-send tests: switched fixture balance shows total/used/remaining consistently; unlimited/unknown differ; no-current shows Last package separately; queued rejection does not describe current access as rejected; dates match Bangkok; purchase receipt uses submitted amount and separate review/access wording.
   Named test `balance preserves switched package total`: `expect(renderedBalance).toContain('100.00 GB')`, `expect(renderedBalance).toContain('73.33 GB')` and `expect(renderedBalance).toContain('26.67 GB')`.
-- [ ] Test usage warning matches the canonical quota percentage and remaining amount; custom existing templates still render. Verify all notification provider calls are mocked and a pure rendering check sends nothing.
-- [ ] Run `npm test -- src/__tests__/businessNotificationDisplays.test.js`; confirm failing assertions.
-- [ ] Adopt summaries and formatting without changing job intervals, warning thresholds, delivery deduplication, review/stop decisions or notification recipients. Do not import the unfinished channel-notification services or Messenger runtime.
-- [ ] Assert Bangkok display date handling leaves Yangon reminder/quiet-hour
+- [x] Test usage warning matches the canonical quota percentage and remaining amount; custom existing templates still render. Verify all notification provider calls are mocked and a pure rendering check sends nothing.
+- [x] Run `npm test -- src/__tests__/businessNotificationDisplays.test.js`; confirm failing assertions.
+- [x] Adopt summaries and formatting without changing job intervals, warning thresholds, delivery deduplication, review/stop decisions or notification recipients. Do not import the unfinished channel-notification services or Messenger runtime.
+- [x] Assert Bangkok display date handling leaves Yangon reminder/quiet-hour
   selection unchanged at the half-hour offset boundary. Confirm queued-payment
   messages describe money as received on confirmation and service as starting
   later; mock all sends and retain the existing scheduler/provider behavior.
-- [ ] Run notification tests plus existing bot/queue/template tests and full backend suite; commit `fix: align Telegram business summaries and notifications`.
+- [x] Run notification tests plus existing bot/queue/template tests and full backend suite; commit `fix: align Telegram business summaries and notifications`.
 
 ### Task 9: Verify all surfaces and prepare the scoped release
 

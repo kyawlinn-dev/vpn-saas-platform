@@ -976,3 +976,7 @@ include setup_status, setup_in_progress and can_retry_setup from persisted setup
 evidence; public summaries omit staff recovery controls. Never infer a provider
 failure solely from no key. Already running setup requires reconciliation after a
 crash rather than stealing the owner or resubmitting a purchase.
+
+Business summaries also expose duration_days. A single matching payment duration
+snapshot wins over a changed catalogue; ambiguous multi-event legacy duration is
+labelled catalogue/unavailable rather than reconstructed as a historical fact.

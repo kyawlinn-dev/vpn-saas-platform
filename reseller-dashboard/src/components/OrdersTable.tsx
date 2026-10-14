@@ -1,4 +1,4 @@
-import {BusinessStatus} from "./BusinessStatus";
+import {BusinessStatus,PaymentReviewStatus} from "./BusinessStatus";
 import {PackageUsage} from "./PackageUsage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -1162,7 +1162,7 @@ export function OrdersTable({
                         <BusinessStatus summary={order.business_summary} />
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
-                        <StatusBadge status={getPaymentDisplayStatus(order)} />
+                        <PaymentReviewStatus summary={order.business_summary} />
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
                         <div className="text-xs">{formatDate(order.expiry_date)}</div>
@@ -1552,10 +1552,14 @@ export function OrdersTable({
                     <DetailItem label="Plan" value={liveDetailsOrder.plan?.name || "-"} />
                     <DetailItem
                       label="Payment"
-                      value={<StatusBadge status={getPaymentDisplayStatus(liveDetailsOrder)} />}
+                      value={<PaymentReviewStatus summary={liveDetailsOrder.business_summary} />}
                     />
                     <DetailItem label="Price" value={formatMMK(liveDetailsOrder.price_mmk)} />
+                    <DetailItem label="Paid" value={formatMMK(liveDetailsOrder.money_summary?.recognized_gross_mmk)} />
+                    <DetailItem label="Commission" value={formatMMK(liveDetailsOrder.money_summary?.commission_mmk)} />
+                    <DetailItem label="Platform due" value={formatMMK(liveDetailsOrder.money_summary?.platform_due_mmk)} />
                     <DetailItem label="Expiry" value={formatDate(liveDetailsOrder.expiry_date)} />
+                    <DetailItem label={liveDetailsOrder.business_summary?.snapshot_basis.duration === "catalogue" ? "Duration (current catalogue)" : "Purchased duration"} value={liveDetailsOrder.business_summary?.duration_days == null ? "Unavailable" : `${liveDetailsOrder.business_summary.duration_days} days`} />
                     <DetailItem
                       label="Server"
                       value={

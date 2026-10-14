@@ -33,6 +33,9 @@ const oneOrMixed = (values) => {
 export function summarizeOrderBusiness(order, { quota = order?.quota || null, freshness, now = new Date(), paymentsLoaded = Array.isArray(order?.payments) } = {}) {
   const expiry = expiryBusinessState(order?.expiry_date, now);
   const payments = paymentsLoaded ? order?.payments || [] : [];
+  const plan = order?.plan || order?.vpn_plans;
+  const recordedDuration = payments.length === 1 && (!payments[0].plan_id || payments[0].plan_id === order?.plan_id)
+    ? numeric(payments[0].package_duration_days) : null;
   const review = (v) => ({pending_review: "awaiting_review", confirmed: "confirmed", rejected: "rejected"}[v] || "unknown");
   const state = order?.status;
   const setup = Array.isArray(order?.dashboard_setup) ? order.dashboard_setup[0] : order?.dashboard_setup;
@@ -45,8 +48,9 @@ export function summarizeOrderBusiness(order, { quota = order?.quota || null, fr
     has_active_key: (order?.keys || []).some((k) => k.status === "active"),
     is_expiring_soon: state === "active" && expiry.is_expiring_soon,
     quota: toQuotaPayload(quota),
+    duration_days: recordedDuration ?? numeric(plan?.duration_days),
     usage_freshness: freshness || { last_synced_at: null, state: "unknown" },
-    snapshot_basis: { quota: order?.quota_limit_bytes != null || order?.quota_is_unlimited === true ? "order_snapshot" : quota ? "derived" : "unavailable", duration: payments.some((p) => p.package_duration_days != null) ? "payment_snapshot" : order?.plan?.duration_days != null ? "catalogue" : "unavailable" },
+    snapshot_basis: { quota: order?.quota_limit_bytes != null || order?.quota_is_unlimited === true ? "order_snapshot" : quota ? "derived" : "unavailable", duration: recordedDuration != null ? "payment_snapshot" : plan?.duration_days != null ? "catalogue" : "unavailable" },
     setup_in_progress: setup?.state === "running",
     setup_status: manualPending ? "not_started" : state === "active" && (order?.keys || []).some(k=>k.status === "active") ? "ready" : setup?.state === "failed" ? "failed" : setup?.state === "not_started" || setup?.state === "awaiting_payment" ? "not_started" : "unknown",
     can_retry_setup: (manualPending || ["failed","not_started"].includes(setup?.state)) && order?.source === "dashboard" && order?.payment_status === "paid" && order?.review_status === "confirmed" && ["pending","scheduled"].includes(state),
@@ -56,7 +60,7 @@ export function summarizeOrderBusiness(order, { quota = order?.quota || null, fr
 export function toPublicBusinessSummary(summary) {
   if (!summary) return null;
   const { access_status, payment_review_status, application_status, pending_review_count,
-    has_active_key, is_expiring_soon, quota, usage_freshness, snapshot_basis } = summary;
+    has_active_key, is_expiring_soon, quota, duration_days, usage_freshness, snapshot_basis } = summary;
   return { access_status, payment_review_status, application_status, pending_review_count,
-    has_active_key, is_expiring_soon, quota, usage_freshness, snapshot_basis };
+    has_active_key, is_expiring_soon, quota, duration_days, usage_freshness, snapshot_basis };
 }

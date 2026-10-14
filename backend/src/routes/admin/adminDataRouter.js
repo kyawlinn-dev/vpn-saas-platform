@@ -170,7 +170,7 @@ async function fetchEnrichedCustomer(customerId, req) {
   if (!customer) return null;
 
   const [{ data: orders, error: ordersError }, { data: telegramLinks, error: telegramError }] = await Promise.all([
-    supabase
+    readAllRows(() => supabase
       .from("vpn_orders")
       .select(
         `*,
@@ -190,7 +190,7 @@ async function fetchEnrichedCustomer(customerId, req) {
         )`
       )
       .eq("customer_id", customerId)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false }).order("id")),
     supabase
       .from("telegram_links")
       .select("id, telegram_user_id, telegram_username, customer_id, reseller_id, trial_used_at, trial_order_id, created_at")
@@ -230,11 +230,11 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
     throw err;
   }
 
-  const { data: customers, error: customersError } = await supabase
+  const { data: customers, error: customersError } = await readAllRows(() => supabase
     .from("vpn_customers")
     .select("id, reseller_id, full_name, telegram_username, phone, created_at, reseller:resellers(id, name)")
     .eq("reseller_id", resellerId)
-    .in("id", customerIds);
+    .in("id", customerIds).order("id"));
 
   if (customersError) throw new Error(customersError.message);
 
@@ -248,11 +248,11 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
     throw err;
   }
 
-  const { data: orders, error: ordersError } = await supabase
+  const { data: orders, error: ordersError } = await readAllRows(() => supabase
     .from("vpn_orders")
     .select("id, customer_id, reseller_id, status, order_type, payment_status, review_status, price_mmk, total_paid_mmk")
     .eq("reseller_id", resellerId)
-    .in("customer_id", customerIds);
+    .in("customer_id", customerIds).order("id"));
 
   if (ordersError) throw new Error(ordersError.message);
 
@@ -272,11 +272,11 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
       .select("id, order_id, customer_id, reseller_id, server_id, status, outline_key_id, deleted_at")
       .eq("reseller_id", resellerId)
       .in("customer_id", customerIds),
-    supabase
+    readAllRows(() => supabase
       .from("order_payments")
       .select("id, order_id, customer_id, reseller_id, amount_mmk, review_status, apply_status, payment_type")
       .eq("reseller_id", resellerId)
-      .in("customer_id", customerIds),
+      .in("customer_id", customerIds).order("id")),
   ]);
 
   if (keysError) throw new Error(keysError.message);
@@ -304,11 +304,11 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
   if (tokensError) throw new Error(tokensError.message);
   tokens = tokenRows || [];
 
-  const { data: linkRows, error: linksError } = await supabase
+  const { data: linkRows, error: linksError } = await readAllRows(() => supabase
     .from("telegram_links")
     .select("id, customer_id, reseller_id, telegram_user_id, telegram_username")
     .eq("reseller_id", resellerId)
-    .in("customer_id", customerIds);
+    .in("customer_id", customerIds).order("id"));
 
   if (linksError) throw new Error(linksError.message);
   telegramLinks = linkRows || [];
@@ -382,20 +382,20 @@ router.get("/overview", async (req, res) => {
       { count: pendingOrders },
       { count: stoppedOrders },
       { count: activeKeys },
-      { data: confirmedPayments },
-      { data: legacyPaidOrders },
+      { data: confirmedPayments, error: confirmedPaymentsError },
+      { data: legacyPaidOrders, error: legacyPaidOrdersError },
       { data: recentOrders },
     ] = await Promise.all([
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active").gte("expiry_date",businessDateOnly()),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "stopped"),
       supabase.from("vpn_keys").select("*", { count: "exact", head: true }).eq("status", "active"),
-      supabase
+      readAllRows(() => supabase
         .from("order_payments")
         .select("amount_mmk, review_status, apply_status")
         .eq("review_status", "confirmed")
-        .eq("apply_status", "applied"),
-      supabase
+        .eq("apply_status", "applied").order("id")),
+      readAllRows(() => supabase
         .from("vpn_orders")
         .select(
           `id, customer_id, reseller_id, status, payment_status, review_status, order_type,
@@ -404,7 +404,7 @@ router.get("/overview", async (req, res) => {
           payments:order_payments(id)`
         )
         .eq("payment_status", "paid")
-        .eq("review_status", "confirmed"),
+        .eq("review_status", "confirmed").order("id")),
       supabase
         .from("vpn_orders")
         .select("*, customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username), plan:vpn_plans(id, name), reseller:resellers(id, name)")
@@ -412,6 +412,7 @@ router.get("/overview", async (req, res) => {
         .limit(10),
     ]);
 
+    if(confirmedPaymentsError || legacyPaidOrdersError) return res.status(500).json({error:"Accounting totals unavailable"});
     const totalValue = combinePaymentEvents({
       payments: confirmedPayments ?? [],
       legacyOrders: legacyPaidOrders ?? [],
@@ -741,7 +742,7 @@ router.get("/customers", async (req, res) => {
 
     if (customerIds.length > 0) {
       const [{ data: orders, error: ordersError }, { data: telegramLinks, error: telegramError }] = await Promise.all([
-        supabase
+        readAllRows(() => supabase
           .from("vpn_orders")
           .select(
             `*,
@@ -761,11 +762,11 @@ router.get("/customers", async (req, res) => {
             )`
           )
           .in("customer_id", customerIds)
-          .order("created_at", { ascending: false }),
-        supabase
+          .order("created_at", { ascending: false }).order("id")),
+        readAllRows(() => supabase
           .from("telegram_links")
           .select("id, telegram_user_id, telegram_username, customer_id, reseller_id, trial_used_at, trial_order_id, created_at")
-          .in("customer_id", customerIds),
+          .in("customer_id", customerIds).order("id")),
       ]);
 
       if (ordersError) {
@@ -857,7 +858,7 @@ router.get("/orders", async (req, res) => {
       .range(offset, offset + limit - 1);
 
     if (status && status !== "all") {
-      query = query.eq("status", status);
+      query = status === "expired" ? query.or(`status.eq.expired,and(status.eq.active,expiry_date.lt.${businessDateOnly()})`) : query.eq("status", status);
     }
     if (status === "active") query = query.gte("expiry_date",businessDateOnly());
     if (resellerId && resellerId !== "all") {

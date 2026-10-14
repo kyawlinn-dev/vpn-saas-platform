@@ -517,3 +517,11 @@ The backend keeps only the current customer key surfaces on the Droplet:
 `/k/:ssconf_token.json` and `/open-key?url=ssconf://...`. Legacy token portal
 routes (`/t`, `/sub`, `/open/:token/:region`, `/api/public/subscription`) are
 not mounted.
+
+## Pending business-display release prerequisite
+
+The isolated business-display branch requires reviewed migration 0037 before its
+backend, then the dependent dashboards/Mini App. This migration is independent of
+Messenger 0027–0036. No production application is implied by local validation.
+See [business-display release runbook](docs/runbooks/business-display-consistency-release.md)
+for ownership recovery, compatibility, preflight and rollback.

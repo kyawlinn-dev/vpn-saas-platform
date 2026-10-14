@@ -1,4 +1,4 @@
-import {BusinessStatus} from "../components/BusinessStatus";
+import {BusinessStatus,PaymentReviewStatus} from "../components/BusinessStatus";
 import {PackageUsage} from "../components/PackageUsage";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -471,7 +471,7 @@ export function CustomersPage() {
                         </div>
                       </div>
                       <BusinessStatus summary={order.business_summary} />
-                      <StatusBadge status={order.order_type === "trial" ? "trial" : order.payment_status} />
+                      <PaymentReviewStatus summary={order.business_summary} />
                       <div className="whitespace-nowrap text-right font-bold">{formatMMK(order.price_mmk)}</div>
                     </div>
                   ))}

@@ -1,5 +1,7 @@
 # API Route Inventory
 
+Verified again against the implementation branch on 2026-10-15: the same 100 mounted literal HTTP routes remain; no HTTP route was added. Mutation shapes and four pending 0037 DB RPCs are documented in SKILL_API_CONTRACTS.md and SCHEMA.md.
+
 Generated 2026-10-15 from literal Express app/router declarations in the production-source reference `786dd5f9d7cddd5fdc3341f7315a867ed87b365b` (local main). This is a source inventory, not an assertion that every endpoint was called on production. Dynamic middleware/factory routes require their source contract; docs below label the development Messenger factory separately. Detailed shapes are in ../SKILL_API_CONTRACTS.md; ../API_REFERENCE.md is the concise guide.
 
 | Method | Route | Router source | Availability note |

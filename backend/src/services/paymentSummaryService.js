@@ -4,7 +4,7 @@ export function isEligibleLegacyOrder(order, { ledgerLoaded = false } = {}) {
   return ledgerLoaded && Array.isArray(order?.payments) && !order.payments.length && order.order_type !== "trial" && (order.payment_status === "paid" || (order.payment_status == null && money(order.total_paid_mmk) > 0)) && (order.review_status || "confirmed") === "confirmed";
 }
 export function legacyOrderMoney(order) {
-  const amount = money(order.total_paid_mmk ?? order.price_mmk);
+  const amount = money(order.total_paid_mmk) > 0 ? money(order.total_paid_mmk) : money(order.price_mmk);
   const commission = money(order.commission_amount_mmk ?? Math.floor(amount * Number(order.commission_percent ?? order.reseller?.commission_percent ?? 0) / 100));
   return { amount_mmk: amount, commission_amount_mmk: commission, platform_due_mmk: Math.max(0, amount - commission) };
 }

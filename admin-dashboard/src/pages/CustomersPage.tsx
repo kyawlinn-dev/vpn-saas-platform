@@ -1,5 +1,5 @@
 import {PackageUsage} from "../components/PackageUsage";
-import {BusinessStatus} from "../components/BusinessStatus";
+import {BusinessStatus,PaymentReviewStatus} from "../components/BusinessStatus";
 import {daysLeft} from "../lib/businessDisplay";
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Clipboard, Copy, Eye, Loader2, Search, Trash2, UserCheck, Users, Wallet } from 'lucide-react';
@@ -451,7 +451,7 @@ export function CustomersPage({ resellers }: Props) {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
-                        <StatusBadge status={activeOrder?.status || customer.status || 'inactive'} />
+                        <span>{activeOrder ? <BusinessStatus summary={activeOrder.business_summary} /> : "No active package"}</span>
                         <Badge variant={customer.customer_type === 'telegram' ? 'info' : 'default'}>{customer.customer_type || 'normal'}</Badge>
                       </div>
                     </TableCell>
@@ -730,7 +730,7 @@ function CustomerDetailDialog({
               </div>
               <div className="flex flex-wrap justify-end gap-1.5">
                 <Badge variant={customer.customer_type === 'telegram' ? 'info' : 'default'}>{customer.customer_type || 'normal'}</Badge>
-                <StatusBadge status={activeOrder?.status || customer.status || 'inactive'} />
+                <span>{activeOrder ? <BusinessStatus summary={activeOrder.business_summary} /> : "No active package"}</span>
               </div>
             </div>
 
@@ -744,7 +744,7 @@ function CustomerDetailDialog({
 
           <div className="rounded-lg border border-border p-4">
             <div className="text-xs uppercase text-muted-foreground">Current Package</div>
-            <div className="mt-2 text-lg font-semibold text-foreground">{activeOrder?.plan?.name || '-'}</div>
+            <div className="mt-2 text-lg font-semibold text-foreground">{activeOrder?.plan?.name || "No active package"}{!activeOrder && customer.last_order && <div className="text-xs text-muted-foreground">Last package: {customer.last_order.plan?.name} · {formatDate(customer.last_order.expiry_date)}</div>}</div>
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <Info label="Expiry" value={`${formatDate(activeOrder?.expiry_date)} (${remainingDays(activeOrder?.expiry_date)})`} />
               <PackageUsage quota={activeOrder?.business_summary?.quota} freshness={activeOrder?.business_summary?.usage_freshness} />

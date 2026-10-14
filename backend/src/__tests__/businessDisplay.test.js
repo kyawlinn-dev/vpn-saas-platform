@@ -16,3 +16,5 @@ describe('package business facts',()=>{
 });
 
 it('reports persisted setup failure independently of confirmed money',()=>{expect(summarizeOrderBusiness({source:'dashboard',order_type:'purchase',status:'pending',payment_status:'paid',review_status:'confirmed',payments:[{review_status:'confirmed',apply_status:'applied'}],dashboard_setup:[{state:'failed',last_error_code:'PROVIDER_ERROR'}]})).toMatchObject({setup_status:'failed',payment_review_status:'confirmed',can_retry_setup:true});});
+
+it('shows recorded package duration instead of an edited catalogue duration',()=>{const summary=summarizeOrderBusiness({status:'active',plan_id:'p',plan:{duration_days:90},payments:[{plan_id:'p',package_duration_days:30,review_status:'confirmed',apply_status:'applied'}]});expect(summary.duration_days).toBe(30);expect(summary.snapshot_basis.duration).toBe('payment_snapshot');});

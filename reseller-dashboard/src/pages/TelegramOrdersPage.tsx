@@ -25,7 +25,7 @@ function ReviewChip({ value }: { value?: string | null }) {
   const v = String(value || "pending_review");
   return (
     <Badge variant={v === "confirmed" ? "success" : v === "rejected" ? "destructive" : "warning"}>
-      {v === "confirmed" ? "Confirmed" : v === "rejected" ? "Rejected" : "Pending Review"}
+      {v === "confirmed" ? "Confirmed" : v === "rejected" ? "Rejected" : "Awaiting review"}
     </Badge>
   );
 }

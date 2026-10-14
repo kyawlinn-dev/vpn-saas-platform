@@ -1,3 +1,4 @@
+import { readAllRows } from "../../utils/readAllRows.js";
 import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
 import { expiryBusinessState, businessDateOnly } from "../../utils/businessTime.js";
 import express from "express";
@@ -58,10 +59,10 @@ router.get("/", async (req, res) => {
     };
 
     if (customer_type === "telegram" || customer_type === "normal") {
-      const { data: links, error } = await supabase
+      const { data: links, error } = await readAllRows(() => supabase
         .from("telegram_links")
         .select("customer_id")
-        .eq("reseller_id", reseller.id);
+        .eq("reseller_id", reseller.id).order("id"));
 
       if (error) {
         console.error("GET /api/reseller/customers telegram_links error:", error);
@@ -73,10 +74,10 @@ router.get("/", async (req, res) => {
       if (customer_type === "telegram") {
         intersect(telegramIds);
       } else {
-        const { data: allIds, error: idsError } = await supabase
+        const { data: allIds, error: idsError } = await readAllRows(() => supabase
           .from("vpn_customers")
           .select("id")
-          .eq("reseller_id", reseller.id);
+          .eq("reseller_id", reseller.id).order("id"));
 
         if (idsError) {
           console.error("GET /api/reseller/customers id list error:", idsError);
@@ -88,11 +89,11 @@ router.get("/", async (req, res) => {
     }
 
     if (status && status !== "all") {
-      const { data: activeOrders, error } = await supabase
+      const { data: activeOrders, error } = await readAllRows(() => supabase
         .from("vpn_orders")
         .select("customer_id, expiry_date")
         .eq("reseller_id", reseller.id)
-        .eq("status", "active").gte("expiry_date", businessDateOnly());
+        .eq("status", "active").gte("expiry_date", businessDateOnly()).order("id"));
 
       if (error) {
         console.error("GET /api/reseller/customers active orders error:", error);
@@ -111,10 +112,10 @@ router.get("/", async (req, res) => {
       } else if (status === "expiring") {
         intersect(expiringIds);
       } else if (status === "inactive") {
-        const { data: allIds, error: idsError } = await supabase
+        const { data: allIds, error: idsError } = await readAllRows(() => supabase
           .from("vpn_customers")
           .select("id")
-          .eq("reseller_id", reseller.id);
+          .eq("reseller_id", reseller.id).order("id"));
 
         if (idsError) {
           console.error("GET /api/reseller/customers id list error:", idsError);
@@ -166,17 +167,17 @@ router.get("/", async (req, res) => {
     if (customerIds.length > 0) {
       const [{ data: orders, error: ordersError }, { data: telegramLinks, error: telegramError }] =
         await Promise.all([
-          supabase
+          readAllRows(() => supabase
             .from("vpn_orders")
             .select(ORDER_SELECT_FOR_CUSTOMERS)
             .in("customer_id", customerIds)
-            .order("created_at", { ascending: false }),
-          supabase
+            .order("created_at", { ascending: false }).order("id")),
+          readAllRows(() => supabase
             .from("telegram_links")
             .select(
               "id, telegram_user_id, telegram_username, customer_id, reseller_id, trial_used_at, trial_order_id, created_at"
             )
-            .in("customer_id", customerIds),
+            .in("customer_id", customerIds).order("id")),
         ]);
 
       if (ordersError) {
@@ -235,13 +236,13 @@ router.get("/counts", async (req, res) => {
       { data: telegramLinks, error: linksError },
       { data: activeOrders, error: ordersError },
     ] = await Promise.all([
-      supabase.from("vpn_customers").select("id").eq("reseller_id", reseller.id),
-      supabase.from("telegram_links").select("customer_id").eq("reseller_id", reseller.id),
-      supabase
+      readAllRows(() => supabase.from("vpn_customers").select("id").eq("reseller_id", reseller.id).order("id")),
+      readAllRows(() => supabase.from("telegram_links").select("customer_id").eq("reseller_id", reseller.id).order("id")),
+      readAllRows(() => supabase
         .from("vpn_orders")
         .select("customer_id, expiry_date")
         .eq("reseller_id", reseller.id)
-        .eq("status", "active").gte("expiry_date", businessDateOnly()),
+        .eq("status", "active").gte("expiry_date", businessDateOnly()).order("id")),
     ]);
 
     if (allError || linksError || ordersError) {

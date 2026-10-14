@@ -1,3 +1,4 @@
+import { readAllRows } from "../../utils/readAllRows.js";
 import {prepareDashboardPurchase} from "../../services/dashboardPurchaseService.js";
 import {startOrQueueDashboardPurchase,getResellerScopedOrder} from "../../services/orderLifecycleService.js";
 import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
@@ -59,6 +60,8 @@ const ORDER_SELECT = `
     platform_due_mmk,
     review_status,
     payment_type,
+    package_duration_days,
+    plan_id,
     apply_status,
     created_at
   ),
@@ -151,11 +154,11 @@ router.get("/", gateTelegramScope, async (req, res) => {
     // ids first (same base-table-only pattern as search below, and cheap:
     // one reseller's customer list, not a system-wide scan).
     if (customer_type === "normal" || customer_type === "telegram") {
-      const { data: typedCustomers, error: typeError } = await supabase
+      const { data: typedCustomers, error: typeError } = await readAllRows(() => supabase
         .from("vpn_customers")
         .select("id")
         .eq("reseller_id", reseller.id)
-        .eq("customer_type", customer_type);
+        .eq("customer_type", customer_type).order("id"));
 
       if (typeError) {
         console.error("GET /api/reseller/orders customer_type query error:", typeError);
@@ -179,6 +182,8 @@ router.get("/", gateTelegramScope, async (req, res) => {
         .eq("status", "active")
         .gte("expiry_date", today)
         .lte("expiry_date", horizon);
+    } else if (status === "expired") {
+      query = query.or(`status.eq.expired,and(status.eq.active,expiry_date.lt.${businessDateOnly()})`);
     } else if (status) {
       query = query.eq("status", String(status).trim());
     }
@@ -303,13 +308,13 @@ router.get("/", gateTelegramScope, async (req, res) => {
     const customerIds = [...new Set(rows.map((o) => o.customer_id).filter(Boolean))];
     let activeCustomerIds = new Set();
     if (customerIds.length > 0) {
-      const { data: activeRows } = await supabase
+      const { data: activeRows } = await readAllRows(() => supabase
         .from("vpn_orders")
         .select("customer_id")
         .eq("reseller_id", reseller.id)
         .eq("status", "active").gte("expiry_date", businessDateOnly())
         .eq("order_type", "purchase")
-        .in("customer_id", customerIds);
+        .in("customer_id", customerIds).order("id"));
       activeCustomerIds = new Set((activeRows ?? []).map((r) => r.customer_id));
     }
 
@@ -338,10 +343,10 @@ router.get("/", gateTelegramScope, async (req, res) => {
 router.get("/counts", async (req, res) => {
   try {
     const reseller = req.reseller;
-    const { data, error } = await supabase
+    const { data, error } = await readAllRows(() => supabase
       .from("vpn_orders")
       .select("status, review_status, order_type, source, expiry_date")
-      .eq("reseller_id", reseller.id);
+      .eq("reseller_id", reseller.id).order("id"));
 
     if (error) {
       console.error("GET /api/reseller/orders/counts query error:", error);

@@ -35,7 +35,11 @@ Current production is Marzneshin-only for active access. Backend/Mini App use Dr
 
 The categories below describe authority, not whether a file was modified in this pass. Current source references may contain explicitly labelled development or historical subsections.
 
-| Document | Stage / authority |
+## Full document index
+
+67 Markdown documents indexed, plus this index. Preserve production/development/implementation stages.
+
+| Document | Status / authority |
 | --- | --- |
 | [AGENTS.md](../AGENTS.md) | Current engineering reference; obey labelled subsections |
 | [API_REFERENCE.md](../API_REFERENCE.md) | Current engineering reference; obey labelled subsections |
@@ -86,6 +90,11 @@ The categories below describe authority, not whether a file was modified in this
 | [docs/archive/telegram-bot-v2-original-design.md](../docs/archive/telegram-bot-v2-original-design.md) | Historical snapshot/proposal; not standing release instructions |
 | [docs/audits/2026-10-13-channel-notifications-execution.md](../docs/audits/2026-10-13-channel-notifications-execution.md) | Dated local audit/update record |
 | [docs/audits/2026-10-13-notification-delay.md](../docs/audits/2026-10-13-notification-delay.md) | Dated local audit/update record |
+| [docs/audits/2026-10-14-business-display-validation.md](../docs/audits/2026-10-14-business-display-validation.md) | Local implementation validation; final review pending, not a deployment claim |
+| [docs/audits/2026-10-14-production-business-display-inventory.md](../docs/audits/2026-10-14-production-business-display-inventory.md) | Engineering/design reference; obey the stated stage and scope |
+| [docs/audits/2026-10-15-dashboard-setup-safety-proposal.md](../docs/audits/2026-10-15-dashboard-setup-safety-proposal.md) | Owner-approved migration prerequisite; implemented locally, not applied to production |
+| [docs/audits/2026-10-15-documentation-alignment-update.md](../docs/audits/2026-10-15-documentation-alignment-update.md) | Current documentation correction/verification record |
+| [docs/runbooks/business-display-consistency-release.md](../docs/runbooks/business-display-consistency-release.md) | Pending release preflight/recovery/rollback; requires separate production authorization |
 | [docs/superpowers/audits/2026-10-13-dashboard-purchases.md](../docs/superpowers/audits/2026-10-13-dashboard-purchases.md) | Development design/plan/execution snapshot; not deployed |
 | [docs/superpowers/audits/2026-10-13-messenger-account-menu.md](../docs/superpowers/audits/2026-10-13-messenger-account-menu.md) | Development design/plan/execution snapshot; not deployed |
 | [docs/superpowers/audits/2026-10-13-messenger-duration-checkout.md](../docs/superpowers/audits/2026-10-13-messenger-duration-checkout.md) | Development design/plan/execution snapshot; not deployed |
@@ -94,9 +103,8 @@ The categories below describe authority, not whether a file was modified in this
 | [docs/superpowers/plans/2026-10-13-channel-notifications-trials.md](../docs/superpowers/plans/2026-10-13-channel-notifications-trials.md) | Development design/plan/execution snapshot; not deployed |
 | [docs/superpowers/plans/2026-10-13-messenger-connection.md](../docs/superpowers/plans/2026-10-13-messenger-connection.md) | Development design/plan/execution snapshot; not deployed |
 | [docs/superpowers/plans/2026-10-13-shared-purchases-messenger.md](../docs/superpowers/plans/2026-10-13-shared-purchases-messenger.md) | Development design/plan/execution snapshot; not deployed |
-| [docs/superpowers/plans/2026-10-14-production-business-display-consistency.md](../docs/superpowers/plans/2026-10-14-production-business-display-consistency.md) | Approved future display design / unexecuted plan |
+| [docs/superpowers/plans/2026-10-14-production-business-display-consistency.md](../docs/superpowers/plans/2026-10-14-production-business-display-consistency.md) | Approved design/plan; implemented locally, final review pending; not deployed |
 | [docs/superpowers/specs/2026-10-13-channel-notifications-trials-design.md](../docs/superpowers/specs/2026-10-13-channel-notifications-trials-design.md) | Development design/plan/execution snapshot; not deployed |
 | [docs/superpowers/specs/2026-10-13-messenger-purchases-design.md](../docs/superpowers/specs/2026-10-13-messenger-purchases-design.md) | Development design/plan/execution snapshot; not deployed |
-| [docs/superpowers/specs/2026-10-14-production-business-display-consistency-design.md](../docs/superpowers/specs/2026-10-14-production-business-display-consistency-design.md) | Approved future display design / unexecuted plan |
+| [docs/superpowers/specs/2026-10-14-production-business-display-consistency-design.md](../docs/superpowers/specs/2026-10-14-production-business-display-consistency-design.md) | Approved design/plan; implemented locally, final review pending; not deployed |
 | [miniapp/README.md](../miniapp/README.md) | Current engineering reference; obey labelled subsections |
-| [docs/audits/2026-10-15-documentation-alignment-update.md](../docs/audits/2026-10-15-documentation-alignment-update.md) | Current documentation correction/verification record |

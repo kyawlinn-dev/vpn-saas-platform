@@ -171,11 +171,11 @@ export function enrichCustomer(customer, { orders = [], telegramLink = null, req
 
   // Protocol-aware customer-level access URL: SS → ssconf token portal,
   // VLESS/Hysteria2 → the active order's subscription URL (never ssconf).
-  const protocol = customer.protocol_preference || "shadowsocks";
   const activeKey =
     (activeOrder?.keys ?? []).find((key) => key.status === "active") ||
     (activeOrder?.keys ?? [])[0] ||
     null;
+  const protocol = activeKey?.protocol || activeOrder?.protocol || customer.protocol_preference || "shadowsocks";
   const urls = buildAccessUrlForProtocol({
     protocol,
     ssconfToken: customer.ssconf_token,

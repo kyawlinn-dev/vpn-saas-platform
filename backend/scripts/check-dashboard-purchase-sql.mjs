@@ -18,12 +18,13 @@ const payload={full_name:'Fixture',plan_id:plan,payment_status:'paid',protocol_p
 const req='44444444-4444-4444-8444-444444444444';const a=await call('prepare_dashboard_purchase',[r,req,'same',payload]);const b=await call('prepare_dashboard_purchase',[r,req,'same',payload]);assert.equal(a.order_id,b.order_id);
 assert.equal((await db.query('select count(*)::int as n from order_payments')).rows[0].n,1);assert.equal((await db.query('select commission_amount_mmk from order_payments')).rows[0].commission_amount_mmk,0);
 await assert.rejects(call('prepare_dashboard_purchase',[r,req,'changed',payload]),/REQUEST_CONFLICT/);
+const nextPayload={...payload,customer_id:a.customer_id};const queued=await call('prepare_dashboard_purchase',[r,'77777777-7777-4777-8777-777777777777','next',nextPayload]);assert.equal(queued.state,'queued');
 const owner='55555555-5555-4555-8555-555555555555';const claim=await call('claim_dashboard_purchase_setup',[r,a.order_id,owner]);assert.equal(claim.claimed,true);
 const duplicate=await call('claim_dashboard_purchase_setup',[r,a.order_id,'66666666-6666-4666-8666-666666666666']);assert.equal(duplicate.claimed,false);
 await assert.rejects(call('finish_dashboard_purchase_setup',[other,a.order_id,owner,'failed','PROVIDER_ERROR']),/NOT_FOUND/);
 await call('finish_dashboard_purchase_setup',[r,a.order_id,owner,'failed','PROVIDER_ERROR']);assert.equal((await db.query('select review_status,apply_status from order_payments')).rows[0].apply_status,'applied');
 assert.equal((await call('claim_dashboard_purchase_setup',[r,a.order_id,owner])).claimed,true);await call('finish_dashboard_purchase_setup',[r,a.order_id,owner,'ready',null]);
-await db.query("update vpn_orders set status='active' where id=$1",[a.order_id]);const nextPayload={...payload,customer_id:a.customer_id};const queued=await call('prepare_dashboard_purchase',[r,'77777777-7777-4777-8777-777777777777','next',nextPayload]);assert.equal((await call('claim_dashboard_purchase_setup',[r,queued.order_id,owner])).state,'queued');
+await db.query("update vpn_orders set status='active' where id=$1",[a.order_id]);assert.equal((await call('claim_dashboard_purchase_setup',[r,queued.order_id,owner])).state,'queued');
 await assert.rejects(call('prepare_dashboard_purchase',[r,'88888888-8888-4888-8888-888888888888','second-queue',nextPayload]),/QUEUED_PACKAGE_EXISTS/);
 await assert.rejects(call('prepare_dashboard_purchase',[other,'99999999-9999-4999-8999-999999999999','foreign',nextPayload]),/CUSTOMER_NOT_FOUND/);
 const unpaid=await call('prepare_dashboard_purchase',[r,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','unpaid',{...payload,full_name:'Unpaid',payment_status:'unpaid'}]);assert.equal((await call('claim_dashboard_purchase_setup',[r,unpaid.order_id,owner])).state,'awaiting_payment');

@@ -229,8 +229,16 @@ export function renderTemplate(text, data = {}) {
  * line behavior applied. Falls back to plain renderTemplate() for events
  * without that special case.
  */
+export const QUEUED_PAYMENT_CONFIRMED_TEXT = [
+  "<b>✅ ငွေပေးချေမှု အတည်ပြုပြီးပါပြီ</b>",
+  "💰 လက်ခံရရှိငွေ: <b>{amount_mmk} MMK</b>",
+  "📦 နောက်ပက်ကေ့ဂျ်: <b>{plan_name}</b>",
+  "လက်ရှိပက်ကေ့ဂျ် ကုန်ဆုံးပြီးမှ အလိုအလျောက် စတင်ပါမည်။ ထပ်မံ ငွေပေးချေရန် မလိုပါ။",
+].join("\n");
+
 function renderDefault(eventType, data) {
-  const template = DEFAULT_TEMPLATES[eventType];
+  const template = eventType === "payment_confirmed" && data.access_status === "queued"
+    ? QUEUED_PAYMENT_CONFIRMED_TEXT : DEFAULT_TEMPLATES[eventType];
   if (!template) return null;
 
   if (OPTIONAL_SUPPORT_LINE_EVENTS.has(eventType) && !data.support_username) {
