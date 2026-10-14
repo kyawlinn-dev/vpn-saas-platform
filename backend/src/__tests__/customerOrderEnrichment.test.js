@@ -40,3 +40,5 @@ describe("customer order enrichment money summary", () => {
     });
   });
 });
+
+it('retains a recorded legacy zero commission',()=>{const summary=addLegacyOrderSummary(summarizeOrderPayments([]),[{payment_status:'paid',review_status:'confirmed',total_paid_mmk:5000,commission_amount_mmk:0,reseller:{commission_percent:20},payments:[]}]);expect(summary.commission_mmk).toBe(0);});

@@ -1,3 +1,5 @@
+import { readAllRows } from "../../utils/readAllRows.js";
+import { legacyOrderMoney } from "../../services/paymentSummaryService.js";
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { stopOrderAccess } from "../../services/orderLifecycleService.js";
@@ -103,18 +105,8 @@ function isConfirmedPaidPurchaseOrder(order) {
   );
 }
 
-function orderPaidAmount(order) {
-  const totalPaid = toNumber(order?.total_paid_mmk);
-  if (totalPaid > 0) return totalPaid;
-  return String(order?.payment_status || "").toLowerCase() === "paid" ? toNumber(order?.price_mmk) : 0;
-}
-
-function orderCommissionAmount(order, amount) {
-  const cachedCommission = toNumber(order?.commission_amount_mmk);
-  if (cachedCommission > 0) return cachedCommission;
-  const percent = toNumber(order?.commission_percent ?? order?.reseller?.commission_percent);
-  return Math.floor((amount * percent) / 100);
-}
+function orderPaidAmount(order) { return legacyOrderMoney(order).amount_mmk; }
+function orderCommissionAmount(order) { return legacyOrderMoney(order).commission_amount_mmk; }
 
 function hasPaymentRows(order) {
   return Array.isArray(order?.payments) && order.payments.length > 0;
@@ -460,7 +452,7 @@ router.get("/analytics", async (req, res) => {
       supabase.from("vpn_keys").select("*", { count: "exact", head: true }).eq("status", "active"),
       supabase.from("resellers").select("*", { count: "exact", head: true }).eq("status", "active"),
       supabase.from("monthly_settlements").select("*", { count: "exact", head: true }).eq("status", "submitted"),
-      supabase
+      readAllRows(() => supabase
         .from("order_payments")
         .select(
           `id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
@@ -473,8 +465,8 @@ router.get("/analytics", async (req, res) => {
         )
         .gte("created_at", monthWindow.start.toISOString())
         .lt("created_at", monthWindow.end.toISOString())
-        .order("created_at", { ascending: false }),
-      supabase
+        .order("created_at", { ascending: false }).order("id")),
+      readAllRows(() => supabase
         .from("vpn_orders")
         .select(
           `id, customer_id, reseller_id, status, payment_status, review_status, order_type,
@@ -487,7 +479,7 @@ router.get("/analytics", async (req, res) => {
         )
         .gte("created_at", monthWindow.start.toISOString())
         .lt("created_at", monthWindow.end.toISOString())
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false }).order("id")),
       supabase
         .from("order_payments")
         .select(

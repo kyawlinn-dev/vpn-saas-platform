@@ -1,3 +1,4 @@
+import { readAllRows } from "../../utils/readAllRows.js";
 import express from "express";
 import crypto from "node:crypto";
 import multer from "multer";
@@ -96,131 +97,12 @@ async function loadMonthlySnapshot({ reseller, month }) {
     return { error: { status: 400, message: "month must use YYYY-MM format" } };
   }
 
-  const { data: payments, error: paymentsError } = await supabase
-    .from("order_payments")
-    .select(`
-        id,
-        order_id,
-        reseller_id,
-        customer_id,
-        amount_mmk,
-        commission_percent,
-        commission_amount_mmk,
-        platform_due_mmk,
-        review_status,
-        payment_type,
-        apply_status,
-        plan_id,
-        package_duration_days,
-        package_data_limit_gb,
-        applied_at,
-        source,
-        payment_note,
-        payment_screenshot_url,
-        submitted_at,
-        reviewed_at,
-        created_at,
-        order:vpn_orders (
-          id,
-          status,
-          payment_status,
-          order_type,
-          source,
-          price_mmk,
-          total_paid_mmk,
-          created_at,
-          customer:vpn_customers!vpn_orders_customer_id_fkey (
-            id,
-            full_name,
-            telegram_username,
-            customer_type
-          ),
-          plan:vpn_plans (
-            id,
-            name,
-            duration_days,
-            data_limit_gb
-          )
-        )
-      `)
-    .eq("reseller_id", reseller.id)
-    .gte("created_at", period.startIso)
-    .lt("created_at", period.endIso)
-    .order("created_at", { ascending: false });
-
-  if (!paymentsError && (payments ?? []).length > 0) {
-    const snapshot = buildMonthlyAccountingSnapshotFromPayments({
-      reseller,
-      payments: payments ?? [],
-      period,
-    });
-
-    const { data: settlement, error: settlementError } = await supabase
-      .from("monthly_settlements")
-      .select("*")
-      .eq("reseller_id", reseller.id)
-      .eq("settlement_month", settlementMonthDate(period))
-      .maybeSingle();
-
-    if (settlementError) {
-      console.error("reseller accounting settlement query error:", settlementError);
-      return { error: { status: 500, message: "Failed to load settlement data" } };
-    }
-
-    snapshot.settlement = serializeSettlement(settlement);
-    return { snapshot };
-  }
-
-  if (paymentsError && paymentsError.code !== "42P01") {
-    console.error("reseller accounting payments query error:", paymentsError);
-    return { error: { status: 500, message: "Failed to load payment ledger data" } };
-  }
-
-  const { data, error } = await supabase
-    .from("vpn_orders")
-    .select(`
-        id,
-        reseller_id,
-        customer_id,
-        plan_id,
-        status,
-        payment_status,
-        review_status,
-        order_type,
-        source,
-        price_mmk,
-        total_paid_mmk,
-        commission_percent,
-        commission_amount_mmk,
-        created_at,
-        customer:vpn_customers!vpn_orders_customer_id_fkey (
-          id,
-          full_name,
-          telegram_username,
-          customer_type
-        ),
-        plan:vpn_plans (
-          id,
-          name,
-          duration_days,
-          data_limit_gb
-        )
-      `)
-    .eq("reseller_id", reseller.id)
-    .gte("created_at", period.startIso)
-    .lt("created_at", period.endIso)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error("reseller accounting orders query error:", error);
-    return { error: { status: 500, message: "Failed to load accounting data" } };
-  }
-
-  const snapshot = buildMonthlyAccountingSnapshot({
-    reseller,
-    orders: data ?? [],
-    period,
-  });
+  const [{data:payments,error:paymentsError},{data:orders,error:ordersError}] = await Promise.all([
+    readAllRows(() => supabase.from("order_payments").select("*,order:vpn_orders(*,customer:vpn_customers!vpn_orders_customer_id_fkey(id,full_name,telegram_username),plan:vpn_plans(id,name))").eq("reseller_id",reseller.id).gte("created_at",period.startIso).lt("created_at",period.endIso).order("id")),
+    readAllRows(() => supabase.from("vpn_orders").select("*,payments:order_payments(id),customer:vpn_customers!vpn_orders_customer_id_fkey(id,full_name,telegram_username),plan:vpn_plans(id,name)").eq("reseller_id",reseller.id).gte("created_at",period.startIso).lt("created_at",period.endIso).order("id")),
+  ]);
+  if(paymentsError || ordersError) return {error:{status:500,message:"Failed to load accounting ledger"}};
+  const snapshot = buildMonthlyAccountingSnapshot({reseller,orders:orders || [],payments:payments || [],period});
 
   const { data: settlement, error: settlementError } = await supabase
     .from("monthly_settlements")

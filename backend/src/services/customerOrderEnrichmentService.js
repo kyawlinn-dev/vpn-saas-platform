@@ -1,3 +1,4 @@
+import { isRecognizedPayment, legacyOrderMoney } from "./paymentSummaryService.js";
 import { buildAccessUrlForProtocol } from "./publicAccessUrlService.js";
 import { buildOrderQuotaSnapshot } from "./subscriptionProvisionService.js";
 
@@ -26,7 +27,7 @@ export function toNumber(value) {
 }
 
 export function isConfirmedAppliedPayment(payment) {
-  return payment?.review_status === "confirmed" && String(payment?.apply_status || "applied") === "applied";
+  return isRecognizedPayment(payment);
 }
 
 export function addPaymentToBucket(bucket, payment) {
@@ -141,18 +142,8 @@ function isLegacyConfirmedPaidOrder(order) {
   );
 }
 
-function paidOrderAmount(order) {
-  const totalPaid = toNumber(order?.total_paid_mmk);
-  if (totalPaid > 0) return totalPaid;
-  return String(order?.payment_status || "").toLowerCase() === "paid" ? toNumber(order?.price_mmk) : 0;
-}
-
-function legacyOrderCommission(order, amount) {
-  const cachedCommission = toNumber(order?.commission_amount_mmk);
-  if (cachedCommission > 0) return cachedCommission;
-  const percent = toNumber(order?.commission_percent ?? order?.reseller?.commission_percent);
-  return Math.floor((amount * percent) / 100);
-}
+function paidOrderAmount(order) { return legacyOrderMoney(order).amount_mmk; }
+function legacyOrderCommission(order) { return legacyOrderMoney(order).commission_amount_mmk; }
 
 export function addLegacyOrderSummary(paymentSummary, orders) {
   const summary = { ...paymentSummary };

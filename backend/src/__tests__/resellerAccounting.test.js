@@ -251,3 +251,5 @@ describe("reseller monthly accounting", () => {
     expect(snapshot.settlement_orders).toHaveLength(2);
   });
 });
+
+describe('mixed ledger settlement',()=>{it('includes legacy orders beside queued recorded payments and retains zero percent',()=>{const snapshot=buildMonthlyAccountingSnapshot({reseller:{id:'r',name:'R',commission_percent:20},period:normalizeAccountingMonth('2026-10'),orders:[{id:'legacy',order_type:'purchase',payment_status:'paid',review_status:'confirmed',total_paid_mmk:13000,commission_amount_mmk:2600,payments:[]}],payments:[{id:'p',order_id:'queue',amount_mmk:5000,commission_percent:0,commission_amount_mmk:0,platform_due_mmk:5000,review_status:'confirmed',apply_status:'applied'}]});expect(snapshot.summary).toMatchObject({gross_paid_mmk:18000,reseller_commission_mmk:2600,platform_due_mmk:15400});expect(snapshot.settlement_orders.find(p=>p.payment_id==='p').commission_percent).toBe(0);});});
