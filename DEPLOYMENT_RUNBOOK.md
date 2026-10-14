@@ -1,5 +1,7 @@
 # Deployment Runbook — Trial/Premium Server Separation + Backend Catch-Up Deploy
 
+> Historical pre-cutover material; status clarified 2026-10-15. Original commands, dates and observations below are retained as history, not the current release procedure. Use [DEPLOYMENT.md](DEPLOYMENT.md) for the Marzneshin-only production system. Do not execute this old sequence as a routine deployment.
+
 Working notes from a production readiness check on 2026-07-24. This is a
 one-time runbook, not a standing doc like `DEPLOYMENT.md` — delete or archive
 it once this deploy is done.

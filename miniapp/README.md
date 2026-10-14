@@ -1,16 +1,28 @@
-# React + Vite
+# NovaNet MM Telegram Mini App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite, Tailwind, TanStack Query and Telegram WebApp integration. Production static files are served by Droplet Nginx at app.novanetmm.com; deployment is the manual Ansible deploy-miniapp.yml playbook.
 
-Currently, two official plugins are available:
+## Local development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+From this directory:
 
-## React Compiler
+    npm ci
+    npm run dev
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Vite normally uses port 5173. Use ignored .env.local with the intended development API base. Runtime workspace slug comes from Telegram start_param; VITE_MINIAPP_SLUG is a local fallback. Real authenticated flows require valid Telegram init data; do not replace production verification with a browser bypass.
 
-## Expanding the ESLint configuration
+The development backend can proxy the Mini App through the configured tunnel. See ../docs/MESSENGER_LOCAL_SETUP.md for that optional local arrangement; it does not change production hosting.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Validation
+
+    node --test tests/paymentStatus.test.js
+    npm run lint
+    npm run build
+
+Configure VITE_BACKEND_BASE_URL or VITE_API_BASE_URL as supported by src/features/auth/api.js. Production build env lives at /var/www/novanet/miniapp-source/.env.production. Never include service-role credentials.
+
+## Business behavior
+
+Explicit trial claims, immediate initial purchase access pending review, and one queued next package use the backend lifecycle. Home reads canonical subscription quota. App choice controls Shadowsocks versus VLESS imports; live protocol comes from the key.
+
+See ../SKILL_MINIAPP.md, ../SKILL_API_CONTRACTS.md, ../SCHEMA.md and ../DEPLOYMENT.md. src/i18n/language.jsx is the copy source; ../MINIAPP_TEXT.md is its generated reference.

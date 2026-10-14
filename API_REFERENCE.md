@@ -1,132 +1,79 @@
-# API Reference - NovaNet MM Backend
+# API Reference — NovaNet MM Backend
 
-This file mirrors the active backend route surface. All dashboard and Mini App
-data goes through the Express backend; frontend code must never use the
-Supabase service-role key.
+Reviewed: 2026-10-15. This is the concise production route guide; SKILL_API_CONTRACTS.md owns detailed request/response contracts. docs/API_ROUTE_INVENTORY.md lists routes extracted from the production-source baseline and identifies local-only additions. An existing route is not necessarily an available operation.
 
-## Health
+## Access and tenancy
 
-`GET /api/health`
+JSON APIs use /api. Dashboard sessions use backend-issued httpOnly cookies and trusted-origin checks. Admin operations have platform oversight; reseller operations use the authenticated reseller scope. Reseller /me and workspace have preparation gates for pending accounts; operational routes generally require an active reseller. Mini App requests verify Telegram init data against the slug's workspace.
 
-Returns backend process health.
+Service-role credentials remain backend-only. Workspace bot token, slug, logo, color, trial settings and admin notification identity are admin-managed. Brand name, support contact and payment information are reseller-managed; bot status is read-only to resellers.
 
-## Mini App
+## Customer routes
 
-Mounted at `/api/miniapp/:slug`.
+- GET /api/health — process health.
+- GET /api/miniapp/:slug/config — public workspace config.
+- POST /api/miniapp/:slug/auth — Telegram auth, customer linkage, subscription/quota and queued_subscription.
+- GET /api/miniapp/:slug/plans — purchasable catalogue.
+- GET /api/miniapp/:slug/servers — server availability/access.
+- POST /api/miniapp/:slug/servers/:serverId/link — existing protocol/tier/quota-checked link/switch.
+- POST /api/miniapp/:slug/upload-screenshot — private receipt upload.
+- POST /api/miniapp/:slug/orders — initial purchase or one queued next package.
+- GET /k/:ssconf_token.json — customer Shadowsocks config.
+- GET /open-key?url=ssconf://... — compatible Shadowsocks import bridge.
 
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/:slug/config` | Public reseller workspace config |
-| POST | `/:slug/auth` | Telegram Mini App auth and customer upsert |
-| GET | `/:slug/plans` | Active purchasable plans |
-| GET | `/:slug/servers` | Active servers and customer access state |
-| POST | `/:slug/servers/:serverId/link` | Link/switch customer server |
-| POST | `/:slug/upload-screenshot` | Private payment screenshot upload |
-| POST | `/:slug/orders` | Create immediate purchase or queue one future package |
+Initial purchases give access pending review. An active purchase awaiting review blocks another checkout; a confirmed active purchase may queue one next package. A queued purchase retains the current protocol and gets no immediate replacement key. VLESS imports use the panel subscription; Shadowsocks retains its customer ssconf surface.
 
-`POST /:slug/auth` includes `queued_subscription` when a future package exists.
-Checkout accepts `protocol_preference`; a queued purchase retains the live
-protocol. A second queued purchase returns `409 QUEUED_PACKAGE_EXISTS`.
+## Reseller routes
 
-Expensive public Mini App routes have per-IP rate limits.
+- /api/auth/reseller — login/signup/session/refresh/logout handlers.
+- /api/reseller/me and /workspace — profile and allowed workspace settings.
+- /api/reseller/orders — scoped list/create/counts.
+- /api/reseller/orders/:orderId/eligible-servers and /switch-server — paid manual switching.
+- /api/reseller/customers — scoped customer reads/writes and protocol switching.
+- /api/reseller/stats/overview — scoped aggregate overview.
+- /api/reseller/plans and /keys — catalogue and key reads.
+- /api/reseller/accounting/monthly and /monthly/settlement — accounting/settlement workflow.
+- /api/reseller/notification-templates — per-workspace notification configuration.
+- /api/reseller/order-actions/:orderId/:action — existing activation/queue/renew/review/stop actions.
+- /api/reseller/launch-readiness — workspace checks.
 
-## Customer Config And Portal
+See the route inventory for exact methods, suffixes and receipt/proof routes. Payment review and access state are different facts; recognized revenue uses confirmed and applied ledger entries.
 
-| Method | Route | Purpose |
-|---|---|---|
-| GET | `/k/:ssconf_token.json` | Permanent customer ssconf endpoint |
-| GET | `/open-key?url=ssconf://...` | Mini App Add-to-Outline bridge |
+## Admin routes
 
-Shadowsocks order activation, renewal, and Mini App purchase responses return
-the customer config shape below. VLESS uses a Marzneshin subscription URL.
+- /api/admin/auth and /me — authentication/session/profile.
+- /api/admin/servers — server reads, capacity/tier edits and disabled compatibility operations below.
+- /api/admin/resellers and /:id/workspace — reseller lifecycle and admin-owned workspace configuration.
+- /api/admin/plans — catalogue management.
+- /api/admin/orders, /customers, /customers/:customerId and /keys — oversight reads.
+- /api/admin/customers/cleanup-preview and /cleanup-delete — explicit selected test-customer cleanup.
+- /api/admin/analytics — ledger-based period analytics with explicit legacy handling.
+- /api/admin/settlements — submitted settlement review/confirmation/reopening.
+- /api/admin/platform-settings — platform configuration.
+- /api/admin/monitoring and /launch-readiness — business/operational health.
+- /api/admin/order-actions/:orderId/:action — existing admin order actions.
 
-```json
-{
-  "ssconf_token": "32-char-customer-token",
-  "ssconf_url": "https://api.example.com/k/32-char-customer-token.json",
-  "dynamic_access_url": "ssconf://api.example.com/k/32-char-customer-token.json#Brand-Customer",
-  "preferred_access_url": "ssconf://api.example.com/k/32-char-customer-token.json#Brand-Customer"
-}
-```
+Cleanup requires exact reseller/customer selection and the existing typed confirmation/paid-data rules. Server tier changes are blocked when active keys remain.
 
-## Removed Legacy Public Routes
+## Disabled compatibility routes
 
-These routes are intentionally no longer mounted:
+| Method and route | Current result |
+| --- | --- |
+| POST /api/admin/servers/provision | HTTP 410, PROVISIONING_UNAVAILABLE |
+| POST /api/admin/servers/:serverId/decommission | HTTP 410, DECOMMISSION_UNAVAILABLE |
 
-- `GET /api/public/plans`
-- `POST /api/public/telegram-miniapp/auth`
-- `POST /api/public/telegram-miniapp/purchase`
-- `GET /t/:token`
-- `GET /sub/:token.:format`
-- `GET /sub/:token/:region.:format`
-- `GET /open/:token/:region`
-- `GET /api/public/subscription?token=tok_xxx`
+Automatic Outline provisioning/droplet deletion is retired. These endpoints do not add or remove a current Marzneshin node.
 
-The old single-bot Mini App paradigm and token-portal subscription format are
-retired. Production Mini App traffic is slug-scoped and verifies against each
-reseller bot token. Customer VPN import uses `/k/:ssconf_token.json`.
+## Telegram webhook
 
-## Reseller API
+POST /api/bot-webhook/:resellerId requires X-Telegram-Bot-Api-Secret-Token. Registration and timing-safe verification are owned by the bot manager.
 
-Protected by reseller auth cookies and `requireActiveReseller`.
+## Development-only channel API
 
-| Route | Purpose |
-|---|---|
-| `GET /api/reseller/me` | Current reseller profile |
-| `GET /api/reseller/workspace` | Mini App/bot/brand/payment settings |
-| `PATCH /api/reseller/workspace` | Update workspace settings |
-| `GET /api/reseller/launch-readiness` | Reseller launch checks |
-| `GET /api/reseller/orders` | Reseller-scoped orders |
-| `GET /api/reseller/plans` | Active plans available for reseller orders |
-| `GET /api/reseller/keys` | Reseller-scoped key usage |
-| `POST /api/reseller/order-actions/:orderId/:action` | Activate/extend/payment actions |
+GET/POST /api/messenger/webhook and shared purchase/notification/trial adapters exist in the local development checkout, not the deployed production baseline. See SKILL_API_CONTRACTS.md's development section and DEPLOYMENT.md's migration gate. Do not deploy the dirty checkout as a documentation update.
 
-All reseller reads/writes must include reseller scope from `req.reseller.id`.
+## Retired routes and future contracts
 
-## Admin API
+Legacy /t, /sub, /open/:token/:region and single-bot /api/public subscription routes are unmounted. DO App Platform and the Cloudflare Worker customer portal are retired.
 
-Protected by admin auth cookies and `requireAdmin`.
-
-| Route | Purpose |
-|---|---|
-| `GET /api/admin/me` | Current admin profile |
-| `GET /api/admin/launch-readiness` | Platform launch checks |
-| `GET /api/admin/servers` | Server inventory |
-| `POST /api/admin/servers/provision` | Start DO Outline provisioning |
-| `PATCH /api/admin/servers/:serverId/tier` | Mark server as trial or premium capacity |
-| `GET /api/admin/resellers` | List resellers |
-| `POST /api/admin/resellers` | Create reseller + workspace |
-| `PATCH /api/admin/resellers/:id` | Enable/disable reseller |
-| `GET /api/admin/plans` | List plans |
-| `POST /api/admin/plans` | Create plan |
-| `PATCH /api/admin/plans/:id` | Update plan |
-| `GET /api/admin/orders` | Cross-reseller orders |
-| `GET /api/admin/customers` | Cross-reseller customers |
-| `GET /api/admin/customers/:customerId` | One customer lifecycle and payment ledger |
-| `POST /api/admin/customers/cleanup-preview` | Preview selected reseller test customer cleanup |
-| `POST /api/admin/customers/cleanup-delete` | Delete selected reseller test customers after typed confirmation |
-| `GET /api/admin/keys` | Cross-reseller keys |
-| `POST /api/admin/order-actions/:orderId/:action` | Admin order actions |
-
-Customer cleanup routes require one concrete `reseller_id` plus exact
-`customer_ids`. Delete requires `confirmation: "DELETE TEST CUSTOMERS"` and
-blocks confirmed paid rows unless `allow_paid_customers` is explicitly true.
-
-Server tier changes are blocked while a server has active VPN keys, preventing
-trial and premium customers from being mixed by relabeling live capacity.
-
-## Bot Webhook
-
-`POST /api/bot-webhook/:resellerId`
-
-The backend registers one webhook per reseller bot. Telegram must send
-`X-Telegram-Bot-Api-Secret-Token`; the bot manager compares it with
-`crypto.timingSafeEqual` before dispatching updates.
-
-## Middleware Notes
-
-- Mutating dashboard routes require trusted `Origin`.
-- Non-production may allow Pages/ngrok preview origins.
-- Mini App auth is stateless and validates Telegram init data.
-- ssconf and `/open-key` bridge routes are intentionally public because Outline
-  cannot send Telegram auth.
+The October 14 business-display spec/plan proposes additive summaries. Those fields are not current implemented contracts, and the known reseller percentage bug remains open until its implementation is verified.

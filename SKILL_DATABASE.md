@@ -12,15 +12,18 @@ Designing or changing the Supabase schema, writing migration SQL, seeding data, 
 
 Read before making schema decisions:
 
-- `SCHEMA.md` — authoritative column reference (see its "Final Data Model Additions" section for the RPCs, `sync_server_active_keys` trigger, and canonical views)
-- `FINAL_DATA_MODEL.md` — ACID/3NF design + phased migration plan (0020–0023); after applying function/view DDL run `NOTIFY pgrst, 'reload schema';`
+- `SCHEMA.md` — authoritative production column/RPC/view snapshot and separately
+  labelled development additions; check verification limits before migrations.
+- `FINAL_DATA_MODEL.md` — historical target design, partially implemented; it
+  does not authorize dropping live compatibility fields. After authorized
+  function/view DDL run `NOTIFY pgrst, 'reload schema';`
 - `SYSTEM_DESIGN.md` — tenancy model and data isolation rules
 - `backend/supabase/migrations/` — version-controlled schema history
 
 ## Database Setup (New Project)
 
 1. Create a new Supabase project at supabase.com.
-2. Run `backend/supabase/migrations/0001_initial_schema.sql` in the SQL Editor.
+2. Apply the reviewed baseline migration chain, starting with `backend/supabase/migrations/0001_initial_schema.sql`; 0001 alone does not provide the current quota/reservation/payment RPCs. Verify the required effects through 0026. Development channel callers additionally require their separately gated 0027–0036 chain. Do not blindly replay migrations against an existing production project.
 3. Create auth users (admin + first reseller) via Authentication → Users.
 4. Replace UUID placeholders in `backend/supabase/seed.sql` and run it.
 5. Update `backend/.env` with the new project URL and service-role key.
@@ -57,14 +60,18 @@ These three tables use different name columns — this has caused bugs:
 | `admins` | `full_name` |
 | `vpn_customers` | `full_name` |
 
-## Enum Values (stored as plain text — no DB constraint)
+## Application State Values
+
+Columns use text with CHECK constraints where migrations define them. This is
+the application value reference, not a substitute for inspecting live constraint
+DDL. Messenger sources/customer types are development-only additions (0027–0036).
 
 | Table.column | Values |
 |---|---|
-| `resellers.status` | `active`, `disabled` |
+| `resellers.status` | `pending`, `active`, `disabled` |
 | `admins.status` | `active`, `disabled` |
 | `vpn_customers.status` | `active`, `inactive` |
-| `vpn_servers.status` | `active`, `provisioning`, `error` |
+| `vpn_servers.status` | `active`, `provisioning`, `error`, historical `inactive` / `decommissioned` |
 | `vpn_servers.server_tier` | `trial`, `premium` |
 | `vpn_orders.status` | `pending`, `active`, `expired`, `stopped`, `scheduled` |
 | `vpn_orders.payment_status` | `unpaid`, `paid`, `overdue` |
@@ -169,7 +176,7 @@ Every record that belongs to a reseller carries `reseller_id`. All queries in ba
 ## Migration Conventions
 
 - Files go in `backend/supabase/migrations/`.
-- Name format: `NNNN_description.sql` (e.g. `0002_add_ssconf_token.sql`).
+- Name format: `NNNN_description.sql` (e.g. `0002_add_monthly_settlements.sql`).
 - Each migration is idempotent where possible (`create table if not exists`, `alter table … add column if not exists`).
 - Never modify `0001_initial_schema.sql` after it has been applied to a live project — write a new migration instead.
 

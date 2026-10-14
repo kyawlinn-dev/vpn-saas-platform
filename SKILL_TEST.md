@@ -55,12 +55,19 @@ Backend uses ESM (`"type": "module"`). Mock Supabase with `vi.mock()`:
 ```js
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
-vi.mock('../../lib/supabase.js', () => ({
+vi.mock('../lib/supabase.js', () => ({
   supabase: { from: vi.fn() }
 }))
 ```
 
 Use `vi.fn().mockResolvedValue(...)` for async Supabase chain methods.
+
+Use synthetic test configuration and mock external providers. Before starting
+the real backend, verify `.env.local` selects the intended development project:
+startup registers Telegram webhooks and runs scheduled jobs. A clean checkout
+with only a production `.env` is not a safe default test environment. The
+standalone Messenger runner avoids Telegram/jobs but still requires explicit
+development configuration. Do not run live development audit scripts as unit tests.
 
 ## Output Format
 

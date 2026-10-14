@@ -15,7 +15,8 @@ Build and modify the Express API and Supabase-backed data layer according to `SK
 - Add background job logic to `jobs/`.
 - Write new SQL migrations in `backend/supabase/migrations/`.
 - Update `SKILL_API_CONTRACTS.md` when adding or changing API shapes.
-- Run `npm run dev` (nodemon) to verify the backend starts without error after changes.
+- Verify relevant tests/builds first. Start `npm run dev` only with verified
+  development env/bot credentials: startup registers webhooks and runs jobs.
 
 ## Required Reading
 
@@ -34,7 +35,8 @@ Do not:
 
 - Expose Supabase service-role keys to any frontend or log output.
 - Skip the `reseller_id` filter on reseller-scoped routes.
-- Bypass the optimistic-concurrency loop in `subscriptionProvisionService.js`.
+- Bypass the `reserve_pending_key` / `activate_vpn_key` provisioning guards,
+  ownership/retry checks, or database-owned server counter in `subscriptionProvisionService.js`.
 - Store real credentials or production Outline API URLs in seed data.
 - Change frontend files directly.
 - Break existing API contracts without updating `SKILL_API_CONTRACTS.md`.

@@ -1,8 +1,31 @@
 # Known Bugs
 
+Reviewed 2026-10-15. Current open findings are separate from historical decisions
+below. A resolved quota-enforcement issue does not imply all displays are fixed.
+
+## OPEN: reseller usage bar uses carried key cap as package total
+
+Confirmed with Ye Yint's order on 2026-10-14. The order quota was 100 GB total,
+73.33 GB used and 26.67 GB remaining. The fresh server key correctly carried
+26.67 GB, but `getOrderLimitGb` in `reseller-dashboard/src/components/OrdersTable.tsx`
+used that cap as the total. The bar clamped to 100% instead of approximately 73%.
+
+The September 9 fix (`81c8583`) was removed by the Marzneshin snapshot (`6ca933c`).
+The planned repair uses canonical package quota without changing the customer's
+panel allowance. It is not implemented yet. See the October 14 business-display
+spec/plan under `docs/superpowers/` and the documentation alignment audit.
+
+## Historical decisions and resolved incidents
+
+The following retain original symptoms/notes. Old line numbers and proposed
+algorithms are historical; current code and canonical quota govern repairs.
+
 ## Miniapp: buying a package while customer has an active order (found 2026-07-24)
 
-**Status: RESOLVED 2026-07-24 by removing the feature for this version**,
+**Status: SUPERSEDED.** Current behavior supports one queued next package after
+confirmation and renewal of ended access. Do not restore the old blanket block.
+
+**Historical resolution: RESOLVED 2026-07-24 by removing the feature for that version**,
 per user decision — see below. (Superseded an earlier narrower fix that
 scoped the pending-payment check to `payment_type === "extend"`; that fix is
 now moot since the extend/top-up path was removed entirely.)

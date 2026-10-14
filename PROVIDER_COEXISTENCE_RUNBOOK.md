@@ -1,5 +1,7 @@
 # Outline and Marzneshin Coexistence Release
 
+> Historical pre-cutover material; status clarified 2026-10-15. Original commands, dates and observations below are retained as history, not the current release procedure. Use [DEPLOYMENT.md](DEPLOYMENT.md) for the Marzneshin-only production system. Do not execute this old sequence as a routine deployment.
+
 This is a preparation runbook, not authorization to deploy. Existing Outline
 access must remain valid while Marzneshin is introduced. Do not bulk-convert
 active orders or rewrite their payment history.
