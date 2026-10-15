@@ -140,3 +140,15 @@ Deferred minors (reviewer findings; no extra polish pass):
   exact operation snapshot being stored; provisioning still uses the exact snapshot.
 
 Production remains unchanged. Migration 0037 and release still require authorization.
+
+## Local testing follow-up: integer quota overflow (2026-10-15)
+
+Development 0037 is now exposed through PostgREST, verified read-only. A real create
+attempt returned PostgreSQL 22003 from prepare_dashboard_purchase. The original SQL
+fixture incorrectly modelled vpn_plans.data_limit_gb as numeric; the development API
+schema exposes integer. Correcting that fixture reproduced integer overflow before
+the final bigint cast. Migration 0038 widens the GB operand before multiplication.
+The isolated SQL suite passes with 0037+0038, including 0/1/2/50/100 GB and unlimited,
+alongside the existing replay, queue, snapshot, ownership and permission cases.
+This follow-up is prepared locally and has not been applied by this agent to any
+database. A separate production release must include 0038 after 0037.

@@ -4,7 +4,7 @@ await db.exec(`create role service_role;create role anon;create role authenticat
 create table resellers(id uuid primary key,name text,commission_percent numeric);
 create table vpn_customers(id uuid primary key default gen_random_uuid(),reseller_id uuid,full_name text,phone text,telegram_username text,notes text,status text,customer_type text,protocol_preference text,unique(id,reseller_id));
 create table telegram_links(customer_id uuid,reseller_id uuid);
-create table vpn_plans(id uuid primary key,name text,price_mmk int,duration_days int,data_limit_gb numeric,is_trial boolean,is_active boolean);
+create table vpn_plans(id uuid primary key,name text,price_mmk int,duration_days int,data_limit_gb integer,is_trial boolean,is_active boolean);
 create table vpn_orders(id uuid primary key default gen_random_uuid(),reseller_id uuid,customer_id uuid,plan_id uuid,status text,payment_status text,review_status text,order_type text,source text,price_mmk int,total_paid_mmk int default 0,commission_percent numeric,commission_amount_mmk int default 0,payment_note text,payment_screenshot_url text,start_date date,expiry_date date,quota_limit_bytes bigint,usage_baseline_bytes bigint default 0,created_at timestamptz default now(),updated_at timestamptz default now(),unique(id,reseller_id));
 create unique index single_active on vpn_orders(customer_id,reseller_id) where status='active' and order_type='purchase';
 create unique index single_queue on vpn_orders(customer_id,reseller_id) where status='scheduled' and order_type='purchase';
@@ -13,6 +13,7 @@ await db.exec(fs.readFileSync(new URL('../supabase/migrations/0022_apply_confirm
 const r='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222',plan='33333333-3333-4333-8333-333333333333';
 await db.query('insert into resellers values ($1,$2,0),($3,$4,20)',[r,'R',other,'Other']);await db.query('insert into vpn_plans values ($1,$2,5000,30,100,false,true)',[plan,'100 GB']);
 const migration=new URL('../supabase/migrations/0037_dashboard_purchase_operations.sql',import.meta.url);await db.exec(fs.readFileSync(migration,'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/0038_dashboard_purchase_quota_overflow.sql',import.meta.url),'utf8'));
 const call=async(name,args)=> (await db.query('select '+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+') as result',args)).rows[0].result;
 const payload={full_name:'Fixture',plan_id:plan,payment_status:'paid',protocol_preference:'vless'};
 const req='44444444-4444-4444-8444-444444444444';const a=await call('prepare_dashboard_purchase',[r,req,'same',payload]);const b=await call('prepare_dashboard_purchase',[r,req,'same',payload]);assert.equal(a.order_id,b.order_id);
@@ -45,5 +46,12 @@ await call('finish_dashboard_purchase_setup',[r,staff.order_id,owner,'failed','P
 assert.equal((await db.query("select amount_mmk from order_payments where order_id=$1 and review_status='confirmed' and apply_status='applied'",[staff.order_id])).rows[0].amount_mmk,9000);
 assert.equal((await call('claim_dashboard_purchase_setup',[r,staff.order_id,owner])).claimed,true);
 await call('finish_dashboard_purchase_setup',[r,staff.order_id,owner,'ready',null]);
+// Match the real integer catalogue column, including the first overflowing GB value.
+for(const gb of [0,1,2,50,100,null]) {
+ await db.query('update vpn_plans set data_limit_gb=$1 where id=$2',[gb,plan]);
+ const op=await call('prepare_dashboard_purchase',[r,crypto.randomUUID(),'quota-boundary', {...payload,full_name:'Quota fixture '+String(gb)}]);
+ const row=(await db.query('select quota_limit_bytes from vpn_orders where id=$1',[op.order_id])).rows[0];
+ assert.equal(row.quota_limit_bytes == null ? null : String(row.quota_limit_bytes),gb == null ? null : String(gb*1073741824));
+}
 await db.exec('set role anon');await assert.rejects(db.query('select * from dashboard_purchase_operations'),/permission denied/);await assert.rejects(call('claim_dashboard_purchase_setup',[r,a.order_id,owner]),/permission denied/);await db.exec('reset role');
-console.log('SQL: replay/hash conflict, zero commission, setup ownership/retry, payment invariance, single queue, unpaid gate, existing-customer edits/replay, admin renewal recovery, tenant guard and frontend denial passed');await db.close();
+console.log('SQL: replay/hash conflict, zero commission, setup ownership/retry, payment invariance, single queue, unpaid gate, existing-customer edits/replay, admin renewal recovery, tenant guard and frontend denial, integer GB quota boundaries 0/1/2/50/100/unlimited passed');await db.close();

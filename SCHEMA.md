@@ -884,3 +884,12 @@ Supabase. Recheck live production prerequisites before deployment.
 Operation ownership FKs cascade only when the owning order/customer is explicitly
 deleted through existing authorized cleanup; no independent purge is introduced.
 Keep operation rows for as long as the purchase exists to preserve replay identity.
+
+### Follow-up 0038: dashboard quota arithmetic (development patch pending)
+
+The live development catalogue exposes vpn_plans.data_limit_gb as integer, while
+vpn_orders.quota_limit_bytes is bigint. Migration 0038 replaces only
+prepare_dashboard_purchase: cast GB to numeric before multiplying by 1073741824,
+then cast the result to bigint. A cast after integer multiplication is too late.
+There are no table/column/API changes, backfills, payment changes or activations.
+Apply after 0037 and reload the PostgREST schema cache. Production remains unchanged.

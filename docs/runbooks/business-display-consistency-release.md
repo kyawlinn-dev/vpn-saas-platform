@@ -13,7 +13,10 @@ Status: prepared locally; no deployment or production database application autho
   apply_confirmed_payment and database-owned capacity counters. OpenAPI alone cannot
   verify SQL CHECKs, triggers or grants. Confirm no migration number 0037 conflict
   in the target environment. Do not apply development 0027–0036 as dependencies.
-- Review 0037_dashboard_purchase_operations.sql and its RLS/service-role-only RPCs.
+- Review 0037_dashboard_purchase_operations.sql and its RLS/service-role-only RPCs,
+  followed by 0038_dashboard_purchase_quota_overflow.sql. The latter corrects
+  integer GB multiplication before conversion to bigint. Match the real integer
+  catalogue column in SQL fixtures; test 0/1/2/50/100 GB and unlimited quotas.
   Rehearse with a production-compatible isolated database. The executable SQL check
   uses synthetic core tables and the unchanged 0022 payment RPC; it does not certify
   the whole live schema. Install PGlite in disposable scratch and set PGLITE_MODULE
@@ -23,7 +26,7 @@ Status: prepared locally; no deployment or production database application autho
 
 ## Release order (requires separate explicit production authorization)
 
-1. Apply reviewed migration 0037 through the established migration workflow and
+1. Apply reviewed migrations 0037 then 0038 through the established migration workflow and
    reload the PostgREST schema cache. Verify table/RPC metadata and service-role
    access; anon/authenticated must have no access. No data backfill is needed.
 2. Deploy the compatible backend/bot through the manual Ansible playbook from

@@ -15,6 +15,18 @@ The implementation uses canonical package quota without changing the customer's 
 pass. Production deployment remains pending. See the October 14 business-display
 spec/plan under `docs/superpowers/` and the documentation alignment audit.
 
+## FIXED IN SOURCE, DATABASE PATCH PENDING: dashboard purchase integer overflow
+
+Observed during development testing on 2026-10-15 after applying 0037. The actual
+catalogue uses integer data_limit_gb. Multiplying GB by 1073741824 overflowed at
+2 GB and above before the final bigint cast, aborting the atomic purchase with
+PostgreSQL 22003. The UI showed a generic setup-unavailable message.
+
+Migration 0038 widens the operand before multiplying. The corrected integer-typed
+SQL fixture reproduces the original failure and passes with 0038, including
+0/1/2/50/100 GB and unlimited. Apply the follow-up to the development database;
+production remains unchanged. Failed database transactions do not save the purchase.
+
 ## Historical decisions and resolved incidents
 
 The following retain original symptoms/notes. Old line numbers and proposed
