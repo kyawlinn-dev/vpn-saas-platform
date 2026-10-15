@@ -19,7 +19,7 @@ Reviewed 2026-10-15. Use current production references for deployed behavior, th
 
 Production Supabase: daenwuszqdfkbjiatsjs. Development: huqmzvlzfcexycdrsxpn. The schema documents independent read-only verification. OpenAPI does not prove all CHECK/trigger/grant DDL or migration history. The local development panel is shared by operator choice; development DB isolation alone does not authorize provisioning panel users.
 
-Current production is Marzneshin-only for active access. Backend/Mini App use Droplet Nginx/PM2 and manual Ansible; dashboards deploy through GitHub Actions to Cloudflare Pages. Messenger/shared purchase/durable delivery/customer trial-claim changes (0027–0036) are local work, not the verified production baseline. Business-display consistency is implemented and locally tested, including quota correction 0038 and restoration of the original Mini App design. Production deployment and migrations 0037/0038 remain pending; the scoped release plan excludes development runtime changes.
+Current production is Marzneshin-only for active access. Backend/Mini App use Droplet Nginx/PM2 and manual Ansible; dashboards deploy through GitHub Actions to Cloudflare Pages. Messenger/shared purchase/durable delivery/customer trial-claim changes (0027–0036) are local work, not the verified production baseline. Business-display consistency is implemented and locally tested, including quota correction 0038, receipt CHECK correction 0039, truthful renewal recovery and restoration of the original Mini App design. Production deployment and migrations 0037/0038/0039 remain pending; the scoped release plan excludes development runtime changes.
 
 ## Keeping references current
 
@@ -88,6 +88,7 @@ Current production is Marzneshin-only for active access. Backend/Mini App use Dr
 | [docs/audits/2026-10-13-notification-delay.md](../docs/audits/2026-10-13-notification-delay.md) | Dated local audit/update record |
 | [docs/audits/2026-10-14-business-display-validation.md](../docs/audits/2026-10-14-business-display-validation.md) | Local tests, resolved independent review and owner corrections; not a deployment claim |
 | [docs/audits/2026-10-14-production-business-display-inventory.md](../docs/audits/2026-10-14-production-business-display-inventory.md) | Engineering/design reference; obey the stated stage and scope |
+| [docs/audits/2026-10-15-production-business-display-release.md](../docs/audits/2026-10-15-production-business-display-release.md) | Clean release verification and pending production gates |
 | [docs/audits/2026-10-15-dashboard-setup-safety-proposal.md](../docs/audits/2026-10-15-dashboard-setup-safety-proposal.md) | Owner-approved migration prerequisite; implemented locally, not applied to production |
 | [docs/audits/2026-10-15-documentation-alignment-update.md](../docs/audits/2026-10-15-documentation-alignment-update.md) | Current documentation correction/verification record |
 | [docs/runbooks/business-display-consistency-release.md](../docs/runbooks/business-display-consistency-release.md) | Pending release preflight/recovery/rollback; requires separate production authorization |
@@ -100,7 +101,7 @@ Current production is Marzneshin-only for active access. Backend/Mini App use Dr
 | [docs/superpowers/plans/2026-10-13-messenger-connection.md](../docs/superpowers/plans/2026-10-13-messenger-connection.md) | Development design/plan/execution snapshot; not deployed |
 | [docs/superpowers/plans/2026-10-13-shared-purchases-messenger.md](../docs/superpowers/plans/2026-10-13-shared-purchases-messenger.md) | Development design/plan/execution snapshot; not deployed |
 | [docs/superpowers/plans/2026-10-14-production-business-display-consistency.md](../docs/superpowers/plans/2026-10-14-production-business-display-consistency.md) | Implemented locally with owner design correction; not deployed |
-| [docs/superpowers/plans/2026-10-15-production-business-display-release.md](../docs/superpowers/plans/2026-10-15-production-business-display-release.md) | Production release plan; excludes development Messenger; execution/deployment not authorized |
+| [docs/superpowers/plans/2026-10-15-production-business-display-release.md](../docs/superpowers/plans/2026-10-15-production-business-display-release.md) | Production release plan; excludes development Messenger; preparation authorized; production deployment pending |
 | [docs/superpowers/specs/2026-10-13-channel-notifications-trials-design.md](../docs/superpowers/specs/2026-10-13-channel-notifications-trials-design.md) | Development design/plan/execution snapshot; not deployed |
 | [docs/superpowers/specs/2026-10-13-messenger-purchases-design.md](../docs/superpowers/specs/2026-10-13-messenger-purchases-design.md) | Development design/plan/execution snapshot; not deployed |
 | [docs/superpowers/specs/2026-10-14-production-business-display-consistency-design.md](../docs/superpowers/specs/2026-10-14-production-business-display-consistency-design.md) | Approved business facts; original Mini App design must be preserved; not deployed |

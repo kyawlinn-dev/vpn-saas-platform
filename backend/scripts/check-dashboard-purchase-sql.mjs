@@ -9,11 +9,22 @@ create table vpn_orders(id uuid primary key default gen_random_uuid(),reseller_i
 create unique index single_active on vpn_orders(customer_id,reseller_id) where status='active' and order_type='purchase';
 create unique index single_queue on vpn_orders(customer_id,reseller_id) where status='scheduled' and order_type='purchase';
 create table order_payments(id uuid primary key default gen_random_uuid(),order_id uuid,customer_id uuid,reseller_id uuid,plan_id uuid,amount_mmk int,commission_percent numeric,commission_amount_mmk int default 0,platform_due_mmk int default 0,review_status text,apply_status text,payment_type text,source text,package_duration_days int,package_data_limit_gb numeric,payment_note text,payment_screenshot_url text,idempotency_key text,submitted_at timestamptz default now(),reviewed_at timestamptz,applied_at timestamptz,apply_error text,reviewed_by_reseller_id uuid,reviewed_by_admin_id uuid,created_at timestamptz default now(),updated_at timestamptz default now(),unique(reseller_id,idempotency_key));`);
+// Enforce production-core CHECKs, including NOT VALID constraints on new rows.
+const integrity=fs.readFileSync(new URL('../supabase/migrations/0006_business_integrity_constraints.sql',import.meta.url),'utf8');
+for(const table of ['vpn_customers','vpn_orders','order_payments']) {
+ const pattern=new RegExp('alter table '+table+'\\s+add constraint [\\s\\S]*?;');
+ const statement=integrity.match(pattern)?.[0];
+ if(!statement)throw Error('Missing real core CHECKs for '+table);
+ await db.exec(statement);
+}
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/0014_scheduled_order_status.sql',import.meta.url),'utf8'));
+await db.exec('alter table vpn_orders add foreign key(customer_id,reseller_id) references vpn_customers(id,reseller_id); alter table order_payments add foreign key(order_id,reseller_id) references vpn_orders(id,reseller_id); alter table order_payments add foreign key(customer_id,reseller_id) references vpn_customers(id,reseller_id)');
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/0022_apply_confirmed_payment_rpc.sql',import.meta.url),'utf8'));
 const r='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222',plan='33333333-3333-4333-8333-333333333333';
 await db.query('insert into resellers values ($1,$2,0),($3,$4,20)',[r,'R',other,'Other']);await db.query('insert into vpn_plans values ($1,$2,5000,30,100,false,true)',[plan,'100 GB']);
 const migration=new URL('../supabase/migrations/0037_dashboard_purchase_operations.sql',import.meta.url);await db.exec(fs.readFileSync(migration,'utf8'));
 await db.exec(fs.readFileSync(new URL('../supabase/migrations/0038_dashboard_purchase_quota_overflow.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/0039_dashboard_purchase_payment_split.sql',import.meta.url),'utf8'));
 const call=async(name,args)=> (await db.query('select '+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+') as result',args)).rows[0].result;
 const payload={full_name:'Fixture',plan_id:plan,payment_status:'paid',protocol_preference:'vless'};
 const req='44444444-4444-4444-8444-444444444444';const a=await call('prepare_dashboard_purchase',[r,req,'same',payload]);const b=await call('prepare_dashboard_purchase',[r,req,'same',payload]);assert.equal(a.order_id,b.order_id);
@@ -53,5 +64,7 @@ for(const gb of [0,1,2,50,100,null]) {
  const row=(await db.query('select quota_limit_bytes from vpn_orders where id=$1',[op.order_id])).rows[0];
  assert.equal(row.quota_limit_bytes == null ? null : String(row.quota_limit_bytes),gb == null ? null : String(gb*1073741824));
 }
+const commissionOrder=await call('prepare_dashboard_purchase',[other,crypto.randomUUID(),'commission-split',payload]);
+assert.deepEqual((await db.query('select amount_mmk,commission_amount_mmk,platform_due_mmk from order_payments where order_id=$1',[commissionOrder.order_id])).rows[0],{amount_mmk:9000,commission_amount_mmk:1800,platform_due_mmk:7200});
 await db.exec('set role anon');await assert.rejects(db.query('select * from dashboard_purchase_operations'),/permission denied/);await assert.rejects(call('claim_dashboard_purchase_setup',[r,a.order_id,owner]),/permission denied/);await db.exec('reset role');
-console.log('SQL: replay/hash conflict, zero commission, setup ownership/retry, payment invariance, single queue, unpaid gate, existing-customer edits/replay, admin renewal recovery, tenant guard and frontend denial, integer GB quota boundaries 0/1/2/50/100/unlimited passed');await db.close();
+console.log('SQL: replay/hash conflict, zero/positive commission with core money CHECK, setup ownership/retry, payment invariance, single queue, unpaid gate, existing-customer edits/replay, admin renewal recovery, tenant guard and frontend denial, integer GB quota boundaries 0/1/2/50/100/unlimited passed');await db.close();

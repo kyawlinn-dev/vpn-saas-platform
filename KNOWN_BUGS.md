@@ -27,6 +27,20 @@ SQL fixture reproduces the original failure and passes with 0038, including
 0/1/2/50/100 GB and unlimited. Apply the follow-up to the development database;
 production remains unchanged. Failed database transactions do not save the purchase.
 
+## FIXED IN RELEASE CANDIDATE, NOT DEPLOYED: receipt insertion CHECK
+
+Release review found that 0037/0038 inserted a positive receipt with zero
+commission and platform due before confirmation. Core migration 0006 requires
+amount = commission + platform due even for new rows under NOT VALID constraints.
+Migration 0039 inserts the valid split first. The SQL regression failed with
+23514 before the correction and now passes with zero and positive commission.
+
+## FIXED IN RELEASE CANDIDATE, NOT DEPLOYED: renewal setup outcome
+
+Reseller renewal treated HTTP 200 setup_failed/setup_in_progress as successful
+access. It now preserves the backend recovery message and avoids false Renewed
+wording. Rendered regressions cover both outcomes and one purchase request.
+
 ## Historical decisions and resolved incidents
 
 The following retain original symptoms/notes. Old line numbers and proposed

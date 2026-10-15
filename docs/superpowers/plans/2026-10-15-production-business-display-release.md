@@ -17,7 +17,7 @@
 - Candidate source: `aa0954faf28d95bb540f43a6c2d1899629ccc6d9`. Its committed tree contains the clean business-display implementation through `5c858fa`, quota correction `e5a4a75`, and original-design restoration `aa0954f`. The local merge `1e2251d` introduced no tree changes relative to `5c858fa`.
 - Use that exact committed tree, never a copy of the current dirty `develop` working directory. The owner tested with unfinished development files also present; those results do not replace testing the isolated candidate.
 - Exclude `backend/src/messenger/`, shared `purchaseService.js`, development notification/outbox/trial-claim services and migrations 0027–0036. No development bot tokens, `.env.local`, panel credentials, Messenger assets or untracked local files enter the release.
-- Apply only new migrations 0037 and 0038 after verifying existing production core effects through 0026. They do not require 0027–0036.
+- Apply only new migrations 0037, 0038 and 0039 after verifying existing production core effects through 0026. They do not require 0027–0036.
 - Keep the original Mini App DataRing, gradient, Home header/copy button and compact Settings cards. Consistency concerns data and status, not a redesign.
 - Confirmed queued money is recognized before activation, exactly once. Preserve historical settlement snapshots and real zero commission. Never undo received money as a provisioning rollback.
 - Preserve reseller scoping, backend-only service-role credentials, provisioning reservation/ownership guards and database-owned capacity counters.
@@ -33,8 +33,8 @@
 
 ## File and artifact map
 
-- Existing code source: exact snapshot `aa0954f`; no new product implementation is planned.
-- Database files: `backend/supabase/migrations/0037_dashboard_purchase_operations.sql` and `0038_dashboard_purchase_quota_overflow.sql` only.
+- Existing code source: exact snapshot `aa0954f`, plus the two review corrections recorded in the release audit (receipt CHECK compatibility and truthful reseller renewal outcomes). No feature expansion.
+- Database files: `backend/supabase/migrations/0037_dashboard_purchase_operations.sql` , `0038_dashboard_purchase_quota_overflow.sql` and `0039_dashboard_purchase_payment_split.sql` only.
 - Local SQL validation: `backend/scripts/check-dashboard-purchase-sql.mjs`.
 - Browser validation: `reseller-dashboard/scripts/check-business-displays.mjs`.
 - Deployment: `.github/workflows/ci.yml`, `.github/workflows/deploy.yml`, `ansible/deploy.yml`, `ansible/deploy-miniapp.yml`, `ansible/files/ecosystem.config.cjs`.
@@ -45,13 +45,13 @@
 
 **Interfaces:** Consumes pinned source `aa0954f`; produces a clean named release checkout `codex/production-business-display-release`, its absolute path and verified diff against current remote main.
 
-- [ ] Recheck remote main and the dirty checkout status. Leave development changes and the retained pre-merge stash untouched.
-- [ ] Use native managed-worktree creation with ref `aa0954faf28d95bb540f43a6c2d1899629ccc6d9`; name/attach the checkout and create the named release branch there. Do not use a working-tree snapshot or copy development environment files.
-- [ ] Verify `git status --porcelain -uall` is empty in the candidate. Record `git rev-parse HEAD` and `git diff --name-status 786dd5f...HEAD` in the release audit.
-- [ ] Carry this plan and its updated release runbook/index/DEPLOYMENT references as explicit documentation-only files; commit them separately. Record the runtime source SHA `aa0954f` separately from subsequent documentation/release-audit commit SHAs. Do not copy any application source or environment file from the dirty checkout. Verify `git diff aa0954f -- backend miniapp admin-dashboard reseller-dashboard .github ansible` stays empty before testing.
-- [ ] Run `git ls-tree -r --name-only HEAD -- backend/src/messenger backend/src/services/purchaseService.js backend/src/services/notificationDeliveryService.js backend/src/services/customerNotificationService.js backend/src/services/adminPurchaseNotificationService.js`. Expected: no output. Verify no SQL files numbered 0027–0036 exist in the candidate.
-- [ ] Run `git grep -n -E 'from.*(messenger|purchaseService|notificationDelivery|customerNotificationService|adminPurchaseNotificationService)' HEAD -- backend/src`. Expected: no runtime imports. Documentation may describe excluded development work; that is not permission to deploy it.
-- [ ] Compare all package manifests/lockfiles with baseline. No Messenger dependencies or scripts should be introduced. Retain the restored circular UI and both corrective commits in the candidate diff.
+- [x] Recheck remote main and the dirty checkout status. Leave development changes and the retained pre-merge stash untouched.
+- [x] Use native managed-worktree creation with ref `aa0954faf28d95bb540f43a6c2d1899629ccc6d9`; name/attach the checkout and create the named release branch there. Do not use a working-tree snapshot or copy development environment files.
+- [x] Verify `git status --porcelain -uall` is empty in the candidate. Record `git rev-parse HEAD` and `git diff --name-status 786dd5f...HEAD` in the release audit.
+- [x] Carry this plan and its updated release runbook/index/DEPLOYMENT references as explicit documentation-only files; commit them separately. Record the runtime source SHA `aa0954f` separately from subsequent documentation/release-audit commit SHAs. Do not copy any application source or environment file from the dirty checkout. Verify `git diff aa0954f -- backend miniapp admin-dashboard reseller-dashboard .github ansible` stays empty before testing. Required release-review corrections are the explicitly recorded exception; they must each have regression evidence.
+- [x] Run `git ls-tree -r --name-only HEAD -- backend/src/messenger backend/src/services/purchaseService.js backend/src/services/notificationDeliveryService.js backend/src/services/customerNotificationService.js backend/src/services/adminPurchaseNotificationService.js`. Expected: no output. Verify no SQL files numbered 0027–0036 exist in the candidate.
+- [x] Run `git grep -n -E 'from.*(messenger|purchaseService|notificationDelivery|customerNotificationService|adminPurchaseNotificationService)' HEAD -- backend/src`. Expected: no runtime imports. Documentation may describe excluded development work; that is not permission to deploy it.
+- [x] Compare all package manifests/lockfiles with baseline. No Messenger dependencies or scripts should be introduced. Retain the restored circular UI and both corrective commits in the candidate diff.
 
 ### Task 2: Verify the candidate independently of develop
 
@@ -59,7 +59,7 @@
 
 - [ ] Run `npm ci` in backend, admin-dashboard, reseller-dashboard and miniapp. Use Node 22 and loopback-only placeholder database values for unit tests; do not start real jobs from a test process.
 - [ ] Run backend `npm test`; all three apps' Node contract tests; both dashboard builds; Mini App lint/build; and each app's `npm audit --omit=dev --audit-level=high`. Record actual counts; do not expect the 444-test combined-development total in the clean checkout.
-- [ ] Install PGlite only in disposable ignored scratch, set `PGLITE_MODULE` to its dist/index.js, and run `node backend/scripts/check-dashboard-purchase-sql.mjs`. Expected: replay/hash, ownership/retry, queue, payment, tenant/permission, snapshot and integer quota cases pass. Integer GB values 0/1/2/50/100 and unlimited must work with 0037+0038.
+- [ ] Install PGlite only in disposable ignored scratch, set `PGLITE_MODULE` to its dist/index.js, and run `node backend/scripts/check-dashboard-purchase-sql.mjs`. Expected: replay/hash, ownership/retry, queue, payment, tenant/permission, snapshot and integer quota cases pass. Integer GB values 0/1/2/50/100 and unlimited must work with 0037+0038+0039 and the core receipt money CHECK.
 - [ ] Launch loopback frontend servers with mocked API traffic and run `node reseller-dashboard/scripts/check-business-displays.mjs` with their explicit loopback URLs. Expected: all staff and EN/MM Mini App cases pass, including the two-circle 136px SVG. No production API/provider/notification requests are allowed from this test.
 - [ ] Verify source-copy references with `node scripts/sync-display-copy.mjs`, native changed-backend syntax and `git diff --check`.
 - [ ] Re-test the production-compatible candidate against an isolated test database/provider configuration: paid create, unpaid confirmation from both dashboards, next queue, renewal failure/retry, concurrent confirmation/replay, Telegram/Mini App initial review and queue promotion, rejected queue receipt, no-current/last and quota display. Keep the original ring visible. Do not use the shared live panel for failure injection.
@@ -70,7 +70,7 @@
 **Interfaces:** Consumes passing candidate and existing deployment access; produces a release audit, rollback artifacts and an explicit approval gate. This task is read-only against production business data until a separate operational authorization.
 
 - [ ] Compare live backend source/build revisions and current DB metadata with the baseline; reconcile drift. Verify `vpn_plans.data_limit_gb` and `vpn_orders.quota_limit_bytes` types, composite tenant FKs, active/queue uniqueness, 0022 payment RPC and provisioning reservation/counter RPCs. Inspect real constraints/triggers/grants through authorized read-only SQL where available; OpenAPI alone is insufficient.
-- [ ] Check whether 0037/0038 objects already exist in production. Do not blindly rerun 0037, which creates its table/functions. Review an existing differing definition before any replacement. Verify the production project is `daenwuszqdfkbjiatsjs`, not development `huqmzvlzfcexycdrsxpn`.
+- [ ] Check whether 0037/0038/0039 objects already exist in production. Do not blindly rerun 0037, which creates its table/functions. Review an existing differing definition before any replacement. Verify the production project is `daenwuszqdfkbjiatsjs`, not development `huqmzvlzfcexycdrsxpn`.
 - [ ] Prepare recovery artifacts through the existing deployment/backup workflow: recoverable database backup identifier, previous backend source/package lock, Mini App source/dist and previous two Pages deployment identifiers. Keep secret-bearing backup material on its approved host/access controls, not in Git or chat.
 - [ ] Confirm server-side production env files exist and will remain excluded from sync. Backend must use production DB/bots and `NODE_ENV=production`; Mini App API must be `https://api.novanetmm.com`. Preserve current encryption keys, URLs and panel ownership.
 - [ ] Rehearse rollback using the saved revisions. Account for the new setup table and current running owners. Choose a controlled release window and an owner-approved genuine transaction if a post-release mutation canary is required; do not fabricate received payments to test accounting.
@@ -83,7 +83,7 @@
 
 - [ ] Push the approved release branch and create its PR to main, respecting branch protections and all four CI checks. Attach the PR to this chat. Use the production-only candidate as the scoped exception to wholesale develop/staging promotion; do not merge the unfinished development branch. Merge only with owner authorization using a linear-history-compatible method (for example squash), verify the resulting main deployment tree matches the approved candidate, and record the resulting main SHA.
 - [ ] Resolve the deployed source path on the Ansible control machine. It must contain the approved main/candidate tree and none of the excluded runtime/migration files, ignored local envs or untracked development assets. Re-run the exclusion checks there; Ansible synchronize is not limited to Git-tracked files.
-- [ ] At the authorized migration step, apply 0037 then 0038 using the established production SQL workflow; 0038 includes `NOTIFY pgrst, 'reload schema'`. Stop before backend deployment if either fails. Verify the setup table relationship, all four RPCs and service-role-only access; confirm frontend roles cannot operate them. No backfill or bulk activation is part of this release.
+- [ ] At the authorized migration step, apply 0037, then 0038, then 0039 using the established production SQL workflow; 0038 includes `NOTIFY pgrst, 'reload schema'`. Stop before backend deployment if any migration fails. Verify the setup table relationship, all four RPCs and service-role-only access; confirm frontend roles cannot operate them. No backfill or bulk activation is part of this release.
 - [ ] Check in-progress work before a process replacement. Do not reset or time out durable owners. If setup is running, wait/reconcile under the runbook before reloading.
 - [ ] From the verified clean checkout's `ansible/`, run `ansible-playbook -i inventory.ini deploy.yml` only after deployment authorization. It syncs backend source, preserves env files, installs locked production dependencies and reloads PM2.
 - [ ] Verify `/api/health`, PM2 status, bot registration and logs. Exercise authenticated read-only orders/customers/analytics/accounting queries: no PGRST relationship errors, missing RPCs or integer overflow. A healthy HTTP endpoint alone is not acceptance. Stop before frontend promotion if backend verification fails.
@@ -110,6 +110,6 @@
 
 ## Self-review and handoff
 
-This plan covers the two new migrations, integer arithmetic regression, exact release-source isolation, candidate retesting, production-schema limits, real payment/queue semantics, ownership-safe rollback and the preserved Mini App design. Each Review Focus item has a gate in its owning task. No new product feature, dependency, migration 0027–0036 or Messenger integration is authorized.
+This plan covers the three new migrations, integer arithmetic regression, exact release-source isolation, candidate retesting, production-schema limits, real payment/queue semantics, ownership-safe rollback and the preserved Mini App design. Each Review Focus item has a gate in its owning task. No new product feature, dependency, migration 0027–0036 or Messenger integration is authorized.
 
 Next action after the owner accepts the plan: prepare and verify the isolated candidate. Production migration/deployment remains a later approval step against concrete source and recovery artifacts.

@@ -520,7 +520,7 @@ not mounted.
 
 ## Pending business-display release prerequisite
 
-The business-display release requires reviewed migrations 0037 then 0038 before its
+The business-display release requires reviewed migrations 0037, then 0038, then 0039 before its
 backend, then the dependent dashboards/Mini App. These are independent of Messenger
 0027–0036. Use the pinned production-only source in the
 [scoped release plan](docs/superpowers/plans/2026-10-15-production-business-display-release.md),

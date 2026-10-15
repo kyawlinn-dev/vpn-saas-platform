@@ -4,7 +4,8 @@ Status: prepared locally; no deployment or production database application autho
 
 The scoped production execution plan is
 [2026-10-15-production-business-display-release.md](../superpowers/plans/2026-10-15-production-business-display-release.md).
-Its pinned runtime snapshot is aa0954f, including quota correction e5a4a75 and the
+Its runtime baseline is aa0954f, plus the two release-review corrections recorded
+in docs/audits/2026-10-15-production-business-display-release.md, including the
 restored circular Mini App design. The normal checkout has uncommitted Messenger
 work; never run source-sync playbooks from that checkout for this release.
 
@@ -20,9 +21,10 @@ work; never run source-sync playbooks from that checkout for this release.
   verify SQL CHECKs, triggers or grants. Confirm no migration number 0037 conflict
   in the target environment. Do not apply development 0027–0036 as dependencies.
 - Review 0037_dashboard_purchase_operations.sql and its RLS/service-role-only RPCs,
-  followed by 0038_dashboard_purchase_quota_overflow.sql. The latter corrects
+  followed by 0038_dashboard_purchase_quota_overflow.sql and
+  0039_dashboard_purchase_payment_split.sql. Migration 0038 corrects
   integer GB multiplication before conversion to bigint. Match the real integer
-  catalogue column in SQL fixtures; test 0/1/2/50/100 GB and unlimited quotas.
+  catalogue column and core money CHECK in SQL fixtures; test 0/1/2/50/100 GB and unlimited quotas.
   Rehearse with a production-compatible isolated database. The executable SQL check
   uses synthetic core tables and the unchanged 0022 payment RPC; it does not certify
   the whole live schema. Install PGlite in disposable scratch and set PGLITE_MODULE
@@ -30,9 +32,15 @@ work; never run source-sync playbooks from that checkout for this release.
 - Capture rollback revisions and backups using the existing deployment procedure.
   Ensure no unfinished customer setup attempt is running before switching versions.
 
+Run backend/scripts/preflight-business-display-release.sql in the production SQL
+editor and review the result before migration. It is catalogue-only and read-only.
+Confirm a recoverable production database backup before any DDL. Migration 0039
+records a valid receipt split before confirmation; do not edit already-applied
+0037/0038. No migration or deployment has been performed during preparation.
+
 ## Release order (requires separate explicit production authorization)
 
-1. Apply reviewed migrations 0037 then 0038 through the established migration workflow and
+1. Apply reviewed migrations 0037, then 0038, then 0039 through the established migration workflow and
    reload the PostgREST schema cache. Verify table/RPC metadata and service-role
    access; anon/authenticated must have no access. No data backfill is needed.
 2. Deploy the compatible backend/bot through the manual Ansible playbook from

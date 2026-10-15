@@ -893,3 +893,13 @@ prepare_dashboard_purchase: cast GB to numeric before multiplying by 1073741824,
 then cast the result to bigint. A cast after integer multiplication is too late.
 There are no table/column/API changes, backfills, payment changes or activations.
 Apply after 0037 and reload the PostgREST schema cache. Production remains unchanged.
+
+### Follow-up 0039: receipt money CHECK compatibility (release patch pending)
+
+Replaces only prepare_dashboard_purchase after 0038. Before inserting a paid
+receipt, compute floor(price * clamped commission percent / 100) and the remaining
+platform due, so the core order_payments_money_check holds on insertion.
+The unchanged apply_confirmed_payment RPC then confirms/applies once. No table,
+column, API, historical payment, activation or settlement change. SQL validation
+now enforces the core CHECK and verifies zero and positive commission. Apply
+0037 → 0038 → 0039 only at the production release gate; production is unchanged.
