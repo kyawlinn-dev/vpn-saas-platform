@@ -833,10 +833,11 @@ rejecting customer-initiated checkout for inactive identities.
 - FINAL_DATA_MODEL.md: historical target design with partial implementation status; not permission to drop current fields.
 - docs/DOCUMENTATION.md: document authority and stage index.
 
-## Pending implementation migration 0037 (not deployed)
+## Production schema addition 0037 (released 2026-10-16)
 
-Owner-approved on 2026-10-15. The production OpenAPI snapshot above remains
-unchanged until separately authorized deployment. 0037 depends on existing core
+Owner approved on 2026-10-15 and reported applying 0037–0039 on 2026-10-16.
+The table/four RPCs are now exposed and production joined reads pass; the
+2026-10-15 inventory above remains a dated baseline snapshot. 0037 depends on existing core
 0022/0026 effects and does not depend on the development 0027–0036 chain.
 
 ### dashboard_purchase_operations
@@ -885,16 +886,16 @@ Operation ownership FKs cascade only when the owning order/customer is explicitl
 deleted through existing authorized cleanup; no independent purge is introduced.
 Keep operation rows for as long as the purchase exists to preserve replay identity.
 
-### Follow-up 0038: dashboard quota arithmetic (development patch pending)
+### Follow-up 0038: dashboard quota arithmetic (released 2026-10-16)
 
 The live development catalogue exposes vpn_plans.data_limit_gb as integer, while
 vpn_orders.quota_limit_bytes is bigint. Migration 0038 replaces only
 prepare_dashboard_purchase: cast GB to numeric before multiplying by 1073741824,
 then cast the result to bigint. A cast after integer multiplication is too late.
 There are no table/column/API changes, backfills, payment changes or activations.
-Apply after 0037 and reload the PostgREST schema cache. Production remains unchanged.
+Applied after 0037 as part of the owner-reported production migration sequence.
 
-### Follow-up 0039: receipt money CHECK compatibility (release patch pending)
+### Follow-up 0039: receipt money CHECK compatibility (released 2026-10-16)
 
 Replaces only prepare_dashboard_purchase after 0038. Before inserting a paid
 receipt, compute floor(price * clamped commission percent / 100) and the remaining
@@ -902,4 +903,5 @@ platform due, so the core order_payments_money_check holds on insertion.
 The unchanged apply_confirmed_payment RPC then confirms/applies once. No table,
 column, API, historical payment, activation or settlement change. SQL validation
 now enforces the core CHECK and verifies zero and positive commission. Apply
-0037 → 0038 → 0039 only at the production release gate; production is unchanged.
+0037 → 0038 → 0039 in sequence. Production backend and clients were deployed
+on 2026-10-16; genuine-sale acceptance remains owner-controlled.

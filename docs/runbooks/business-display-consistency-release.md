@@ -1,6 +1,9 @@
 # Business display consistency release
 
-Status: prepared locally; no deployment or production database application authorized.
+Status: owner-authorized backend, dashboards and Mini App deployed 2026-10-16.
+See the release audit for exact revisions, successful checks and pending live acceptance.
+The steps below remain the procedure for future releases/recovery; their original
+preparation-stage statements are historical.
 
 The scoped production execution plan is
 [2026-10-15-production-business-display-release.md](../superpowers/plans/2026-10-15-production-business-display-release.md).

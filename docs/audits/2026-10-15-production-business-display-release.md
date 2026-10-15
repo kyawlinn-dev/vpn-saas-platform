@@ -68,3 +68,15 @@ Owner reported completing migrations and explicitly authorized backend deploymen
 Deployed clean candidate a0910814b1ebde79fefb967a9cd45000c7ad2831 through the unchanged Ansible backend playbook from its WSL-visible isolated checkout, using explicit root SSH user because mounted-directory defaults omit ansible.cfg. Result: 8 OK, 5 changed, 0 failed/unreachable. No Messenger files or local env copied.
 
 Post-deploy: all 141 tracked backend source/package hashes match candidate; local and public HTTPS health 200; PM2 online; latest bot startup 6/6 online. Actual tenant-scoped order query with setup/payment/key relationships, canonical enrichment, customer and ledger reads passed. Zero running setup operations afterward. No sale, payment, provider provisioning or failure-injection canary executed. Database backup recovery remains owner-managed; this backend archive is not a database backup. Dashboards and Mini App are not deployed in this step.
+
+## Clients deployed, 2026-10-16 (Asia/Bangkok)
+
+Owner authorized the next release phase. Published the clean release branch (no main merge), opened draft PR #2 for traceability, and attached it to the chat. Ruling: use the workflow-supported release ref for deployment rather than merge unrelated develop; approved runtime stays unchanged. All four GitHub CI jobs passed in run38777006741. Dashboard production workflow38777121707 succeeded from 6a78b3bfe69c17cc53ef524113a7faab017f603f (same application tree as backend candidate a091081).
+
+Admin Pages deployment: https://4bb42732.novanet-admin.pages.dev; reseller: https://edc41648.novanet-reseller.pages.dev. Both stable production Pages aliases return200, match their new deployment indexes, serve their referenced assets and target https://api.novanetmm.com/api. Previous recovery deployments: admin9eca9292, reseller731be565; previous workflow37508255046.
+
+Mini App manual Ansible playbook succeeded (7 OK,5 changed,0 failed). Recovery archive on Droplet: /var/backups/novanet/miniapp-before-business-display-20261016-a091081.tar.gz. Public app.novanetmm.com index and JS/CSS match published Droplet bytes; JS targets production API without local/tunnel URLs. Published assets index-B4macPzL.js and index-P3jgWeIh.css. Original circular Mini App source was preserved and covered by the rendered EN/MM regression.
+
+After publication and zero-running-operation check, changed only MINIAPP_RELEASE_VERSION from20260824-8cc67a4 to20261016-a091081 in existing production env, reloaded backend and saved PM2. Reverification:141 backend source/package files match candidate, local/public health200, PM2online, latest bot startup6/6online, tenant-scoped order relationships/enrichment/customer/ledger reads pass; zero running setup operations.
+
+Technical deployment complete. Owner live Telegram EN/MM/cached-client verification, cross-view current-order comparison and any genuine-sale acceptance remain pending. No synthetic payment or provider-failure test was performed in production. Database backup recoverability remains owner-managed. Main is unchanged; PR #2 remains draft.

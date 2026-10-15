@@ -5,8 +5,8 @@
 Reviewed 2026-10-15. This file owns detailed API contracts. `API_REFERENCE.md`
 is the route index. The Production sections describe the existing baseline;
 the following development section describes uncommitted local changes and is
-not a production availability claim. Business-display summaries in the October
-14 spec/plan are proposed API additions, not implemented response fields.
+not a production availability claim. Business-display summaries and dashboard setup recovery below were deployed
+on 2026-10-16; the separate development channel additions remain excluded.
 
 ## Development only: Messenger, shared purchases and channel delivery
 
@@ -933,7 +933,7 @@ Responses:
 - `403`: invalid webhook secret
 - `404`: reseller bot not running
 
-## Business display summaries (implementation branch; pending production release)
+## Business display summaries (production release 2026-10-16)
 
 Staff order GET payloads add business_summary (access_status, payment_review_status,
 application_status, pending_review_count, has_active_key, is_expiring_soon, quota,
@@ -955,7 +955,7 @@ Usage freshness is fresh within two hours of the oldest relevant successful serv
 sync, stale beyond it, unknown with missing evidence. Missing monitoring metadata
 does not fabricate a successful sync. Package dates use Asia/Bangkok.
 
-### Dashboard start/queue and setup recovery (implementation branch; migration 0037 required)
+### Dashboard start/queue and setup recovery (production; migrations 0037–0039)
 
 POST /api/reseller/orders accepts a UUID idempotency_key for non-trial dashboard
 purchases. The key must stay the same across retries of one normalized payload;

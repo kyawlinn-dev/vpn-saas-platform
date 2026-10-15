@@ -3,7 +3,7 @@
 Reviewed 2026-10-15. Current open findings are separate from historical decisions
 below. A resolved quota-enforcement issue does not imply all displays are fixed.
 
-## FIXED IN IMPLEMENTATION BRANCH, NOT DEPLOYED: reseller usage denominator
+## DEPLOYED 2026-10-16: reseller usage denominator
 
 Confirmed with Ye Yint's order on 2026-10-14. The order quota was 100 GB total,
 73.33 GB used and 26.67 GB remaining. The fresh server key correctly carried
@@ -12,10 +12,10 @@ used that cap as the total. The bar clamped to 100% instead of approximately 73%
 
 The September 9 fix (`81c8583`) was removed by the Marzneshin snapshot (`6ca933c`).
 The implementation uses canonical package quota without changing the customer's panel allowance. Synthetic regression and rendered admin/reseller/Mini App checks
-pass. Production deployment remains pending. See the October 14 business-display
+pass. Production deployment completed 2026-10-16; owner live acceptance remains pending. See the October 14 business-display
 spec/plan under `docs/superpowers/` and the documentation alignment audit.
 
-## FIXED IN SOURCE, DATABASE PATCH PENDING: dashboard purchase integer overflow
+## DEPLOYED 2026-10-16: dashboard purchase integer overflow
 
 Observed during development testing on 2026-10-15 after applying 0037. The actual
 catalogue uses integer data_limit_gb. Multiplying GB by 1073741824 overflowed at
@@ -24,10 +24,10 @@ PostgreSQL 22003. The UI showed a generic setup-unavailable message.
 
 Migration 0038 widens the operand before multiplying. The corrected integer-typed
 SQL fixture reproduces the original failure and passes with 0038, including
-0/1/2/50/100 GB and unlimited. Apply the follow-up to the development database;
-production remains unchanged. Failed database transactions do not save the purchase.
+0/1/2/50/100 GB and unlimited. Owner reports applying the production follow-ups
+on 2026-10-16. Failed database transactions do not save the purchase.
 
-## FIXED IN RELEASE CANDIDATE, NOT DEPLOYED: receipt insertion CHECK
+## DEPLOYED 2026-10-16: receipt insertion CHECK
 
 Release review found that 0037/0038 inserted a positive receipt with zero
 commission and platform due before confirmation. Core migration 0006 requires
@@ -35,7 +35,7 @@ amount = commission + platform due even for new rows under NOT VALID constraints
 Migration 0039 inserts the valid split first. The SQL regression failed with
 23514 before the correction and now passes with zero and positive commission.
 
-## FIXED IN RELEASE CANDIDATE, NOT DEPLOYED: renewal setup outcome
+## DEPLOYED 2026-10-16: renewal setup outcome
 
 Reseller renewal treated HTTP 200 setup_failed/setup_in_progress as successful
 access. It now preserves the backend recovery message and avoids false Renewed
