@@ -19,7 +19,7 @@ Reviewed 2026-10-15. Use current production references for deployed behavior, th
 
 Production Supabase: daenwuszqdfkbjiatsjs. Development: huqmzvlzfcexycdrsxpn. The schema documents independent read-only verification. OpenAPI does not prove all CHECK/trigger/grant DDL or migration history. The local development panel is shared by operator choice; development DB isolation alone does not authorize provisioning panel users.
 
-Current production is Marzneshin-only for active access. Backend/Mini App use Droplet Nginx/PM2 and manual Ansible; dashboards use manual Cloudflare Pages deployment. Messenger/shared purchase/durable delivery/customer trial-claim changes (0027–0036) are local work, not the verified production baseline. Business-display consistency is an approved design with an unexecuted plan; its proposed fields and fixes are not implemented capabilities.
+Current production is Marzneshin-only for active access. Backend/Mini App use Droplet Nginx/PM2 and manual Ansible; dashboards deploy through GitHub Actions to Cloudflare Pages. Messenger/shared purchase/durable delivery/customer trial-claim changes (0027–0036) are local work, not the verified production baseline. Business-display consistency is implemented and verified locally on its isolated branch; production deployment and migration 0037 remain pending.
 
 ## Keeping references current
 
@@ -30,10 +30,6 @@ Current production is Marzneshin-only for active access. Backend/Mini App use Dr
 - Historical target designs cannot authorize dropping compatibility fields or restoring retired provider paths.
 - Check referenced local paths in context; ignored secret files and planned paths are not required public artifacts. Do not copy credentials into docs or test fixtures.
 - Keep date-only expiry, Bangkok business/accounting boundaries and Yangon notification timing distinct. The accepted display design does not change reminder scheduling policy.
-
-## Complete document index
-
-The categories below describe authority, not whether a file was modified in this pass. Current source references may contain explicitly labelled development or historical subsections.
 
 ## Full document index
 

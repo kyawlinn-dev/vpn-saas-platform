@@ -83,3 +83,8 @@ services, customer protocol and oldest-server freshness regressions are covered.
 - Task 6A: Ruling: staff trial flow retains existing no-payment/manual eligibility; automatic start/queue applies to paid purchases — preserve trial policy — trial action remains Activate trial.
 - Task 9: Ruling: preserve legacy paid-order price fallback when old cached total_paid_mmk is zero; this is separate from ledger-backed zero, which never falls back — existing pre-ledger compatibility — treating legacy zero as definite free money would drop historical paid orders. Added RED→GREEN regression.
 - Task 9: Ruling: confirmed paid dashboard pending setup reserves current purchase position; a subsequent purchase queues behind it and third queue is rejected — prevents multiple paid pending purchases bypassing the queue limit during provider delay — retry must complete the first purchase before queued service starts. SQL RED→GREEN. Claim re-reads order under locks to prevent a stale request reverting active access to pending.
+
+Final review is dispatched read-only against a949af1. The documentation index
+now distinguishes local implementation from production and names the actual
+GitHub Actions dashboard deployment path. No runtime edits are being made while
+the independent review runs.
