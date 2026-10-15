@@ -60,3 +60,11 @@ Preserve received money and durable setup ownership during any recovery. Never u
 ## Owner-provided SQL preflight, 2026-10-16 (Asia/Bangkok)
 
 Reviewed the returned catalogue JSON from the production SQL editor. Integer GB/bigint bytes, tenant composite keys/FKs, one-active/one-scheduled purchase unique indexes, pending-key status and capacity trigger are compatible. The core receipt money CHECK is present, confirming the need for 0039. All four required core RPC signatures exist with service_role execute and no anon/authenticated execute. The setup table and four new RPCs are absent; no target-object collision is shown. No new SQL compatibility blocker found. This result does not confirm backup recoverability, migration-history numbering, real provider integration or deployment. A recoverable production database backup must be confirmed before the owner applies 0037 → 0038 → 0039. Production application/deployment remains unperformed.
+
+## Backend deployed, 2026-10-16 (Asia/Bangkok)
+
+Owner reported completing migrations and explicitly authorized backend deployment. Verified production setup table and all four new RPCs exposed, and zero running operations before reload. Captured backend recovery archive on Droplet at /var/backups/novanet/backend-before-business-display-20261016-a091081.tar.gz (env files, uploads and node_modules excluded; existing production env retained).
+
+Deployed clean candidate a0910814b1ebde79fefb967a9cd45000c7ad2831 through the unchanged Ansible backend playbook from its WSL-visible isolated checkout, using explicit root SSH user because mounted-directory defaults omit ansible.cfg. Result: 8 OK, 5 changed, 0 failed/unreachable. No Messenger files or local env copied.
+
+Post-deploy: all 141 tracked backend source/package hashes match candidate; local and public HTTPS health 200; PM2 online; latest bot startup 6/6 online. Actual tenant-scoped order query with setup/payment/key relationships, canonical enrichment, customer and ledger reads passed. Zero running setup operations afterward. No sale, payment, provider provisioning or failure-injection canary executed. Database backup recovery remains owner-managed; this backend archive is not a database backup. Dashboards and Mini App are not deployed in this step.
