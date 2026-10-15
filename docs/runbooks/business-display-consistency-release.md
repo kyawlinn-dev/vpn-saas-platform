@@ -2,9 +2,15 @@
 
 Status: prepared locally; no deployment or production database application authorized.
 
+The scoped production execution plan is
+[2026-10-15-production-business-display-release.md](../superpowers/plans/2026-10-15-production-business-display-release.md).
+Its pinned runtime snapshot is aa0954f, including quota correction e5a4a75 and the
+restored circular Mini App design. The normal checkout has uncommitted Messenger
+work; never run source-sync playbooks from that checkout for this release.
+
 ## Preflight
 
-- Review the isolated codex/production-business-display-consistency branch against
+- Review the isolated release candidate at runtime snapshot aa0954f against
   main 786dd5f and the actual deployed component revisions. Exclude unrelated develop
   and all Messenger runtime/migration files. The carried documentation manifest is
   docs/audits/business-display-documentation-manifest.json.

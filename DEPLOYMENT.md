@@ -520,8 +520,11 @@ not mounted.
 
 ## Pending business-display release prerequisite
 
-The isolated business-display branch requires reviewed migration 0037 before its
-backend, then the dependent dashboards/Mini App. This migration is independent of
-Messenger 0027–0036. No production application is implied by local validation.
+The business-display release requires reviewed migrations 0037 then 0038 before its
+backend, then the dependent dashboards/Mini App. These are independent of Messenger
+0027–0036. Use the pinned production-only source in the
+[scoped release plan](docs/superpowers/plans/2026-10-15-production-business-display-release.md),
+which includes the original circular Mini App design. Never source an Ansible sync
+from the dirty development checkout. No production application is implied by local validation.
 See [business-display release runbook](docs/runbooks/business-display-consistency-release.md)
 for ownership recovery, compatibility, preflight and rollback.
