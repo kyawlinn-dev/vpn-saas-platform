@@ -56,3 +56,7 @@ Reviewer did not certify live production metadata, grants, actual provider behav
 5. Check running setup owners; deploy backend/bot, verify it, then dashboards and Mini App from clean approved source. Refresh Mini App cache version after static publication. Record actual revisions and perform owner-approved live acceptance checks.
 
 Preserve received money and durable setup ownership during any recovery. Never use a fresh purchase to recover failed setup, automatically steal a running owner or drop operation rows/receipts as rollback. Production migrations and deployments remain pending.
+
+## Owner-provided SQL preflight, 2026-10-16 (Asia/Bangkok)
+
+Reviewed the returned catalogue JSON from the production SQL editor. Integer GB/bigint bytes, tenant composite keys/FKs, one-active/one-scheduled purchase unique indexes, pending-key status and capacity trigger are compatible. The core receipt money CHECK is present, confirming the need for 0039. All four required core RPC signatures exist with service_role execute and no anon/authenticated execute. The setup table and four new RPCs are absent; no target-object collision is shown. No new SQL compatibility blocker found. This result does not confirm backup recoverability, migration-history numbering, real provider integration or deployment. A recoverable production database backup must be confirmed before the owner applies 0037 → 0038 → 0039. Production application/deployment remains unperformed.
