@@ -1,14 +1,18 @@
 import {PackageSummary} from "../components/business/PackageSummary";
-import { ArrowUp, ChevronRight, Copy, Package, Send, Server, Share2 } from "lucide-react";
+import {getPackagePaymentLabel} from "../lib/paymentStatus";
+import {quotaDisplay} from "../lib/businessDisplay";
+import { ArrowUp, ChevronRight, Copy, Package, Send, Server, Share2, Wifi } from "lucide-react";
 import {
   BrandBar,
   Chip,
+  DataRing,
   GlassCard,
   PrimaryButton,
   QuickAction,
   SecondaryButton,
 } from "../components/ui/primitives";
 import { cn } from "@/lib/utils";
+import { formatDate } from "../lib/format";
 import { getShareUrl, getImportUrl } from "../lib/links";
 import { copyText } from "../lib/clipboard";
 import {
@@ -19,12 +23,28 @@ import { useLanguage } from "../i18n/language";
 
 // ── Helpers (logic unchanged from MUI version) ────────────────────────────────
 
-
+function getPlanTitle(subscription, t) {
+  const type = String(subscription?.type || "");
+  if (
+    type === "trial" ||
+    String(subscription?.plan_name || "").toLowerCase().includes("trial")
+  ) {
+    return t("access.trial");
+  }
+  return subscription?.plan_name || t("access.premiumAccess");
+}
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function AccessHero({ subscription, keyForActions, hasImportLink, onToast }) {
   const { t } = useLanguage();
+  const quota = quotaDisplay(subscription?.business_summary?.quota ?? subscription?.quota);
+  const percent = quota.percent;
+  const validUntil = subscription?.expiry_date ? formatDate(subscription.expiry_date) : null;
+  const secondary = quota.kind === "unknown" ? t("business.unavailable")
+    : quota.used.replace(/ GB$/, "") + " / " + (quota.kind === "unlimited" ? t("business.unlimited") : quota.total);
+  const paymentLabel = getPackagePaymentLabel(subscription,t);
+
   // All protocols (SS, VLESS, Hysteria2) use a Marzneshin subscription URL.
   // Copy to clipboard — user pastes into Hiddify or Xray.
   const handleCopySubscription = async () => {
@@ -42,7 +62,40 @@ function AccessHero({ subscription, keyForActions, hasImportLink, onToast }) {
 
   return (
     <GlassCard glow className="aurora-glow">
-      <PackageSummary subscription={subscription} />
+      {/* Status row */}
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-success/15 text-success">
+            <Wifi size={20} />
+          </span>
+          <div>
+            <p className="text-[15px] font-semibold text-foreground">{t("access.active")}</p>
+            <p className="text-[12px] text-muted-foreground">{getPlanTitle(subscription, t)}</p>
+            {paymentLabel && <p className="mt-0.5 text-[11px] text-muted-foreground">{paymentLabel}</p>}
+          </div>
+        </div>
+        <Chip tone="success" icon={<span className="h-1.5 w-1.5 rounded-full bg-success" />}>
+          {t("common.active")}
+        </Chip>
+      </div>
+
+      {/* DataRing */}
+      <div className="my-4 flex flex-col items-center">
+        <DataRing
+          percent={percent}
+          primary={percent != null ? `${Math.round(percent)}%` : quota.kind === "unlimited" ? "∞" : "—"}
+          secondary={secondary}
+          size={136}
+        />
+        <p className="mt-3 text-[12px] text-muted-foreground">{t("access.dataUsed")}</p>
+        {quota.kind !== "unknown" && <p className="mt-1 text-[11px] text-muted-foreground">{t("business.remaining")}: {quota.kind === "unlimited" ? t("business.unlimited") : quota.remaining}</p>}
+      </div>
+
+      {/* Expiry */}
+      <div className="mb-4 flex items-center justify-center gap-1.5 text-[12px] text-muted-foreground">
+        <span className="h-1 w-1 rounded-full bg-muted-foreground" />
+        {validUntil ? t("access.validUntil", { date: validUntil }) : t("access.validUntilMissing")}
+      </div>
 
       <PrimaryButton onClick={handleCopySubscription} disabled={!hasImportLink}>
         <Copy size={18} />
@@ -182,11 +235,12 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
       </div>
 
       {!hasActivePackage && data?.last_subscription && <GlassCard className="p-3"><PackageSummary subscription={data.last_subscription} mode="last" /></GlassCard>}
-      {data?.queued_subscription && <GlassCard className="p-3"><PackageSummary subscription={data.queued_subscription} mode="queued" /></GlassCard>}
+      {data?.queued_subscription && <GlassCard className="border-cyan/25 bg-cyan/5 p-3"><PackageSummary subscription={data.queued_subscription} mode="queued" /></GlassCard>}
       {hasActivePackage ? (
         <>
           <AccessHero
             subscription={subscription}
+            vpnKey={vpnKey}
             keyForActions={keyForActions}
             hasImportLink={hasImportLink}
             onToast={onToast}

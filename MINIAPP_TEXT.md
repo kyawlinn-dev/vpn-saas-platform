@@ -2,7 +2,7 @@
 
 Generated from miniapp/src/i18n/language.jsx. Runtime source owns copy; this is an implementation-branch snapshot, not proof of deployment. MM is default; EN is selectable.
 
-Source SHA-256 (LF-normalized): 3f068aca4d5ff57ab56ea7e3612d2f3ca55f50bd1f9e058dca48f1952595dc24.
+Source SHA-256 (LF-normalized): a73e840737f89702650ebd18d1b261d2c19d3eb7e2eefd2cde88cc82540badfe.
 
 All 186 MM keys with EN. Preserve placeholders.
 
@@ -13,7 +13,7 @@ All 186 MM keys with EN. Preserve placeholders.
 | access.alreadyActive | သင့်မှာ active package ရှိပြီးသားပါ | You already have an active package |
 | access.chooseServer | ဆာဗာရွေးမည် | Choose server |
 | access.chooseServer.description | ပက်ကေ့ချ်အသုံးပြုနိုင်ပါပြီ။ VPN key ဖန်တီးရန် premium ဆာဗာတစ်ခုကို ရွေးပါ။ | Your package is active. Select a server to create your VPN key. |
-| access.dataUsed | အသုံးပြုပြီးသော ဒေတာ | Data used this month |
+| access.dataUsed | အသုံးပြုပြီးသော ဒေတာ | Data used |
 | access.noActivePackage | အသုံးပြုနေသော ပက်ကေ့ချ်မရှိပါ | No active package |
 | access.packageLinked | သင့်အကောင့် ချိတ်ဆက်ပြီးပါပြီ။ VPN စတင်အသုံးပြုရန် ပက်ကေ့ချ်ရွေးပါ။ | Your account is linked. Choose a package to start secure VPN access. |
 | access.paymentNotConfirmed | သင့်ငွေပေးချေမှုကို အတည်မပြုနိုင်ပါ | Payment not confirmed |

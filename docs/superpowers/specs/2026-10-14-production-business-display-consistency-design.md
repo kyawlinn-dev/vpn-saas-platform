@@ -2,6 +2,12 @@
 
 Date: 2026-10-14 (Asia/Bangkok)
 
+Owner correction, 2026-10-15: preserve the Mini App's existing visual identity.
+Consistency means accurate shared business facts, not identical layouts. Keep the
+original circular DataRing, gradient, card/header/button styling and compact Settings
+cards. Do not replace the circular usage display with a horizontal bar. Any further
+Mini App redesign requires an explicit request; data/status fixes remain in scope.
+
 Status: Written specification approved by the user on 2026-10-14; implementation planning authorized. Implementation and production deployment are separate stages.
 
 Clarification accepted 2026-10-15: a queued plan is a paid purchase awaiting

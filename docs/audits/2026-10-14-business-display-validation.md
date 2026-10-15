@@ -152,3 +152,19 @@ The isolated SQL suite passes with 0037+0038, including 0/1/2/50/100 GB and unli
 alongside the existing replay, queue, snapshot, ownership and permission cases.
 This follow-up is prepared locally and has not been applied by this agent to any
 database. A separate production release must include 0038 after 0037.
+
+## Owner correction: preserve Mini App design (2026-10-15)
+
+The owner confirmed order creation works and rejected the unrequested Mini App
+redesign. Restored the original Home DataRing (136px, original gradient/stroke,
+status header, glass card and copy button) and original compact Settings cards.
+The ring uses canonical exact-byte quota instead of key caps or catalogue fallback;
+access remains Active while review is pending. Current/last/queue selection and
+receipt refresh fixes remain. Last/queue summaries use compact text, not horizontal
+usage bars. English caption says Data used rather than implying a monthly period.
+
+Browser regression failed with zero circle elements, then passed with the restored
+two-circle SVG and 73% / 100.00 GB / 26.67 GB remaining. English and Burmese Home/
+Settings active-review and no-current/last cases passed. Screenshots were inspected.
+Mini App Node contracts, lint and production build passed. This is a local UI
+correction; it makes no database, provider, notification or production changes.

@@ -4,6 +4,11 @@
 
 **Goal:** Make production business displays agree and simplify dashboard purchases to automatically start or queue after payment, with safe setup recovery.
 
+**Owner design constraint (2026-10-15):** Preserve the Mini App's original circular
+DataRing and existing Home/Settings card styling. Share quota/status calculations
+and payment labels without imposing one visual renderer on both screens. The earlier
+horizontal-bar presentation is withdrawn; future redesign needs an explicit request.
+
 **Architecture:** Backend read-summary helpers own business selection and calculations, using existing quota and ledger services. Add compatible summaries and explicit current/queued/last fields for each app. Task 6A adds dashboard start-or-queue orchestration through existing lifecycle/payment services; preserve Telegram policy and provisioning guards.
 
 **Tech Stack:** Express/ES modules, Supabase, Vitest, React/Vite, TypeScript dashboards, JavaScript Mini App, Node built-in test runner and the reseller dashboard's existing Playwright dependency.

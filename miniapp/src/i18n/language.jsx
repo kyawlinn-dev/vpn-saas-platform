@@ -214,7 +214,7 @@ const DICTIONARY = {
     "access.chooseServer": "Choose server",
     "access.chooseServer.description": "Your package is active. Select a server to create your VPN key.",
     "access.subscriptionCopied": "Subscription link copied!",
-    "access.dataUsed": "Data used this month",
+    "access.dataUsed": "Data used",
     "access.noActivePackage": "No active package",
     "access.packageLinked": "Your account is linked. Choose a package to start secure VPN access.",
     "access.paymentNotConfirmed": "Payment not confirmed",

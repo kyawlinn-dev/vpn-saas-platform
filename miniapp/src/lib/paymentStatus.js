@@ -19,3 +19,8 @@ export function resolvePaymentStatus(data, checkoutPlan, paymentResult) {
  priceMmk:paymentResult?.payment?.amount_mmk ?? submittedOrder?.amount_mmk ?? submittedOrder?.price_mmk ?? subscription?.amount_mmk ?? checkoutPlan?.price_mmk ?? null,
  durationDays:submittedOrder?.plan?.duration_days ?? subscription?.duration_days ?? checkoutPlan?.duration_days ?? null};
 }
+
+export function getPackagePaymentLabel(subscription,t) {
+ const review=subscription?.business_summary?.payment_review_status ?? ({pending_review:'awaiting_review',confirmed:'confirmed',rejected:'rejected'}[subscription?.review_status]);
+ return review==='no_payment_required'?t('business.noPayment'):review==='confirmed'?t('payment.confirmed'):review==='rejected'?t('payment.rejected'):review==='awaiting_review'?t('payment.pending'):null;
+}
