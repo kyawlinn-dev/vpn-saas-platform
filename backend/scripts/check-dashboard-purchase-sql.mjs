@@ -1,0 +1,70 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';import {pathToFileURL} from 'node:url';
+const {PGlite}=await import(pathToFileURL(process.env.PGLITE_MODULE).href);const db=new PGlite();
+await db.exec(`create role service_role;create role anon;create role authenticated;
+create table resellers(id uuid primary key,name text,commission_percent numeric);
+create table vpn_customers(id uuid primary key default gen_random_uuid(),reseller_id uuid,full_name text,phone text,telegram_username text,notes text,status text,customer_type text,protocol_preference text,unique(id,reseller_id));
+create table telegram_links(customer_id uuid,reseller_id uuid);
+create table vpn_plans(id uuid primary key,name text,price_mmk int,duration_days int,data_limit_gb integer,is_trial boolean,is_active boolean);
+create table vpn_orders(id uuid primary key default gen_random_uuid(),reseller_id uuid,customer_id uuid,plan_id uuid,status text,payment_status text,review_status text,order_type text,source text,price_mmk int,total_paid_mmk int default 0,commission_percent numeric,commission_amount_mmk int default 0,payment_note text,payment_screenshot_url text,start_date date,expiry_date date,quota_limit_bytes bigint,usage_baseline_bytes bigint default 0,created_at timestamptz default now(),updated_at timestamptz default now(),unique(id,reseller_id));
+create unique index single_active on vpn_orders(customer_id,reseller_id) where status='active' and order_type='purchase';
+create unique index single_queue on vpn_orders(customer_id,reseller_id) where status='scheduled' and order_type='purchase';
+create table order_payments(id uuid primary key default gen_random_uuid(),order_id uuid,customer_id uuid,reseller_id uuid,plan_id uuid,amount_mmk int,commission_percent numeric,commission_amount_mmk int default 0,platform_due_mmk int default 0,review_status text,apply_status text,payment_type text,source text,package_duration_days int,package_data_limit_gb numeric,payment_note text,payment_screenshot_url text,idempotency_key text,submitted_at timestamptz default now(),reviewed_at timestamptz,applied_at timestamptz,apply_error text,reviewed_by_reseller_id uuid,reviewed_by_admin_id uuid,created_at timestamptz default now(),updated_at timestamptz default now(),unique(reseller_id,idempotency_key));`);
+// Enforce production-core CHECKs, including NOT VALID constraints on new rows.
+const integrity=fs.readFileSync(new URL('../supabase/migrations/0006_business_integrity_constraints.sql',import.meta.url),'utf8');
+for(const table of ['vpn_customers','vpn_orders','order_payments']) {
+ const pattern=new RegExp('alter table '+table+'\\s+add constraint [\\s\\S]*?;');
+ const statement=integrity.match(pattern)?.[0];
+ if(!statement)throw Error('Missing real core CHECKs for '+table);
+ await db.exec(statement);
+}
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/0014_scheduled_order_status.sql',import.meta.url),'utf8'));
+await db.exec('alter table vpn_orders add foreign key(customer_id,reseller_id) references vpn_customers(id,reseller_id); alter table order_payments add foreign key(order_id,reseller_id) references vpn_orders(id,reseller_id); alter table order_payments add foreign key(customer_id,reseller_id) references vpn_customers(id,reseller_id)');
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/0022_apply_confirmed_payment_rpc.sql',import.meta.url),'utf8'));
+const r='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222',plan='33333333-3333-4333-8333-333333333333';
+await db.query('insert into resellers values ($1,$2,0),($3,$4,20)',[r,'R',other,'Other']);await db.query('insert into vpn_plans values ($1,$2,5000,30,100,false,true)',[plan,'100 GB']);
+const migration=new URL('../supabase/migrations/0037_dashboard_purchase_operations.sql',import.meta.url);await db.exec(fs.readFileSync(migration,'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/0038_dashboard_purchase_quota_overflow.sql',import.meta.url),'utf8'));
+await db.exec(fs.readFileSync(new URL('../supabase/migrations/0039_dashboard_purchase_payment_split.sql',import.meta.url),'utf8'));
+const call=async(name,args)=> (await db.query('select '+name+'('+args.map((_,i)=>'$'+(i+1)).join(',')+') as result',args)).rows[0].result;
+const payload={full_name:'Fixture',plan_id:plan,payment_status:'paid',protocol_preference:'vless'};
+const req='44444444-4444-4444-8444-444444444444';const a=await call('prepare_dashboard_purchase',[r,req,'same',payload]);const b=await call('prepare_dashboard_purchase',[r,req,'same',payload]);assert.equal(a.order_id,b.order_id);
+assert.equal((await db.query('select count(*)::int as n from order_payments')).rows[0].n,1);assert.equal((await db.query('select commission_amount_mmk from order_payments')).rows[0].commission_amount_mmk,0);
+await assert.rejects(call('prepare_dashboard_purchase',[r,req,'changed',payload]),/REQUEST_CONFLICT/);
+const nextPayload={...payload,customer_id:a.customer_id};const queued=await call('prepare_dashboard_purchase',[r,'77777777-7777-4777-8777-777777777777','next',nextPayload]);assert.equal(queued.state,'queued');
+const owner='55555555-5555-4555-8555-555555555555';const claim=await call('claim_dashboard_purchase_setup',[r,a.order_id,owner]);assert.equal(claim.claimed,true);
+const duplicate=await call('claim_dashboard_purchase_setup',[r,a.order_id,'66666666-6666-4666-8666-666666666666']);assert.equal(duplicate.claimed,false);
+await assert.rejects(call('finish_dashboard_purchase_setup',[other,a.order_id,owner,'failed','PROVIDER_ERROR']),/NOT_FOUND/);
+await call('finish_dashboard_purchase_setup',[r,a.order_id,owner,'failed','PROVIDER_ERROR']);assert.equal((await db.query('select review_status,apply_status from order_payments')).rows[0].apply_status,'applied');
+assert.equal((await call('claim_dashboard_purchase_setup',[r,a.order_id,owner])).claimed,true);await call('finish_dashboard_purchase_setup',[r,a.order_id,owner,'ready',null]);
+await db.query("update vpn_orders set status='active' where id=$1",[a.order_id]);assert.equal((await call('claim_dashboard_purchase_setup',[r,queued.order_id,owner])).state,'queued');
+await assert.rejects(call('prepare_dashboard_purchase',[r,'88888888-8888-4888-8888-888888888888','second-queue',nextPayload]),/QUEUED_PACKAGE_EXISTS/);
+await assert.rejects(call('prepare_dashboard_purchase',[other,'99999999-9999-4999-8999-999999999999','foreign',nextPayload]),/CUSTOMER_NOT_FOUND/);
+const unpaid=await call('prepare_dashboard_purchase',[r,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','unpaid',{...payload,full_name:'Unpaid',payment_status:'unpaid'}]);assert.equal((await call('claim_dashboard_purchase_setup',[r,unpaid.order_id,owner])).state,'awaiting_payment');
+await db.query("update vpn_orders set status='expired' where id=$1",[a.order_id]);await db.query('update vpn_plans set duration_days=90,price_mmk=9000 where id=$1',[plan]);const promoted=await call('claim_dashboard_purchase_setup',[r,queued.order_id,owner]);assert.equal(promoted.claimed,true);assert.equal(promoted.plan_snapshot.duration_days,30);await call('finish_dashboard_purchase_setup',[r,queued.order_id,owner,'ready',null]);assert.equal((await db.query("select sum(amount_mmk)::int as gross,count(*)::int as n from order_payments where review_status='confirmed' and apply_status='applied'")).rows[0].gross,10000);assert.equal((await db.query('select count(*)::int as n from order_payments')).rows[0].n,2);
+await db.query("update vpn_customers set protocol_preference='shadowsocks',notes='Old' where id=$1",[unpaid.customer_id]);
+const editedCustomerPayload={...payload,customer_id:unpaid.customer_id,full_name:'Updated name',protocol_preference:'vless',notes:'Updated notes',phone:'09123'};
+const editedCustomerRequest='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+await call('prepare_dashboard_purchase',[r,editedCustomerRequest,'customer-edit',editedCustomerPayload]);
+assert.deepEqual((await db.query('select full_name,protocol_preference,notes,phone from vpn_customers where id=$1',[unpaid.customer_id])).rows[0],{full_name:'Updated name',protocol_preference:'vless',notes:'Updated notes',phone:'09123'});
+await db.query("update vpn_customers set notes='Later change' where id=$1",[unpaid.customer_id]);
+await call('prepare_dashboard_purchase',[r,editedCustomerRequest,'customer-edit',editedCustomerPayload]);
+assert.equal((await db.query('select notes from vpn_customers where id=$1',[unpaid.customer_id])).rows[0].notes,'Later change');
+const staff=await call('prepare_dashboard_purchase',[r,'cccccccc-cccc-4ccc-8ccc-cccccccccccc','staff-renew',{...payload,full_name:'Staff renewal',source:'admin',payment_type:'renew'}]);
+assert.equal((await db.query('select source from vpn_orders where id=$1',[staff.order_id])).rows[0].source,'admin');
+assert.equal((await db.query('select payment_type from order_payments where order_id=$1',[staff.order_id])).rows[0].payment_type,'renew');
+assert.equal((await call('claim_dashboard_purchase_setup',[r,staff.order_id,owner])).claimed,true);
+await call('finish_dashboard_purchase_setup',[r,staff.order_id,owner,'failed','PROVIDER_ERROR']);
+assert.equal((await db.query("select amount_mmk from order_payments where order_id=$1 and review_status='confirmed' and apply_status='applied'",[staff.order_id])).rows[0].amount_mmk,9000);
+assert.equal((await call('claim_dashboard_purchase_setup',[r,staff.order_id,owner])).claimed,true);
+await call('finish_dashboard_purchase_setup',[r,staff.order_id,owner,'ready',null]);
+// Match the real integer catalogue column, including the first overflowing GB value.
+for(const gb of [0,1,2,50,100,null]) {
+ await db.query('update vpn_plans set data_limit_gb=$1 where id=$2',[gb,plan]);
+ const op=await call('prepare_dashboard_purchase',[r,crypto.randomUUID(),'quota-boundary', {...payload,full_name:'Quota fixture '+String(gb)}]);
+ const row=(await db.query('select quota_limit_bytes from vpn_orders where id=$1',[op.order_id])).rows[0];
+ assert.equal(row.quota_limit_bytes == null ? null : String(row.quota_limit_bytes),gb == null ? null : String(gb*1073741824));
+}
+const commissionOrder=await call('prepare_dashboard_purchase',[other,crypto.randomUUID(),'commission-split',payload]);
+assert.deepEqual((await db.query('select amount_mmk,commission_amount_mmk,platform_due_mmk from order_payments where order_id=$1',[commissionOrder.order_id])).rows[0],{amount_mmk:9000,commission_amount_mmk:1800,platform_due_mmk:7200});
+await db.exec('set role anon');await assert.rejects(db.query('select * from dashboard_purchase_operations'),/permission denied/);await assert.rejects(call('claim_dashboard_purchase_setup',[r,a.order_id,owner]),/permission denied/);await db.exec('reset role');
+console.log('SQL: replay/hash conflict, zero/positive commission with core money CHECK, setup ownership/retry, payment invariance, single queue, unpaid gate, existing-customer edits/replay, admin renewal recovery, tenant guard and frontend denial, integer GB quota boundaries 0/1/2/50/100/unlimited passed');await db.close();

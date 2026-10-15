@@ -4,7 +4,9 @@ NovaNet MM is a multi-tenant VPN reseller platform. One platform owner manages
 servers, plans, resellers, and oversight. Each reseller owns a branded Telegram
 Mini App workspace and sells Marzneshin-backed VPN access to their customers.
 
-This document describes the current production system. The Marzneshin provider
+This document describes production, with explicitly labelled development work
+below. State reviewed 2026-10-15; see `docs/DOCUMENTATION.md` for document authority.
+The Marzneshin provider
 cutover completed on 2026-10-06: all active Shadowsocks and VLESS access is
 managed through Marzneshin/Marznode. Outline Manager API integration and
 Outline containers are retired. Historical Outline database rows remain only
@@ -61,7 +63,34 @@ Retired production paths:
 
 ## Data Model
 
-The live schema is documented in `SCHEMA.md`.
+Production schema: `daenwuszqdfkbjiatsjs`. Development schema:
+`huqmzvlzfcexycdrsxpn`. `SCHEMA.md` separates their verified objects.
+Telegram, Mini App and dashboards share production order/payment/key state.
+Shared purchase operations, Messenger, durable channel delivery and customer-wide
+trial claims described next are implemented in the local development checkout,
+not deployed production capabilities.
+
+### Development-only channel additions (0027–0036)
+
+Channel adapters share purchase admin alerts, customer review results, and trial
+eligibility. Payment results dispatch from order lifecycle immediately; the
+scheduled job is recovery/reminder selection, not the primary review-delivery
+path. Private notification delivery claims prevent simultaneous sends and retain
+ambiguous provider outcomes for reconciliation. Admin receipt alerts remain
+Telegram-based irrespective of customer purchase channel.
+
+Messenger trials require Start Free Trial; Page messages never auto-provision.
+Customer-scoped claims preserve existing Telegram history and serialize trial
+provisioning. Unlinked accounts are not assumed to belong to the same person.
+Messenger reminders use the standard response window; no human-agent tag is
+used to extend automation. Profile enrichment stores display names, not legal
+identity, and cannot overwrite staff-entered names.
+
+### Production core model
+
+The current production schema and development additions are documented separately
+in `SCHEMA.md`. Production payment review still includes scheduled Telegram
+notification recovery; the new immediate shared lifecycle delivery is local work.
 
 Core tables:
 
@@ -97,6 +126,11 @@ active paid package is queued without a new key until the current package ends.
 Money is ledger-driven: each payment/recharge is stored in `order_payments`.
 For confirmed and applied payments, reseller commission is calculated from the
 actual paid amount, not only from the plan price.
+Successful confirmation of a queued purchase records received money, commission
+and platform due while access remains scheduled. Payment `apply_status = applied`
+means the purchase payment is recorded; it does not mean VPN access has started.
+Once the current package stops or expires, the confirmed queued package starts
+automatically without another charge or a second revenue entry.
 
 Package lifecycle:
 
@@ -260,9 +294,44 @@ Committed env files are examples only and must not contain live secrets.
 
 ## Engineering Principles
 
+### Shared Purchase Boundary
+
+**Stage: implemented locally, not deployed to production (2026-10-15).**
+Do not release these callers without the separately verified migrations and
+production authorization in `DEPLOYMENT.md`.
+
+Telegram, Mini App, Messenger and reseller-dashboard purchase creation normalize
+input into `services/purchaseService.js`. Adapters supply trusted actor/channel
+context, authenticate callers, validate receipt ownership and render responses.
+The shared operation owns server-derived pricing, caller policies, atomic
+order/payment creation, durable idempotency, queue eligibility and existing
+panel provisioning. Customer checkout and staff creation deliberately retain
+different activation/payment rules. Review, renewal, stop and adjustments remain
+in the existing shared lifecycle service, not a second Messenger business layer.
+
+Messenger accepts signed raw-byte webhooks into a durable inbox before returning
+200. Its worker owns delivery leases and checkpointed checkout state; Redis
+holds temporary conversational sessions and non-expiring fail-closed switch
+guards. Page/reseller binding is explicit,
+and Telegram accounts are not merged. `MESSENGER_PURCHASES_ENABLED` gates this
+runtime; Meta public access remains a separate review/publishing step.
+
 - Small reversible changes.
 - Do not run production deploy commands unless explicitly asked.
 - Keep deployment docs aligned with reality.
 - Scope reseller data by `reseller_id`.
 - Keep service-role keys backend-only.
 - Preserve current customer access when retiring legacy paths.
+
+## Dashboard purchase simplification — implementation branch, pending release
+
+The approved display-consistency release also adds owner-approved migration 0037
+for durable dashboard purchase replay and setup ownership. Paid manual purchases
+start automatically without current paid access or become the next queue. Unpaid
+purchases wait; confirmation starts/queues the same purchase. Payment is recorded
+before provider calls, so failure retains received money and shows Retry setup.
+An exclusive persisted per-customer setup owner prevents concurrent cleanup.
+A crashed running attempt needs reconciliation; there is no timeout-only takeover.
+Trials and Telegram policy remain as described above. Older dashboard clients
+without the request key retain manual creation compatibility during rollout.
+See SCHEMA.md and SKILL_API_CONTRACTS.md for staged contracts and prerequisites.

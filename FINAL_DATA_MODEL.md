@@ -1,9 +1,24 @@
 # NovaNet MM — Final Data Model (Target State)
 
-**Status:** Design proposal — 4 core decisions locked 2026-09-23 (see §10), pending your final confirmation. Not yet migrated.
+**Status reviewed 2026-10-15:** Historical target design, partially implemented.
+The September 23 audit and target diagrams below are preserved as dated design
+evidence, not today's deployed state. `SCHEMA.md` owns the verified production
+and development inventory. No field/table removal is authorized by this proposal.
+
+| Target area | Current observed state |
+| --- | --- |
+| Transactional key/payment operations | Production exposes reserve_pending_key, activate_vpn_key, fail_pending_key and apply_confirmed_payment |
+| Capacity ownership | Current code uses database-owned counters/reservation guards; inspect trigger DDL before migration |
+| Canonical views | order_view, customer_view and server_view are exposed; not every route exclusively reads them |
+| Order money cache removal | Not completed; total_paid_mmk and commission_amount_mmk remain |
+| Legacy table removal | Not completed; commission_ledger, access_tokens and token_server_assignments remain |
+| Physical display_name rename | Not completed; name/full_name compatibility remains |
+| Shared purchases/customer trial claims | Implemented locally in development, not the production baseline |
 **Author basis:** ICT325 Ch.02 (OOP & Database Foundations) + Ch.03 (PHP Database Programming).
 **Scope:** One canonical model serving all three frontends — the Telegram **Mini App**, the **Admin dashboard**, and the **Reseller dashboard** — plus the Telegram bot.
-**Live DB verified:** Supabase project `huqmzvlzfcexycdrsxpn`, introspected via PostgREST OpenAPI on 2026-09-23 (20 tables).
+**Original audit DB:** `huqmzvlzfcexycdrsxpn`, inspected on 2026-09-23; this
+project is now development. Production is `daenwuszqdfkbjiatsjs`; see the
+separately verified current snapshot in `SCHEMA.md`.
 
 ---
 
@@ -23,7 +38,7 @@ The two lectures give a concrete rubric. Every decision below traces to one of t
 
 ---
 
-## 1. Current-state audit
+## 1. Historical audit snapshot (2026-09-23; superseded for current state)
 
 ### 1.1 Documentation drift (SCHEMA.md vs live DB)
 

@@ -69,7 +69,10 @@ data. Every reseller-scoped query must include `reseller_id`.
 
 - Never expose Supabase service-role keys to frontend code.
 - Always scope reseller-route queries by `reseller_id`.
-- Never bypass the optimistic-concurrency loop in `subscriptionProvisionService.js`.
+- Never bypass provisioning concurrency guards in `subscriptionProvisionService.js`:
+  current code uses `reserve_pending_key` / `activate_vpn_key` RPCs and the
+  database-owned server counter. Preserve any optimistic retry/ownership guards;
+  do not recreate the retired app-side counter loop or write counters directly.
 - Keep `SCHEMA.md` up to date after schema changes.
 - Update `SKILL_API_CONTRACTS.md` after API shape changes.
 - Keep production `.env` files out of Git.

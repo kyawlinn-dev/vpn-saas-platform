@@ -1,3 +1,7 @@
+import { businessDateOnly } from "../../utils/businessTime.js";
+import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
+import { readAllRows } from "../../utils/readAllRows.js";
+import { legacyOrderMoney } from "../../services/paymentSummaryService.js";
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { stopOrderAccess } from "../../services/orderLifecycleService.js";
@@ -103,18 +107,8 @@ function isConfirmedPaidPurchaseOrder(order) {
   );
 }
 
-function orderPaidAmount(order) {
-  const totalPaid = toNumber(order?.total_paid_mmk);
-  if (totalPaid > 0) return totalPaid;
-  return String(order?.payment_status || "").toLowerCase() === "paid" ? toNumber(order?.price_mmk) : 0;
-}
-
-function orderCommissionAmount(order, amount) {
-  const cachedCommission = toNumber(order?.commission_amount_mmk);
-  if (cachedCommission > 0) return cachedCommission;
-  const percent = toNumber(order?.commission_percent ?? order?.reseller?.commission_percent);
-  return Math.floor((amount * percent) / 100);
-}
+function orderPaidAmount(order) { return legacyOrderMoney(order).amount_mmk; }
+function orderCommissionAmount(order) { return legacyOrderMoney(order).commission_amount_mmk; }
 
 function hasPaymentRows(order) {
   return Array.isArray(order?.payments) && order.payments.length > 0;
@@ -176,13 +170,14 @@ async function fetchEnrichedCustomer(customerId, req) {
   if (!customer) return null;
 
   const [{ data: orders, error: ordersError }, { data: telegramLinks, error: telegramError }] = await Promise.all([
-    supabase
+    readAllRows(() => supabase
       .from("vpn_orders")
       .select(
         `*,
         plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb),
         reseller:resellers(id, name),
-        payments:order_payments(
+        dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
+          payments:order_payments(
           id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
           commission_amount_mmk, platform_due_mmk, review_status, payment_type,
           apply_status, source, payment_method, payment_note, created_at, submitted_at,
@@ -190,12 +185,12 @@ async function fetchEnrichedCustomer(customerId, req) {
         ),
         keys:vpn_keys!vpn_keys_order_tenant_fk(
           id, order_id, customer_id, reseller_id, server_id, outline_key_id,
-          key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
+          key_name, access_url, protocol, data_limit_bytes, used_bytes, status, created_at,
           deleted_at
         )`
       )
       .eq("customer_id", customerId)
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false }).order("id")),
     supabase
       .from("telegram_links")
       .select("id, telegram_user_id, telegram_username, customer_id, reseller_id, trial_used_at, trial_order_id, created_at")
@@ -235,11 +230,11 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
     throw err;
   }
 
-  const { data: customers, error: customersError } = await supabase
+  const { data: customers, error: customersError } = await readAllRows(() => supabase
     .from("vpn_customers")
     .select("id, reseller_id, full_name, telegram_username, phone, created_at, reseller:resellers(id, name)")
     .eq("reseller_id", resellerId)
-    .in("id", customerIds);
+    .in("id", customerIds).order("id"));
 
   if (customersError) throw new Error(customersError.message);
 
@@ -253,11 +248,11 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
     throw err;
   }
 
-  const { data: orders, error: ordersError } = await supabase
+  const { data: orders, error: ordersError } = await readAllRows(() => supabase
     .from("vpn_orders")
     .select("id, customer_id, reseller_id, status, order_type, payment_status, review_status, price_mmk, total_paid_mmk")
     .eq("reseller_id", resellerId)
-    .in("customer_id", customerIds);
+    .in("customer_id", customerIds).order("id"));
 
   if (ordersError) throw new Error(ordersError.message);
 
@@ -277,11 +272,11 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
       .select("id, order_id, customer_id, reseller_id, server_id, status, outline_key_id, deleted_at")
       .eq("reseller_id", resellerId)
       .in("customer_id", customerIds),
-    supabase
+    readAllRows(() => supabase
       .from("order_payments")
       .select("id, order_id, customer_id, reseller_id, amount_mmk, review_status, apply_status, payment_type")
       .eq("reseller_id", resellerId)
-      .in("customer_id", customerIds),
+      .in("customer_id", customerIds).order("id")),
   ]);
 
   if (keysError) throw new Error(keysError.message);
@@ -309,11 +304,11 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
   if (tokensError) throw new Error(tokensError.message);
   tokens = tokenRows || [];
 
-  const { data: linkRows, error: linksError } = await supabase
+  const { data: linkRows, error: linksError } = await readAllRows(() => supabase
     .from("telegram_links")
     .select("id, customer_id, reseller_id, telegram_user_id, telegram_username")
     .eq("reseller_id", resellerId)
-    .in("customer_id", customerIds);
+    .in("customer_id", customerIds).order("id"));
 
   if (linksError) throw new Error(linksError.message);
   telegramLinks = linkRows || [];
@@ -387,28 +382,29 @@ router.get("/overview", async (req, res) => {
       { count: pendingOrders },
       { count: stoppedOrders },
       { count: activeKeys },
-      { data: confirmedPayments },
-      { data: legacyPaidOrders },
+      { data: confirmedPayments, error: confirmedPaymentsError },
+      { data: legacyPaidOrders, error: legacyPaidOrdersError },
       { data: recentOrders },
     ] = await Promise.all([
-      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active"),
+      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active").gte("expiry_date",businessDateOnly()),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "stopped"),
       supabase.from("vpn_keys").select("*", { count: "exact", head: true }).eq("status", "active"),
-      supabase
+      readAllRows(() => supabase
         .from("order_payments")
         .select("amount_mmk, review_status, apply_status")
         .eq("review_status", "confirmed")
-        .eq("apply_status", "applied"),
-      supabase
+        .eq("apply_status", "applied").order("id")),
+      readAllRows(() => supabase
         .from("vpn_orders")
         .select(
           `id, customer_id, reseller_id, status, payment_status, review_status, order_type,
           source, price_mmk, total_paid_mmk, commission_percent, commission_amount_mmk,
-          created_at, reseller:resellers(id, name, commission_percent), payments:order_payments(id)`
+          created_at, reseller:resellers(id, name, commission_percent), dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
+          payments:order_payments(id)`
         )
         .eq("payment_status", "paid")
-        .eq("review_status", "confirmed"),
+        .eq("review_status", "confirmed").order("id")),
       supabase
         .from("vpn_orders")
         .select("*, customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username), plan:vpn_plans(id, name), reseller:resellers(id, name)")
@@ -416,6 +412,7 @@ router.get("/overview", async (req, res) => {
         .limit(10),
     ]);
 
+    if(confirmedPaymentsError || legacyPaidOrdersError) return res.status(500).json({error:"Accounting totals unavailable"});
     const totalValue = combinePaymentEvents({
       payments: confirmedPayments ?? [],
       legacyOrders: legacyPaidOrders ?? [],
@@ -455,12 +452,12 @@ router.get("/analytics", async (req, res) => {
       { data: recentPayments, error: recentPaymentsError },
       { data: recentLegacyOrders, error: recentLegacyOrdersError },
     ] = await Promise.all([
-      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active"),
+      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active").gte("expiry_date",businessDateOnly()),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("vpn_keys").select("*", { count: "exact", head: true }).eq("status", "active"),
       supabase.from("resellers").select("*", { count: "exact", head: true }).eq("status", "active"),
       supabase.from("monthly_settlements").select("*", { count: "exact", head: true }).eq("status", "submitted"),
-      supabase
+      readAllRows(() => supabase
         .from("order_payments")
         .select(
           `id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
@@ -473,8 +470,8 @@ router.get("/analytics", async (req, res) => {
         )
         .gte("created_at", monthWindow.start.toISOString())
         .lt("created_at", monthWindow.end.toISOString())
-        .order("created_at", { ascending: false }),
-      supabase
+        .order("created_at", { ascending: false }).order("id")),
+      readAllRows(() => supabase
         .from("vpn_orders")
         .select(
           `id, customer_id, reseller_id, status, payment_status, review_status, order_type,
@@ -483,11 +480,12 @@ router.get("/analytics", async (req, res) => {
           reseller:resellers(id, name, email, commission_percent),
           customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username),
           plan:vpn_plans(id, name),
+          dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
           payments:order_payments(id)`
         )
         .gte("created_at", monthWindow.start.toISOString())
         .lt("created_at", monthWindow.end.toISOString())
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false }).order("id")),
       supabase
         .from("order_payments")
         .select(
@@ -510,6 +508,7 @@ router.get("/analytics", async (req, res) => {
           reseller:resellers(id, name, email, commission_percent),
           customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username),
           plan:vpn_plans(id, name),
+          dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
           payments:order_payments(id)`
         )
         .eq("payment_status", "paid")
@@ -743,13 +742,14 @@ router.get("/customers", async (req, res) => {
 
     if (customerIds.length > 0) {
       const [{ data: orders, error: ordersError }, { data: telegramLinks, error: telegramError }] = await Promise.all([
-        supabase
+        readAllRows(() => supabase
           .from("vpn_orders")
           .select(
             `*,
             plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb),
             reseller:resellers(id, name),
-            payments:order_payments(
+            dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
+          payments:order_payments(
               id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
               commission_amount_mmk, platform_due_mmk, review_status, payment_type,
               apply_status, source, payment_method, payment_note, created_at, submitted_at,
@@ -757,16 +757,16 @@ router.get("/customers", async (req, res) => {
             ),
             keys:vpn_keys!vpn_keys_order_tenant_fk(
               id, order_id, customer_id, reseller_id, server_id, outline_key_id,
-              key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
+              key_name, access_url, protocol, data_limit_bytes, used_bytes, status, created_at,
               deleted_at
             )`
           )
           .in("customer_id", customerIds)
-          .order("created_at", { ascending: false }),
-        supabase
+          .order("created_at", { ascending: false }).order("id")),
+        readAllRows(() => supabase
           .from("telegram_links")
           .select("id, telegram_user_id, telegram_username, customer_id, reseller_id, trial_used_at, trial_order_id, created_at")
-          .in("customer_id", customerIds),
+          .in("customer_id", customerIds).order("id")),
       ]);
 
       if (ordersError) {
@@ -788,11 +788,13 @@ router.get("/customers", async (req, res) => {
       }
     }
 
+    const freshness = await loadUsageFreshness([...ordersByCustomerId.values()].flat().flatMap(o=>(o.keys || []).map(k=>k.server_id)));
     return res.json({
       data: customers.map((customer) =>
         enrichCustomer(customer, {
           orders: ordersByCustomerId.get(customer.id) ?? [],
           telegramLink: telegramByCustomerId.get(customer.id) ?? null,
+          freshness,
           req,
         })
       ),
@@ -838,7 +840,8 @@ router.get("/orders", async (req, res) => {
         customer:vpn_customers!vpn_orders_customer_id_fkey(id, full_name, telegram_username, phone, protocol_preference, ssconf_token),
         plan:vpn_plans(id, name, price_mmk, duration_days, data_limit_gb),
         reseller:resellers(id, name),
-        payments:order_payments(
+        dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
+          payments:order_payments(
           id, order_id, customer_id, reseller_id, amount_mmk, commission_percent,
           commission_amount_mmk, platform_due_mmk, review_status, payment_type,
           apply_status, source, payment_method, payment_note, created_at, submitted_at,
@@ -846,7 +849,7 @@ router.get("/orders", async (req, res) => {
         ),
         keys:vpn_keys!vpn_keys_order_tenant_fk(
           id, order_id, customer_id, reseller_id, server_id, outline_key_id,
-          key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
+          key_name, access_url, protocol, data_limit_bytes, used_bytes, status, created_at,
           deleted_at
         )`,
         { count: "exact" }
@@ -855,8 +858,9 @@ router.get("/orders", async (req, res) => {
       .range(offset, offset + limit - 1);
 
     if (status && status !== "all") {
-      query = query.eq("status", status);
+      query = status === "expired" ? query.or(`status.eq.expired,and(status.eq.active,expiry_date.lt.${businessDateOnly()})`) : query.eq("status", status);
     }
+    if (status === "active") query = query.gte("expiry_date",businessDateOnly());
     if (resellerId && resellerId !== "all") {
       query = query.eq("reseller_id", resellerId);
     }
@@ -917,8 +921,9 @@ router.get("/orders", async (req, res) => {
       console.error("admin GET orders error:", error);
       return res.status(500).json({ error: error.message });
     }
+    const freshness = await loadUsageFreshness((data || []).flatMap(o=>(o.keys || []).map(k=>k.server_id)));
     return res.json({
-      data: (data ?? []).map((order) => enrichOrderAccess(order, req)),
+      data: (data ?? []).map((order) => enrichOrderAccess(order, req, {freshness})),
       total: count ?? 0,
       page,
       limit,

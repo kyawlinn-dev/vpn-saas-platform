@@ -1,3 +1,6 @@
+import {PackageSummary} from "../components/business/PackageSummary";
+import {getPackagePaymentLabel} from "../lib/paymentStatus";
+import {quotaDisplay} from "../lib/businessDisplay";
 import { ArrowUp, ChevronRight, Copy, Package, Send, Server, Share2, Wifi } from "lucide-react";
 import {
   BrandBar,
@@ -20,12 +23,6 @@ import { useLanguage } from "../i18n/language";
 
 // ── Helpers (logic unchanged from MUI version) ────────────────────────────────
 
-function formatGb(value) {
-  const number = Number(value || 0);
-  if (!number) return "0";
-  return Number.isInteger(number) ? String(number) : number.toFixed(1);
-}
-
 function getPlanTitle(subscription, t) {
   const type = String(subscription?.type || "");
   if (
@@ -39,19 +36,14 @@ function getPlanTitle(subscription, t) {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function AccessHero({ subscription, vpnKey, keyForActions, hasImportLink, onToast }) {
+function AccessHero({ subscription, keyForActions, hasImportLink, onToast }) {
   const { t } = useLanguage();
-  const usedGb = subscription?.quota?.used_gb != null
-    ? Number(subscription.quota.used_gb)
-    : Number(vpnKey?.used_bytes || 0) / 1024 / 1024 / 1024;
-  const limitGb = subscription?.quota?.limit_gb != null
-    ? Number(subscription.quota.limit_gb)
-    : Number(subscription?.data_limit_gb || 0);
-  const percent = limitGb > 0 ? Math.min(100, (usedGb / limitGb) * 100) : 0;
+  const quota = quotaDisplay(subscription?.business_summary?.quota ?? subscription?.quota);
+  const percent = quota.percent;
   const validUntil = subscription?.expiry_date ? formatDate(subscription.expiry_date) : null;
-  const secondary = limitGb
-    ? `${formatGb(usedGb)} / ${formatGb(limitGb)} GB`
-    : `${formatGb(usedGb)} GB`;
+  const secondary = quota.kind === "unknown" ? t("business.unavailable")
+    : quota.used.replace(/ GB$/, "") + " / " + (quota.kind === "unlimited" ? t("business.unlimited") : quota.total);
+  const paymentLabel = getPackagePaymentLabel(subscription,t);
 
   // All protocols (SS, VLESS, Hysteria2) use a Marzneshin subscription URL.
   // Copy to clipboard — user pastes into Hiddify or Xray.
@@ -79,6 +71,7 @@ function AccessHero({ subscription, vpnKey, keyForActions, hasImportLink, onToas
           <div>
             <p className="text-[15px] font-semibold text-foreground">{t("access.active")}</p>
             <p className="text-[12px] text-muted-foreground">{getPlanTitle(subscription, t)}</p>
+            {paymentLabel && <p className="mt-0.5 text-[11px] text-muted-foreground">{paymentLabel}</p>}
           </div>
         </div>
         <Chip tone="success" icon={<span className="h-1.5 w-1.5 rounded-full bg-success" />}>
@@ -90,11 +83,12 @@ function AccessHero({ subscription, vpnKey, keyForActions, hasImportLink, onToas
       <div className="my-4 flex flex-col items-center">
         <DataRing
           percent={percent}
-          primary={`${Math.round(percent)}%`}
+          primary={percent != null ? `${Math.round(percent)}%` : quota.kind === "unlimited" ? "∞" : "—"}
           secondary={secondary}
           size={136}
         />
         <p className="mt-3 text-[12px] text-muted-foreground">{t("access.dataUsed")}</p>
+        {quota.kind !== "unknown" && <p className="mt-1 text-[11px] text-muted-foreground">{t("business.remaining")}: {quota.kind === "unlimited" ? t("business.unlimited") : quota.remaining}</p>}
       </div>
 
       {/* Expiry */}
@@ -240,6 +234,8 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
         />
       </div>
 
+      {!hasActivePackage && data?.last_subscription && <GlassCard className="p-3"><PackageSummary subscription={data.last_subscription} mode="last" /></GlassCard>}
+      {data?.queued_subscription && <GlassCard className="border-cyan/25 bg-cyan/5 p-3"><PackageSummary subscription={data.queued_subscription} mode="queued" /></GlassCard>}
       {hasActivePackage ? (
         <>
           <AccessHero

@@ -1,3 +1,6 @@
+import { summarizeOrderBusiness, toPublicBusinessSummary, toPublicPurchaseReceipt, selectCustomerPackages } from "../../services/businessDisplayService.js";
+import { readAllRows } from "../../utils/readAllRows.js";
+import { loadUsageFreshness,summarizeUsageFreshness } from "../../services/usageFreshnessService.js";
 import express from "express";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
@@ -391,6 +394,7 @@ async function getBestActiveOrder({ customerId, resellerId }) {
       expiry_date,
       usage_baseline_bytes,
       quota_limit_bytes,
+      payments:order_payments(review_status,apply_status,package_duration_days),
       created_at,
       vpn_plans (
         id,
@@ -877,6 +881,9 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
           plan_id,
           status,
           order_type,
+          payment_status,
+          review_status,
+          payments:order_payments(review_status,apply_status,package_duration_days,plan_id),
           created_at,
           vpn_plans (
             id,
@@ -894,13 +901,16 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
 
       if (!scheduledError && scheduledOrder) {
         queuedSubscription = {
+          business_summary: toPublicBusinessSummary(summarizeOrderBusiness(scheduledOrder)),
+          review_status: scheduledOrder.review_status,
+          payment_status: scheduledOrder.payment_status,
           order_id: scheduledOrder.id,
           plan_id: scheduledOrder.plan_id,
           type: scheduledOrder.order_type,
           status: scheduledOrder.status,
           plan_name: scheduledOrder.vpn_plans?.name || null,
           data_limit_gb: scheduledOrder.vpn_plans?.data_limit_gb ?? null,
-          duration_days: scheduledOrder.vpn_plans?.duration_days ?? null,
+          duration_days: summarizeOrderBusiness(scheduledOrder).duration_days,
           queued_at: scheduledOrder.created_at || null,
         };
       }
@@ -959,6 +969,14 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
     }
 
     const orderQuota = activeOrder ? await getOrderQuotaSnapshot(activeOrder.id) : null;
+    const {data:usageKeys,error:usageKeysError}=activeOrder ? await supabase.from("vpn_keys").select("server_id").eq("order_id",activeOrder.id).eq("reseller_id",miniapp.reseller_id).eq("status","active").is("deleted_at",null) : {data:[],error:null};
+    const freshnessMap = await loadUsageFreshness((usageKeys || []).map(k=>k.server_id));
+    const freshness = usageKeysError ? {last_synced_at:null,state:"unknown"} : summarizeUsageFreshness((usageKeys || []).map(k=>({last_usage_sync_at:freshnessMap.get(k.server_id)?.last_synced_at})));
+    const {data:history,error:historyError} = await readAllRows(() => supabase.from("vpn_orders").select("id,status,order_type,plan_id,start_date,activated_at,expiry_date,created_at,payment_status,review_status,payments:order_payments(review_status,apply_status,package_duration_days),vpn_plans(name,duration_days,data_limit_gb)").eq("customer_id",customer.id).eq("reseller_id",miniapp.reseller_id).in("status",["expired","stopped","active"]).order("id"));
+    if(historyError) throw new Error("Failed to load package history");
+    const lastOrder = selectCustomerPackages(history || []).last_order;
+    const lastQuota = lastOrder ? await getOrderQuotaSnapshot(lastOrder.id) : null;
+    const lastSubscription = lastOrder ? {order_id:lastOrder.id,type:lastOrder.order_type,status:lastOrder.status,plan_name:lastOrder.vpn_plans?.name,start_date:lastOrder.start_date,expiry_date:lastOrder.expiry_date,quota:toQuotaPayload(lastQuota),business_summary:toPublicBusinessSummary(summarizeOrderBusiness(lastOrder,{quota:toQuotaPayload(lastQuota)}))} : null;
 
     trackMiniAppEvent(req, {
       event_name: "miniapp_authenticated",
@@ -989,8 +1007,11 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
           telegram_user_id: telegramUserId,
           telegram_username: telegramUsername,
         },
+        last_subscription: lastSubscription,
+        purchase_receipts: (history || []).filter(order => order.order_type === "purchase").map(toPublicPurchaseReceipt),
         subscription: activeOrder
           ? {
+              business_summary: toPublicBusinessSummary(summarizeOrderBusiness({...activeOrder,keys:currentKeyRow ? [{...currentKeyRow,status:"active"}] : []},{quota:toQuotaPayload(orderQuota),freshness})),
               order_id: activeOrder.id,
               plan_id: activeOrder.plan_id,
               type: activeOrder.order_type,
@@ -999,7 +1020,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
               review_status: activeOrder.review_status,
               plan_name: activeOrder.vpn_plans?.name,
               data_limit_gb: activeOrder.vpn_plans?.data_limit_gb,
-              duration_days: activeOrder.vpn_plans?.duration_days,
+              duration_days: summarizeOrderBusiness(activeOrder).duration_days,
               start_date: activeOrder.start_date,
               expiry_date: activeOrder.expiry_date,
               quota: toQuotaPayload(orderQuota),
@@ -2691,6 +2712,8 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
         message: "Order submitted to queue. It will activate automatically when your current package ends.",
         data: {
           order: {
+            business_summary: toPublicBusinessSummary(summarizeOrderBusiness({...createdOrder,payments:[payment]})),
+            amount_mmk: payment.amount_mmk,
             id: createdOrder.id,
             status: createdOrder.status,
             payment_status: createdOrder.payment_status,
@@ -2767,6 +2790,8 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
       message: "Order submitted. Premium access is active while waiting for reseller approval.",
       data: {
         order: {
+          business_summary: toPublicBusinessSummary(summarizeOrderBusiness({...activatedOrder,payments:[payment]})),
+          amount_mmk: payment.amount_mmk,
           id: activatedOrder.id,
           status: activatedOrder.status,
           payment_status: activatedOrder.payment_status,

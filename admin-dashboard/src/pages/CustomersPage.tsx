@@ -1,3 +1,6 @@
+import {PackageUsage} from "../components/PackageUsage";
+import {BusinessStatus,PaymentReviewStatus} from "../components/BusinessStatus";
+import {daysLeft} from "../lib/businessDisplay";
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Clipboard, Copy, Eye, Loader2, Search, Trash2, UserCheck, Users, Wallet } from 'lucide-react';
 import { ActionMenu, type ActionMenuItem } from '@/components/ui/action-menu';
@@ -52,25 +55,12 @@ interface CleanupPreview {
 }
 
 function getActiveOrder(customer: Customer): Order | null {
-  return customer.active_order || customer.orders?.find((order) => order.status === 'active') || customer.orders?.[0] || null;
+  return customer.current_order ?? null;
 }
 
-function getActiveKey(customer: Customer): VpnKey | null {
-  const activeOrder = getActiveOrder(customer);
-  return (
-    activeOrder?.keys?.find((key) => key.status === 'active') ||
-    customer.keys?.find((key) => key.status === 'active') ||
-    activeOrder?.keys?.[0] ||
-    customer.keys?.[0] ||
-    null
-  );
-}
+function getActiveKey(customer:Customer):VpnKey|null { return getActiveOrder(customer)?.keys?.find(k=>k.status==='active') ?? null; }
 
-function getCustomerUsageBytes(customer: Customer, activeOrder: Order | null, activeKey: VpnKey | null): number {
-  if (typeof activeOrder?.total_used_bytes === 'number') return activeOrder.total_used_bytes;
-  if (typeof activeKey?.order_total_used_bytes === 'number') return activeKey.order_total_used_bytes;
-  return activeKey?.used_bytes ?? 0;
-}
+
 
 function getAccessUrl(customer: Customer) {
   const activeOrder = getActiveOrder(customer);
@@ -90,15 +80,7 @@ function getAccessUrl(customer: Customer) {
   );
 }
 
-function remainingDays(expiryDate?: string | null) {
-  if (!expiryDate) return '-';
-  const end = new Date(`${expiryDate}T23:59:59`);
-  if (Number.isNaN(end.getTime())) return '-';
-  const days = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
-  if (days < 0) return `${Math.abs(days)} days overdue`;
-  if (days === 0) return 'expires today';
-  return `${days} days left`;
-}
+function remainingDays(value?:string|null) { const days=daysLeft(value); return days==null ? "Unavailable" : days<0 ? "Expired" : days===0 ? "Today" : `${days} days left`; }
 
 function displayTelegram(customer: Customer) {
   const username = customer.telegram_username || customer.telegram_link?.telegram_username;
@@ -464,12 +446,12 @@ export function CustomersPage({ resellers }: Props) {
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{customer.reseller?.name || '-'}</TableCell>
                     <TableCell>
-                      <div className="font-medium text-foreground">{activeOrder?.plan?.name || '-'}</div>
+                      <div className="font-medium text-foreground">{activeOrder?.plan?.name || "No active package"}{!activeOrder && customer.last_order && <div className="text-xs text-muted-foreground">Last package: {customer.last_order.plan?.name || "Package"} · {formatDate(customer.last_order.expiry_date)}</div>}</div>
                       <div className="text-xs text-muted-foreground">{activeOrder?.order_type || customer.customer_type}</div>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
-                        <StatusBadge status={activeOrder?.status || customer.status || 'inactive'} />
+                        <span>{activeOrder ? <BusinessStatus summary={activeOrder.business_summary} /> : "No active package"}</span>
                         <Badge variant={customer.customer_type === 'telegram' ? 'info' : 'default'}>{customer.customer_type || 'normal'}</Badge>
                       </div>
                     </TableCell>
@@ -478,7 +460,7 @@ export function CustomersPage({ resellers }: Props) {
                       <div className="text-xs text-muted-foreground">{remainingDays(activeOrder?.expiry_date)}</div>
                     </TableCell>
                     <TableCell>
-                      <div>{formatBytes(getCustomerUsageBytes(customer, activeOrder, activeKey))}</div>
+                      <PackageUsage quota={activeOrder?.business_summary?.quota} />
                       <div className="text-xs text-muted-foreground">{activeKey?.status || '-'}</div>
                     </TableCell>
                     <TableCell>
@@ -748,7 +730,7 @@ function CustomerDetailDialog({
               </div>
               <div className="flex flex-wrap justify-end gap-1.5">
                 <Badge variant={customer.customer_type === 'telegram' ? 'info' : 'default'}>{customer.customer_type || 'normal'}</Badge>
-                <StatusBadge status={activeOrder?.status || customer.status || 'inactive'} />
+                <span>{activeOrder ? <BusinessStatus summary={activeOrder.business_summary} /> : "No active package"}</span>
               </div>
             </div>
 
@@ -762,10 +744,10 @@ function CustomerDetailDialog({
 
           <div className="rounded-lg border border-border p-4">
             <div className="text-xs uppercase text-muted-foreground">Current Package</div>
-            <div className="mt-2 text-lg font-semibold text-foreground">{activeOrder?.plan?.name || '-'}</div>
+            <div className="mt-2 text-lg font-semibold text-foreground">{activeOrder?.plan?.name || "No active package"}{!activeOrder && customer.last_order && <div className="text-xs text-muted-foreground">Last package: {customer.last_order.plan?.name} · {formatDate(customer.last_order.expiry_date)}</div>}</div>
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <Info label="Expiry" value={`${formatDate(activeOrder?.expiry_date)} (${remainingDays(activeOrder?.expiry_date)})`} />
-              <Info label="Usage" value={formatBytes(getCustomerUsageBytes(customer, activeOrder, activeKey))} />
+              <PackageUsage quota={activeOrder?.business_summary?.quota} freshness={activeOrder?.business_summary?.usage_freshness} />
               <Info label="Key Status" value={activeKey?.status || '-'} />
               <Info label="Orders" value={String(orders.length)} />
             </div>
@@ -814,7 +796,7 @@ function CustomerDetailDialog({
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                  <StatusBadge status={order.status} />
+                  <BusinessStatus summary={order.business_summary} />
                   {order.order_type ? <Badge variant="outline">{order.order_type}</Badge> : null}
                 </div>
               </div>

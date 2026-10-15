@@ -1,0 +1,188 @@
+{
+  "now_iso": "2026-10-15T12:00:00Z",
+  "switched": {
+    "order": {
+      "id": "order-a",
+      "customer_id": "customer-a",
+      "reseller_id": "tenant-a",
+      "order_type": "purchase",
+      "status": "active",
+      "review_status": "confirmed",
+      "payment_status": "paid",
+      "start_date": "2026-10-10",
+      "expiry_date": "2026-10-20",
+      "created_at": "2026-10-10T05:00:00Z",
+      "price_mmk": 5000,
+      "total_paid_mmk": 5000
+    },
+    "keys": [
+      {
+        "id": "old-key",
+        "status": "deleted",
+        "used_bytes": 78739049472,
+        "data_limit_bytes": 107374182400
+      },
+      {
+        "id": "new-key",
+        "status": "active",
+        "used_bytes": 0,
+        "data_limit_bytes": 28635132928
+      }
+    ],
+    "quota": {
+      "limit_bytes": 107374182400,
+      "used_bytes": 78739049472,
+      "remaining_bytes": 28635132928,
+      "is_unlimited": false
+    }
+  },
+  "pending_active": {
+    "order": {
+      "id": "order-a",
+      "customer_id": "customer-a",
+      "reseller_id": "tenant-a",
+      "order_type": "purchase",
+      "status": "active",
+      "review_status": "pending_review",
+      "payment_status": "paid",
+      "start_date": "2026-10-10",
+      "expiry_date": "2026-10-20",
+      "created_at": "2026-10-10T05:00:00Z",
+      "price_mmk": 5000,
+      "total_paid_mmk": 5000
+    },
+    "payment": {
+      "id": "payment-a",
+      "order_id": "order-a",
+      "reseller_id": "tenant-a",
+      "amount_mmk": 5000,
+      "commission_percent": 20,
+      "commission_amount_mmk": 1000,
+      "platform_due_mmk": 4000,
+      "review_status": "pending_review",
+      "apply_status": "pending",
+      "created_at": "2026-10-10T05:00:00Z"
+    }
+  },
+  "queue_confirmed": {
+    "order": {
+      "id": "queue-a",
+      "customer_id": "customer-a",
+      "reseller_id": "tenant-a",
+      "order_type": "purchase",
+      "status": "scheduled",
+      "review_status": "confirmed",
+      "payment_status": "paid",
+      "start_date": null,
+      "expiry_date": null,
+      "created_at": "2026-10-10T05:00:00Z",
+      "price_mmk": 5000,
+      "total_paid_mmk": 5000
+    },
+    "payment": {
+      "id": "payment-a",
+      "order_id": "queue-a",
+      "reseller_id": "tenant-a",
+      "amount_mmk": 5000,
+      "commission_percent": 20,
+      "commission_amount_mmk": 1000,
+      "platform_due_mmk": 4000,
+      "review_status": "confirmed",
+      "apply_status": "applied",
+      "created_at": "2026-10-10T05:00:00Z"
+    },
+    "keys": []
+  },
+  "rejected_queue": {
+    "order": {
+      "id": "order-a",
+      "customer_id": "customer-a",
+      "reseller_id": "tenant-a",
+      "order_type": "purchase",
+      "status": "stopped",
+      "review_status": "rejected",
+      "payment_status": "paid",
+      "start_date": null,
+      "expiry_date": "2026-10-20",
+      "created_at": "2026-10-10T05:00:00Z",
+      "price_mmk": 5000,
+      "total_paid_mmk": 5000
+    }
+  },
+  "legacy": {
+    "order": {
+      "id": "order-a",
+      "customer_id": "customer-a",
+      "reseller_id": "tenant-a",
+      "order_type": "purchase",
+      "status": "active",
+      "review_status": "confirmed",
+      "payment_status": "paid",
+      "start_date": "2026-10-10",
+      "expiry_date": "2026-10-20",
+      "created_at": "2026-10-10T05:00:00Z",
+      "price_mmk": 5000,
+      "total_paid_mmk": 13000,
+      "commission_amount_mmk": 2600,
+      "payments": []
+    }
+  },
+  "mixed_money": {
+    "expected": {
+      "gross": 18000,
+      "commission": 3600,
+      "due": 14400
+    }
+  },
+  "no_current": {
+    "order": {
+      "id": "order-a",
+      "customer_id": "customer-a",
+      "reseller_id": "tenant-a",
+      "order_type": "purchase",
+      "status": "expired",
+      "review_status": "confirmed",
+      "payment_status": "paid",
+      "start_date": "2026-10-10",
+      "expiry_date": "2026-10-20",
+      "created_at": "2026-10-10T05:00:00Z",
+      "price_mmk": 5000,
+      "total_paid_mmk": 5000
+    }
+  },
+  "trial": {
+    "order": {
+      "id": "order-a",
+      "customer_id": "customer-a",
+      "reseller_id": "tenant-a",
+      "order_type": "trial",
+      "status": "active",
+      "review_status": "confirmed",
+      "payment_status": "unpaid",
+      "start_date": "2026-10-10",
+      "expiry_date": "2026-10-20",
+      "created_at": "2026-10-10T05:00:00Z",
+      "price_mmk": 5000,
+      "total_paid_mmk": 5000
+    }
+  },
+  "unlimited": {
+    "quota": {
+      "limit_bytes": null,
+      "used_bytes": 0,
+      "remaining_bytes": null,
+      "is_unlimited": true
+    }
+  },
+  "unknown": {
+    "quota": null
+  },
+  "month_boundary": {
+    "now_iso": "2026-10-31T17:00:00Z",
+    "business_month": "2026-11"
+  },
+  "missing_metric": {
+    "last_synced_at": null,
+    "connections": null
+  }
+}

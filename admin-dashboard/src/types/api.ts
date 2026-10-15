@@ -379,6 +379,9 @@ export interface AdminResellerWorkspacePatch {
 }
 
 export interface Customer {
+  current_order?:Order|null;
+  queued_order?:Order|null;
+  last_order?:Order|null;
   id: string;
   reseller_id: Nullable<string>;
   full_name: string;
@@ -454,6 +457,8 @@ export interface Server {
 }
 
 export interface Order {
+  business_summary?: BusinessSummary;
+  money_summary?: MoneySummary;
   id: string;
   customer_id: string;
   reseller_id: Nullable<string>;
@@ -558,3 +563,13 @@ export interface MonthlySettlement {
     email?: Nullable<string>;
   } | null;
 }
+
+export interface BusinessSummary {
+ access_status: string; payment_review_status:string; application_status:string;
+ pending_review_count:number; has_active_key:boolean; is_expiring_soon:boolean;
+ quota:OrderQuota|null;
+ usage_freshness:{last_synced_at:string|null;state:'fresh'|'stale'|'unknown'};
+ duration_days?:number|null; snapshot_basis:{quota:string;duration:string};
+ setup_in_progress?:boolean; setup_status?:'not_started'|'ready'|'failed'|'unknown'; can_retry_setup?:boolean;
+}
+export interface MoneySummary {basis:'ledger'|'legacy'|'unavailable';confirmed_mmk:number|null;recognized_gross_mmk:number|null;commission_mmk:number|null;platform_due_mmk:number|null;awaiting_review_mmk:number|null;rejected_mmk:number|null;}

@@ -1,5 +1,16 @@
 export const BUSINESS_TIME_ZONE = "Asia/Bangkok";
 
+export function expiryBusinessState(expiryDate, now = new Date()) {
+  const day = typeof expiryDate === "string" ? expiryDate.slice(0, 10) : null;
+  const parsed = day && /^\d{4}-\d{2}-\d{2}$/.test(day) ? Date.parse(`${day}T00:00:00Z`) : NaN;
+  if (!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== day) {
+    return { days_left: null, expired: null, is_expiring_soon: false };
+  }
+  const today = Date.parse(`${businessDateOnly(now)}T00:00:00Z`);
+  const days_left = Math.round((parsed - today) / 86400000);
+  return { days_left, expired: days_left < 0, is_expiring_soon: days_left >= 0 && days_left <= 7 };
+}
+
 const BANGKOK_UTC_OFFSET_HOURS = 7;
 
 export function businessDateOnly(date = new Date()) {

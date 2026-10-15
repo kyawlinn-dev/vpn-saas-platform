@@ -1,3 +1,6 @@
+import {PackageSummary} from "../components/business/PackageSummary";
+import {getPackagePaymentLabel} from "../lib/paymentStatus";
+import {formatUsageBytes} from "../lib/businessDisplay";
 import {
   ChevronRight,
   Clock,
@@ -95,17 +98,12 @@ export default function SettingsPage({ data, onTabChange, prevTab }) {
 
   const queuedSub = data?.queued_subscription || null;
 
-  const isPurchase = sub?.type === "purchase";
-  const isTrial = sub?.type === "trial";
-  const isPending = sub?.review_status === "pending_review";
-
-  // Priority: active (purchase or trial) > pending > rejected > none
-  const planStatus =
-    isTrial && sub?.status === "active" ? "active"
-    : isPurchase && !isPending ? "active"
-    : isPending ? "pending"
-    : recentRejection ? "rejected"
-    : "none";
+  const accessStatus = sub?.business_summary?.access_status ?? sub?.status;
+  const planStatus = accessStatus === "active" ? "active"
+    : accessStatus === "pending" ? "pending"
+    : recentRejection ? "rejected" : "none";
+  const paymentLabel = sub ? getPackagePaymentLabel(sub,t) : null;
+  const queuedPaymentLabel = queuedSub ? getPackagePaymentLabel(queuedSub,t) : null;
 
   const handleBack = () => onTabChange(prevTab || TAB_KEYS.HOME);
   const toggleLanguage = () => setLanguage(language === "MM" ? "EN" : "MM");
@@ -139,6 +137,7 @@ export default function SettingsPage({ data, onTabChange, prevTab }) {
             <p className="text-[15px] font-semibold text-foreground">
               {sub.plan_name || t("common.premiumPlan")}
             </p>
+            {paymentLabel && <p className="mt-1 text-[12px] text-muted-foreground">{paymentLabel}</p>}
             <p className="text-[12px] text-muted-foreground">
               {sub.expiry_date
                 ? t("access.validUntil", { date: formatDate(sub.expiry_date) })
@@ -186,6 +185,8 @@ export default function SettingsPage({ data, onTabChange, prevTab }) {
         )}
       </GlassCard>
 
+      {!sub && data?.last_subscription && <GlassCard className="p-3"><PackageSummary subscription={data.last_subscription} mode="last" /></GlassCard>}
+
       {/* Queued Plan — shown if customer has a scheduled order waiting to activate */}
       {queuedSub && (
         <GlassCard className="border-cyan/25 bg-cyan/5 p-3">
@@ -200,14 +201,15 @@ export default function SettingsPage({ data, onTabChange, prevTab }) {
           <p className="text-[15px] font-semibold text-foreground">
             {queuedSub.plan_name || t("common.premiumPlan")}
           </p>
+          {queuedPaymentLabel && <p className="mt-1 text-[12px] text-muted-foreground">{queuedPaymentLabel}</p>}
           <div className="mt-0.5 flex items-center gap-2 text-[12px] text-muted-foreground">
             {queuedSub.duration_days && (
               <span>{t("common.days", { count: queuedSub.duration_days })}</span>
             )}
-            {queuedSub.data_limit_gb && (
+            {queuedSub.business_summary?.quota?.limit_bytes != null && (
               <>
                 <span className="h-1 w-1 rounded-full bg-muted-foreground/60" />
-                <span>{queuedSub.data_limit_gb} GB</span>
+                <span>{formatUsageBytes(queuedSub.business_summary.quota.limit_bytes)}</span>
               </>
             )}
           </div>

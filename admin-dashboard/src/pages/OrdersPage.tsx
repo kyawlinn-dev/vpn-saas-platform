@@ -1,3 +1,6 @@
+import {PackageUsage} from "../components/PackageUsage";
+import {BusinessStatus,PaymentReviewStatus} from "../components/BusinessStatus";
+import {daysLeft} from "../lib/businessDisplay";
 import { useMemo, useState } from 'react';
 import {
   CheckCircle2,
@@ -21,10 +24,10 @@ import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { api } from '@/lib/api';
-import { formatBytes, formatDate, formatMMK } from '@/lib/format';
+import { formatDate, formatMMK } from '@/lib/format';
 import { usePaginatedTable } from '@/hooks/usePaginatedTable';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
-import type { Order, OrderPayment, Plan, Reseller, VpnKey } from '@/types/api';
+import type { Order, Plan, Reseller, VpnKey } from '@/types/api';
 
 interface Props {
   plans: Plan[];
@@ -47,11 +50,7 @@ function getActiveKey(order: Order): VpnKey | null {
 // both the order and each key (customerOrderEnrichmentService.js); prefer
 // whichever is present, falling back to the single-key value only if the
 // backend hasn't been redeployed with the total yet.
-function getOrderUsageBytes(order: Order, activeKey: VpnKey | null): number {
-  if (typeof order.total_used_bytes === 'number') return order.total_used_bytes;
-  if (typeof activeKey?.order_total_used_bytes === 'number') return activeKey.order_total_used_bytes;
-  return activeKey?.used_bytes ?? 0;
-}
+
 
 function getAccessUrl(order: Order) {
   const key = getActiveKey(order);
@@ -67,38 +66,9 @@ function getAccessUrl(order: Order) {
   );
 }
 
-function confirmedApplied(payment: OrderPayment) {
-  return payment.review_status === 'confirmed' && String(payment.apply_status || 'applied') === 'applied';
-}
+function summarizePayments(order:Order) { const m=order.money_summary; return {gross:m?.recognized_gross_mmk ?? null,commission:m?.commission_mmk ?? null,platformDue:m?.platform_due_mmk ?? null,pending:m?.awaiting_review_mmk ?? null,pendingCount:order.business_summary?.pending_review_count ?? 0}; }
 
-function summarizePayments(order: Order) {
-  const payments = order.payments ?? [];
-  return payments.reduce(
-    (acc, payment) => {
-      if (confirmedApplied(payment)) {
-        acc.gross += Number(payment.amount_mmk || 0);
-        acc.commission += Number(payment.commission_amount_mmk || 0);
-        acc.platformDue += Number(payment.platform_due_mmk || 0);
-      }
-      if (payment.review_status === 'pending_review') {
-        acc.pending += Number(payment.amount_mmk || 0);
-        acc.pendingCount += 1;
-      }
-      return acc;
-    },
-    { gross: 0, commission: 0, platformDue: 0, pending: 0, pendingCount: 0 },
-  );
-}
-
-function remainingDays(expiryDate?: string | null) {
-  if (!expiryDate) return '-';
-  const end = new Date(`${expiryDate}T23:59:59`);
-  if (Number.isNaN(end.getTime())) return '-';
-  const days = Math.ceil((end.getTime() - Date.now()) / 86_400_000);
-  if (days < 0) return `${Math.abs(days)} days overdue`;
-  if (days === 0) return 'expires today';
-  return `${days} days left`;
-}
+function remainingDays(value?:string|null) { const days=daysLeft(value); return days==null ? "Unavailable" : days<0 ? "Expired" : days===0 ? "Today" : `${days} days left`; }
 
 function truncateMiddle(value: string, head = 18, tail = 8) {
   if (value.length <= head + tail + 3) return value;
@@ -157,8 +127,9 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
           ? { plan_id: planId || order.plan_id, idempotency_key: crypto.randomUUID() }
           : undefined;
 
-      await api.post(`/admin/order-actions/${order.id}/${action}`, body);
-      setMessage(`${action.replace(/-/g, ' ')} completed.`);
+      const result=await api.post(`/admin/order-actions/${order.id}/${action}`, body);
+      setSelectedOrder(null);
+      setMessage(result.data?.message || `${action.replace(/-/g, ' ')} completed.`);
       setTimeout(() => setMessage(''), 5000);
       refresh();
       await onSuccess();
@@ -177,7 +148,7 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
 
   const getActions = (order: Order): ActionMenuItem[] => {
     const summary = summarizePayments(order);
-    const hasPendingPayment = summary.pendingCount > 0;
+    const hasPendingPayment = summary.pendingCount > 0 || (order.order_type === 'purchase' && order.payment_status === 'unpaid' && order.review_status !== 'rejected' && ['pending', 'scheduled'].includes(order.status));
     const busy = loadingId.startsWith(`${order.id}:`);
 
     return [
@@ -206,13 +177,13 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
         onSelect: () => setConfirmReject(order),
       },
       {
-        label: 'Activate',
+        label: order.order_type === 'trial' ? 'Activate trial' : 'Retry setup',
         icon: <Play size={14} />,
-        disabled: busy || order.status !== 'pending',
+        disabled: busy || order.status !== 'pending' || (order.order_type !== 'trial' && !order.business_summary?.can_retry_setup),
         onSelect: () => void runAction(order, 'activate'),
       },
       {
-        label: order.status === 'active' ? 'Extend package' : 'Renew package',
+        label: order.status === 'active' ? 'Buy next package' : 'Renew package',
         icon: <PackagePlus size={14} />,
         disabled: busy || !['active', 'expired', 'stopped'].includes(order.status),
         onSelect: () => openExtend(order),
@@ -313,13 +284,13 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
-                        <StatusBadge status={order.status} />
+                        <BusinessStatus summary={order.business_summary} />
                         {order.order_type ? <Badge variant="outline">{order.order_type}</Badge> : null}
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1.5">
-                        <StatusBadge status={order.payment_status} />
+                        <PaymentReviewStatus summary={order.business_summary} />
                         {order.review_status ? <StatusBadge status={order.review_status} /> : null}
                       </div>
                       {summary.pendingCount > 0 ? (
@@ -331,7 +302,7 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
                       <div className="text-xs text-muted-foreground">{remainingDays(order.expiry_date)}</div>
                     </TableCell>
                     <TableCell>
-                      <div className="text-foreground">{formatBytes(getOrderUsageBytes(order, activeKey))}</div>
+                      <PackageUsage quota={order.business_summary?.quota} freshness={order.business_summary?.usage_freshness} />
                       <div className="text-xs text-muted-foreground">{activeKey?.status || '-'}</div>
                     </TableCell>
                     <TableCell>
@@ -346,7 +317,7 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
                       </Button>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="font-semibold text-foreground">{formatMMK(summary.gross || order.total_paid_mmk || 0)}</div>
+                      <div className="font-semibold text-foreground">{formatMMK(summary.gross)}</div>
                       <div className="text-xs text-muted-foreground">{formatMMK(summary.platformDue)} due</div>
                     </TableCell>
                     <TableCell className="text-right">
@@ -487,8 +458,8 @@ function OrderDetailDialog({
                 <div className="text-sm text-muted-foreground">{order.customer?.telegram_username || sourceLabel(order.source)}</div>
               </div>
               <div className="flex flex-wrap justify-end gap-1.5">
-                <StatusBadge status={order.status} />
-                <StatusBadge status={order.payment_status} />
+                <BusinessStatus summary={order.business_summary} />
+                <PaymentReviewStatus summary={order.business_summary} />
               </div>
             </div>
 
@@ -497,7 +468,7 @@ function OrderDetailDialog({
               <Info label="Plan" value={order.plan?.name || '-'} />
               <Info label="Expiry" value={`${formatDate(order.expiry_date)} (${remainingDays(order.expiry_date)})`} />
               <Info label="Source" value={sourceLabel(order.source)} />
-              <Info label="Usage" value={formatBytes(getOrderUsageBytes(order, activeKey))} />
+              <PackageUsage quota={order.business_summary?.quota} freshness={order.business_summary?.usage_freshness} />
               <Info label="Key Status" value={activeKey?.status || '-'} />
             </div>
           </div>
@@ -505,7 +476,7 @@ function OrderDetailDialog({
           <div className="rounded-lg border border-border p-4">
             <div className="text-xs uppercase text-muted-foreground">Money</div>
             <div className="mt-3 grid grid-cols-2 gap-3">
-              <Money label="Gross paid" value={summary.gross || order.total_paid_mmk || 0} />
+              <Money label="Gross paid" value={summary.gross} />
               <Money label="Owner due" value={summary.platformDue} />
               <Money label="Commission" value={summary.commission} />
               <Money label="Pending" value={summary.pending} />
@@ -582,7 +553,7 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Money({ label, value }: { label: string; value: number }) {
+function Money({ label, value }: { label: string; value: number|null }) {
   return (
     <div className="rounded-lg bg-secondary/35 p-3">
       <div className="text-xs text-muted-foreground">{label}</div>

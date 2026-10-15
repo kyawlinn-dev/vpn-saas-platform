@@ -316,37 +316,40 @@ Resolve any returned rows against their payments and customer history before
 running `0024`. The migration refuses duplicates and never deletes a sale.
 Apply `0024` before deploying code that relies on its unique index.
 
-Provider coexistence: the current `0013` keeps existing servers as Outline and
-requires new panel rows to opt into Marzneshin. Development databases that
-already ran the original `0013` need `0025` to correct old Outline rows.
-Verify `panel_type` for every server after migration. Keep Outline rows and
-their APIs online until their
-last active key is retired. The new backend defaults new production provisioning
-to Outline; `VPN_MARZNESHIN_CANARY_RESELLER_IDS` opts specific reseller UUIDs
-into panel provisioning, and `VPN_NEW_ACCESS_PROVIDER=marzneshin` changes the
-global default only after canary verification. Never set these flags before
-Marzneshin server rows and service IDs are ready.
+### Current provider and migration baseline
+
+Verified 2026-10-15: production Supabase is `daenwuszqdfkbjiatsjs`; local
+development is `huqmzvlzfcexycdrsxpn`. The production API exposes reservation,
+activation and confirmed-payment RPCs, canonical views and order quota fields.
+See `SCHEMA.md` for the observed objects and the limits of that verification.
+Do not infer a complete migration history from filename order or OpenAPI alone.
+
+All active production access uses Marzneshin. `providerForNewAccess()` returns
+`marzneshin`; the Outline runtime and its canary flags are retired. Historical
+Outline server/key rows remain for order history. Do not relabel those rows or
+re-enable their APIs as a normal release step. The old rollout is retained only
+in `PROVIDER_COEXISTENCE_RUNBOOK.md` as historical material.
 
 Migration `0021` transfers server-counter ownership to a database trigger.
 Rehearse the old/new writer overlap on a production-data copy before applying
 it to production. See `PROVIDER_COEXISTENCE_RUNBOOK.md` for release gates.
 
-Minimum production order (each gate must pass before the next):
+Current production release order (each gate must pass before the next):
 
 ```text
 1. Freeze and test the release revision; inventory production schema and data.
-2. Take and restore-test Supabase backup; back up both VPN panels separately.
+2. Take and restore-test Supabase backup; back up the Marzneshin panel separately.
 3. Rehearse each missing migration in order on a production-data copy, checking
    its objects and invariants. Resolve duplicates before 0024.
 4. Gate 0021 separately: prove the old/new counter-writer transition in the
    rehearsal. Do not overlap incompatible writers on production.
 5. Apply only verified missing migrations to production and validate the RPCs,
    views, provider identity, active keys, payments, and counters.
-6. Set production env with new Marzneshin provisioning OFF; deploy backend via
-   Ansible and verify health plus existing Outline key delivery and lifecycle.
+6. Preserve the verified Marzneshin credentials/service assignments; deploy
+   authorized backend changes via Ansible and verify existing SS/VLESS access.
 7. Deploy Mini App if changed, then dashboards after API checks pass.
-8. Create separate Marzneshin server rows and canary one named reseller. Expand
-   only after provider and client checks pass; keep Outline online.
+8. Verify a scoped paid/trial customer, quota, queue and payment review behavior.
+   Adding/migrating VPN nodes is a separate operator task, not a routine deploy.
 ```
 
 ## Marznode VPN Nodes (Marzneshin fleet)
@@ -453,6 +456,55 @@ After production deployment:
 - Verify one reseller Mini App opens from Telegram.
 - Verify one ssconf URL fetches from `/k/:token.json`.
 
+## Messenger Rollout Gate
+
+Shared purchase/Messenger work is currently development-only. Do not deploy this
+branch or publish the Meta app without a separate explicit production order.
+Apply migrations 0027, 0028 and subsequent Messenger compatibility migrations to
+the intended database before deploying shared purchase callers. These callers
+need `submit_purchase` even when the Messenger feature flag is off.
+
+For local testing use `backend/.env.local`, the development database and
+`npm run dev:messenger` (loopback port 3010), with an ngrok HTTPS tunnel. The
+standalone runner does not start Telegram managers or scheduled backend jobs.
+Bind `MESSENGER_RESELLER_ID` and `MESSENGER_PAGE_ID` explicitly. Enable purchases
+only after migration/configuration checks; secrets stay backend-only.
+
+Rollback Messenger delivery with `MESSENGER_PURCHASES_ENABLED=false` and a worker
+restart. This restores the connection-test greeting, not production purchasing.
+Do not drop operation records/tables: they protect retries and cancellations.
+Rolling back shared callers requires the prior backend revision while retaining
+the additive schema. Inspect processing/recovery-required operations before
+resuming. Meta review needs a role-authorized test account, demonstration of
+purchase/receipt/My VPN/review/support, privacy-policy and data-deletion details.
+
+## Channel Notifications And Trials Migration Gate
+
+Apply 0031_notification_deliveries.sql, 0032_messenger_profile_cache.sql,
+0033_customer_trial_claims.sql, 0034_purchase_notification_outbox.sql, and
+0035_trial_recovery_authorization.sql, and 0036_trial_claim_alias_fix.sql in order
+to the development project first.
+0034 changes the delivery claim RPC to accept event_key and adds a transactional
+admin-alert outbox; it is required by the new notification sender. 0035 is a
+forward-only recovery/auth correction even when 0033 was already applied.
+
+Run `node scripts/check-channel-notifications-dev.mjs` and
+`node scripts/check-trial-claims-dev.mjs` from backend. These scripts pin the
+development project, create scoped audit fixtures, and clean them up. They do not
+send provider messages or provision VPN keys. They are not production scripts.
+
+Restart local processes only when the owner chooses to do so. Validate a new
+Messenger receipt in the configured Telegram admin chat, approval from both the
+dashboard and Telegram, and explicit trial/name behavior with a role-authorized
+test account. Meta profile permissions are an independent gate: code does not
+grant them. Do not promise proactive Messenger reminders outside its response
+window. Production migrations/deployment need separate explicit authorization.
+
+For an uncertain delivery, inspect provider evidence before resetting its state;
+a timeout may have followed a successful send. For uncertain trial provisioning,
+reconcile the exact order and panel key before resetting provision_status. Never
+clear a claim to issue another trial or duplicate an existing panel user.
+
 ## Retired Paths
 
 These are intentionally removed or disabled in this repository:
@@ -465,3 +517,14 @@ The backend keeps only the current customer key surfaces on the Droplet:
 `/k/:ssconf_token.json` and `/open-key?url=ssconf://...`. Legacy token portal
 routes (`/t`, `/sub`, `/open/:token/:region`, `/api/public/subscription`) are
 not mounted.
+
+## Pending business-display release prerequisite
+
+The business-display release requires reviewed migrations 0037, then 0038, then 0039 before its
+backend, then the dependent dashboards/Mini App. These are independent of Messenger
+0027–0036. Use the pinned production-only source in the
+[scoped release plan](docs/superpowers/plans/2026-10-15-production-business-display-release.md),
+which includes the original circular Mini App design. Never source an Ansible sync
+from the dirty development checkout. No production application is implied by local validation.
+See [business-display release runbook](docs/runbooks/business-display-consistency-release.md)
+for ownership recovery, compatibility, preflight and rollback.

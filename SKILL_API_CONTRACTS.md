@@ -1,6 +1,104 @@
 # SKILL_API_CONTRACTS.md
 
-## Base URL
+## Scope and source
+
+Reviewed 2026-10-15. This file owns detailed API contracts. `API_REFERENCE.md`
+is the route index. The Production sections describe the existing baseline;
+the following development section describes uncommitted local changes and is
+not a production availability claim. Business-display summaries and dashboard setup recovery below were deployed
+on 2026-10-16; the separate development channel additions remain excluded.
+
+## Development only: Messenger, shared purchases and channel delivery
+
+**Not deployed to production.** Requires the development migrations 0027–0036
+and their verification gates; the production schema currently lacks these new
+tables/RPCs. Existing Telegram/Mini App/dashboard callers in this working tree
+also depend on `submit_purchase`, even with Messenger disabled.
+
+Channel update: eligible customers see Start Free Trial as the third main-menu
+button. This explicit postback creates a trial through shared customer eligibility;
+greetings and ordinary text do not provision. A keyless recoverable trial offers
+Retry Trial so capacity failures can resume after session expiry. Active Shadowsocks accounts retain
+Change Server instead. Used history is never reset; retries recover their existing
+trial order, and ambiguous key creation requires admin review.
+
+New submitted customer purchases notify the reseller's configured Telegram admin
+through one shared receipt-alert operation with pay_ok/pay_no callback formats.
+Review callbacks require that configured admin's Telegram identity. Dashboard and
+Telegram reviews trigger customer payment results immediately through the same
+channel-aware service. Payment results bypass reminder daily caps, retain customer
+pause controls, and deduplicate per reviewed payment, not just per order.
+
+Scheduled trial/subscription/usage reminders route by order source. Reviewed
+payments route by payment source. Messenger receives plain text and inline inbox
+navigation, not Telegram Mini App/support links, and only inside its permitted
+response window. Profile name lookup is nonfatal and preserves manual names.
+
+`GET /api/messenger/webhook` accepts Meta's `hub.mode=subscribe`, `hub.verify_token`, and `hub.challenge` query values. It returns the challenge as plain text only when the configured secret matches; otherwise 403 (503 when Messenger credentials are absent).
+
+`POST /api/messenger/webhook` requires a valid `X-Hub-Signature-256` HMAC over the original JSON request bytes using `META_APP_SECRET`. Invalid signatures return 403, signed invalid JSON/payloads return 400. Only `MESSENGER_PAGE_ID` is processed; echoes and other Pages are ignored.
+
+With `MESSENGER_PURCHASES_ENABLED=true`, accepted messages/postbacks are durably
+inserted before HTTP 200; storage failures return 503 for Meta retry. Deduplication
+uses `(page_id,message_id)`. Workers handle replies and receipts asynchronously,
+retry up to five times, and persist checkout checkpoints separately from Redis
+sessions. Customer identity is scoped by reseller/Page/sender. Buy, protocol/plan
+selection and receipt upload use shared purchase/lifecycle rules.
+The main menu uses inline buttons: Buy Package and My Account, plus Change Server
+for an active Shadowsocks key. There is no Live Chat / Chat with Admin button.
+My Account has three inline buttons: Get VPN Key, Check Balance (VPN data and
+validity), and Back. Normal account, server and checkout navigation use button
+templates, with at most three buttons per message; overflow navigation uses a
+separate inline message. Server selection revalidates the scoped active order,
+key, trial tier and capacity before delegating to `switchOrderServer`. Interrupted
+switches with an ambiguous external outcome require admin reconciliation rather
+than automatic reprovisioning. An atomic, non-expiring Redis switch guard scoped
+by reseller/Page/sender/order survives session expiry and blocks fresh taps too.
+Only a proven completed operation clears the guard automatically.
+Checkout is app -> duration (30 Days, 90 Days, Back) -> up to three matching plans
+per page -> payment details/receipt. Queued checkout keeps its active protocol
+locked and starts at duration. Duration and plan selection revalidate live plans.
+Checkout navigation uses Back only; no Cancel Purchase action, quick replies, or
+extra purchase-progress message is emitted. Back traverses receipt -> plans ->
+duration -> app -> main menu, clearing only a draft when leaving checkout.
+Old Cancel payloads have no cancellation effect and cannot discard saved purchase
+commands. Old MY_VPN/SUPPORT payloads remain accepted
+for previously delivered messages; legacy support replies contain no links.
+Message events deduplicate by mid; timestamped postbacks derive an identity from
+Page/sender/time/payload so missing or shared originating mids cannot drop taps.
+Ordinary free text and unrelated attachments have a silent fallback, leaving
+the conversation available for Page-inbox admin replies without changing checkout.
+Only exact Hi/Hello/Start/\/start/Main Menu text triggers menu navigation; all
+other action aliases require a button payload. Unknown/removed button payloads
+are ignored. Images are treated as receipts only in awaiting-receipt/submitting
+checkout; previously checkpointed purchases still resume after session expiry.
+Receipt URLs must pass restricted CDN/HTTPS/size/image validation. Confirmation
+and rejection notifications are best-effort, within the 24-hour response window;
+delivery failure cannot undo committed accounting.
+
+With the flag off, only Hi/Hello/Start/GET_STARTED produce the fixed connection
+greeting; reply failure returns 503 and deduplication is in-memory. No purchases
+or customer mutations occur in that mode.
+
+The standalone `npm run dev:messenger` runner exposes this contract on loopback
+port 3010 without starting Telegram or scheduled jobs. Purchase mode requires
+the development database and Redis. See `docs/MESSENGER_LOCAL_SETUP.md`.
+These Messenger/shared-purchase changes have not been deployed to production.
+
+Telegram, Mini App and reseller-dashboard creation call `submitPurchase` with
+trusted actor/channel metadata; no new public generic purchase API is exposed.
+Existing HTTP response shapes remain unchanged. Customers cannot set paid/review
+status or prices. Staff-created orders remain pending activation. Replaying a
+completed receipt uses its existing order; cancelled request tombstones reject
+recreation. Panel-ambiguous retries return `PURCHASE_RECOVERY_REQUIRED` instead
+of creating a new order. These callers require migrations even with Messenger off.
+Fresh-session retries for matching unfinished caller/plan/protocol reuse the
+recorded receipt/request command; they cannot charge/provision a new purchase.
+Support must resolve incompatible or ambiguous unfinished operations first.
+Migration 0030 preserves staff preparation for inactive identities; it does not
+allow inactive customers to submit their own checkout or activate access.
+
+## Production API base and disabled operations
 
 All JSON API routes are under `/api`. Local backend runs on port 3000.
 
@@ -220,6 +318,17 @@ Removed public routes:
 
 ## Reseller Routes
 
+Messenger dashboard compatibility: `GET /api/reseller/orders?scope=self_service_purchases`
+returns purchase orders from `miniapp`, `bot`, and `messenger`, scoped to the
+authenticated active reseller without requiring a connected Telegram bot. The
+legacy `telegram_purchases` scope retains its bot gate and Telegram-only sources.
+The existing `telegram_review` counts field now includes Messenger purchases.
+Customer list/type filters support `messenger`; reseller customer counts add
+`messenger` and exclude those customers from `normal`. Reseller manual activate,
+extend, renew, stop, and cancel-scheduled actions return 403
+`MESSENGER_CUSTOMER_ACTION` for Messenger-managed customers/orders. Payment
+confirmation/rejection remains available through the existing review actions.
+
 Mounted under `/api/reseller`, protected by reseller httpOnly auth cookies.
 Every query must be scoped by `req.reseller.id`.
 
@@ -249,13 +358,11 @@ change their own bot.
 - `GET /api/reseller/accounting/monthly/settlement-proof-url?month=YYYY-MM`
 - `POST /api/reseller/order-actions/:orderId/:action`
 
-During Outline/Marzneshin coexistence, switching an active Outline customer
-to VLESS on the same server returns `409 PROTOCOL_REQUIRES_MARZNESHIN` without
-retiring the working key. Move the customer to a Marzneshin server first.
-Mini App server selection returns `403 PROTOCOL_UNSUPPORTED_ON_SERVER` when a
-VLESS subscription targets a legacy Outline server.
-Admin server responses include `panel_type` (`outline` or `marzneshin`) so the
-operator can verify which provider owns each server row during coexistence.
+Production selects Marzneshin for all new access. Historical Outline rows are
+not selectable provisioning targets; provider guards reject retired providers.
+Admin server responses retain `panel_type` to distinguish live panel rows from
+historical rows. The old coexistence error behavior is historical and must not
+be used to re-enable Outline provisioning.
 
 `GET /api/reseller/orders` query params: `status` (`pending`/`active`/
 `expiring`/`overdue`/`expired`/`stopped`; `expiring` is a derived window, not
@@ -286,8 +393,8 @@ directly, so the dashboard never has to show a raw internal server slug.
 
 `POST /api/reseller/orders/:orderId/switch-server` — body
 `{ "new_server_id": "uuid" }`. Provisions a fresh key on the new server first
-(`migrateActiveOrderToServer`), then best-effort retires the old key (Outline
-delete + DB `status: deleted` + capacity decrement) — the customer's
+(`migrateActiveOrderToServer`), then best-effort retires the old panel user and
+marks its DB key deleted; the database owns capacity counts. The customer's
 `ssconf_token`/dynamic access URL never changes, only the underlying key/
 server. No rate limit, no automatic customer notification (reseller's call).
 400s: `NO_ACTIVE_KEY`, `SAME_SERVER`, `SERVER_NOT_AVAILABLE`,
@@ -304,9 +411,11 @@ Payment review actions:
 - `POST /api/reseller/order-actions/:orderId/confirm-payment`
 - `POST /api/reseller/order-actions/:orderId/reject-payment`
 
-These update `order_payments` first, then sync the cached money fields on
-`vpn_orders`. When a pending Mini App `extend` payment exists, confirmation
-applies the package duration and data quota before marking the payment applied.
+These review `order_payments` and maintain the existing cached order summary.
+Scheduled next purchases remain separate from the current package. Confirmation
+does not add their allowance to the active package; a confirmed queue activates
+through the existing lifecycle when no active package remains. Compatibility
+handling for old in-place extend events remains in the lifecycle service.
 
 Package actions:
 
@@ -339,6 +448,12 @@ attempt. The backend also accepts the `Idempotency-Key` header.
 Returns a reseller-scoped monthly accounting snapshot. When payment ledger rows
 exist, the month filter uses `order_payments.created_at` as the period basis.
 Legacy orders without ledger rows fall back to `vpn_orders.created_at`.
+
+**Current limitation:** the reseller accounting router selects a ledger path
+when the requested month has payment rows and an order fallback otherwise.
+Mixed legacy/ledger reconciliation and zero-versus-missing handling are part of
+the unimplemented business-display plan; do not claim every accounting surface
+already combines them consistently. The period basis remains creation time.
 
 Response summary:
 
@@ -625,17 +740,25 @@ not orphaned.
 ```
 
 Before deleting database rows, the backend stops selected order access through
-the normal order lifecycle so active Outline keys and token assignments are
+the normal order lifecycle so active panel keys and token assignments are
 removed first.
 
 ### Admin Order Actions
 
 `POST /api/admin/order-actions/:orderId/confirm-payment` confirms pending
 payment ledger rows and records `reviewed_by_admin_id`.
+For a queued purchase, successful confirmation also records/applies the payment
+through the ledger RPC while the order remains `scheduled` without a new key.
+Its received amount, commission and platform due count at that point under the
+existing accounting period rules. Automatic activation after the current package
+stops or expires must not create another charge or count that payment again.
+Here `apply_status = applied` describes payment recording, not VPN activation.
 
 `POST /api/admin/order-actions/:orderId/reject-payment` rejects pending payment
 ledger rows and records `reviewed_by_admin_id`. Rejecting an initial purchase
-can stop access; rejecting a top-up reverses only the pending package event.
+can stop that order's access. A queued next package is its own order and must
+not be described as rejection of a separate current package. Compatibility
+reversal for older in-place top-ups remains in the lifecycle service.
 
 ### `GET /api/admin/analytics?month=YYYY-MM`
 
@@ -809,3 +932,67 @@ Responses:
 - `200`: update accepted
 - `403`: invalid webhook secret
 - `404`: reseller bot not running
+
+## Business display summaries (production release 2026-10-16)
+
+Staff order GET payloads add business_summary (access_status, payment_review_status,
+application_status, pending_review_count, has_active_key, is_expiring_soon, quota,
+usage_freshness, snapshot_basis, setup_status, can_retry_setup) and money_summary
+(basis, confirmed_mmk, recognized_gross_mmk, commission_mmk, platform_due_mmk,
+awaiting_review_mmk, rejected_mmk). Missing money inputs are null/unavailable,
+not cached fallback. Quota uses exact order bytes; key cap is not package total.
+Staff customer payloads add current_order, queued_order and last_order; active_order
+is retained as a compatibility alias. No ended order substitutes for current access.
+Mini App auth adds public business_summary to subscription and queued_subscription,
+and a separate last_subscription without keys/access links. purchase_receipts
+contains customer/tenant-scoped historical purchase review projections with only
+order_id, status, review_status and public business_summary. This includes a
+rejected unstarted queue so a matching receipt can refresh independently of current
+access; it does not become Last package. Checkout order adds
+public business_summary and amount_mmk from its recorded payment. Explicit public
+projection excludes money_summary, commission/due and staff retry controls.
+Usage freshness is fresh within two hours of the oldest relevant successful server
+sync, stale beyond it, unknown with missing evidence. Missing monitoring metadata
+does not fabricate a successful sync. Package dates use Asia/Bangkok.
+
+### Dashboard start/queue and setup recovery (production; migrations 0037–0039)
+
+POST /api/reseller/orders accepts a UUID idempotency_key for non-trial dashboard
+purchases. The key must stay the same across retries of one normalized payload;
+changed-payload replay returns REQUEST_CONFLICT. The backend derives plan price,
+commission, customer/tenant ownership and source. A paid receipt is confirmed and
+applied atomically before provider setup; unpaid orders have no received-payment
+entry. Existing active paid access causes a separate queue; an unreviewed current
+purchase or second queue is rejected under existing eligibility rules.
+
+The compatible order response adds order_id and purchase_outcome: active, queued,
+awaiting_payment, setup_failed or setup_in_progress. setup_failed/in_progress are
+recorded purchase outcomes, not a request to purchase/pay again. Missing setup RPCs
+fail closed with SETUP_UNAVAILABLE (503). Legacy clients without the request key
+keep their existing manual create flow until migrated. Trials retain their existing
+no-payment eligibility. New clients remove normal Activate VPN and use Retry setup
+for eligible recorded purchases; pending legacy orders can be explicitly recovered.
+
+Existing staff activate endpoints remain guarded/idempotent and now coordinate
+dashboard setup; payment confirmation/mark-paid starts or queues the same dashboard
+order. Telegram initial-access/review behavior stays unchanged. Staff summaries
+include setup_status, setup_in_progress and can_retry_setup from persisted setup
+evidence; public summaries omit staff recovery controls. Never infer a provider
+failure solely from no key. Already running setup requires reconciliation after a
+crash rather than stealing the owner or resubmitting a purchase.
+
+Paid staff Renew/Buy next actions also use atomic prepare/start/queue for dashboard
+and admin sources, retaining the source and renew/extend payment type. Admin follow-up
+actions may retain their existing Telegram-customer eligibility only with a verified
+same-tenant/customer origin order. Reseller manual creation remains Telegram-gated.
+Failed follow-up setup preserves the recognized receipt and new pending order for
+Retry setup. No provider error deletes or unrecognizes that sale. Initial receipt
+creation during empty-ledger confirmation/rejection uses a deterministic per-order
+idempotency key, protected by the existing reseller/key unique index.
+
+Business summaries also expose duration_days. A single matching payment duration
+snapshot wins over a changed catalogue; ambiguous multi-event legacy duration is
+labelled catalogue/unavailable rather than reconstructed as a historical fact.
+Telegram queue promotion also provisions from a single confirmed/applied matching
+payment snapshot where available, preserving recorded duration/quota after catalogue
+edits. Missing/ambiguous historical snapshots retain catalogue fallback.

@@ -12,7 +12,8 @@ Build and modify the admin dashboard, reseller dashboard, and Telegram Mini App 
 
 - Implement React pages and components in `admin-dashboard/` and `reseller-dashboard/`.
 - Implement Telegram Mini App screens and flows in `miniapp/`.
-- Keep API client functions in `src/services/api/` in sync with `SKILL_API_CONTRACTS.md`.
+- Keep dashboard clients in each app's `src/lib/api.ts` and Mini App clients in
+  `miniapp/src/features/auth/api.js` in sync with `SKILL_API_CONTRACTS.md`.
 - Keep `src/types/api.ts` in sync with backend response shapes.
 - Run `npm run build` to verify no TypeScript or build errors after changes.
 
@@ -33,5 +34,5 @@ Do not:
 - Use MUI or any component library other than shadcn/ui.
 - Hard-code the backend URL — use `VITE_API_BASE_URL` env var.
 - Hard-code the miniapp slug — read it from `Telegram.WebApp.initDataUnsafe.start_param` at runtime.
-- Touch files in `admin-dashboard/src/app/` (dead Next.js scaffold).
+- Reintroduce the retired Next.js `src/app/` scaffold into the Vite admin app.
 - Change backend service files directly.

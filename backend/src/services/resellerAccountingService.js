@@ -1,4 +1,5 @@
 import { currentBusinessMonth, parseBusinessMonth } from "../utils/businessTime.js";
+import { isEligibleLegacyOrder } from "./paymentSummaryService.js";
 
 function money(value) {
   const number = Number(value || 0);
@@ -131,8 +132,17 @@ export function buildSettlementPayload({ snapshot, transferNote, transferReferen
   };
 }
 
-export function buildMonthlyAccountingSnapshot({ reseller, orders, period }) {
-  return buildMonthlyAccountingSnapshotFromOrders({ reseller, orders, period });
+export function buildMonthlyAccountingSnapshot({ reseller, orders, payments, period }) {
+  if (!Array.isArray(payments)) return buildMonthlyAccountingSnapshotFromOrders({ reseller, orders, period });
+  const ledgerIds = new Set(payments.map((p) => p.order_id));
+  const legacy = (orders || []).filter((o) => !ledgerIds.has(o.id) && Array.isArray(o.payments) && !o.payments.length &&
+    (isEligibleLegacyOrder(o, {ledgerLoaded:true}) || !isConfirmedPaidPurchase(o)));
+  const a = buildMonthlyAccountingSnapshotFromPayments({reseller, payments, period});
+  const b = buildMonthlyAccountingSnapshotFromOrders({reseller, orders:legacy, period});
+  for (const key of Object.keys(a.summary)) a.summary[key] += b.summary[key];
+  a.settlement_orders.push(...b.settlement_orders);
+  a.basis.included_orders = "confirmed/applied ledger payments plus confirmed paid orders with no ledger history";
+  return a;
 }
 
 export function buildMonthlyAccountingSnapshotFromPayments({ reseller, payments, period }) {
@@ -177,7 +187,7 @@ export function buildMonthlyAccountingSnapshotFromPayments({ reseller, payments,
       review_status: payment.review_status ?? "confirmed",
       price_mmk: money(order.price_mmk),
       total_paid_mmk: money(payment.amount_mmk),
-      commission_percent: Number(payment.commission_percent || reseller?.commission_percent || 0),
+      commission_percent: Number(payment.commission_percent ?? reseller?.commission_percent ?? 0),
       commission_amount_mmk: money(payment.commission_amount_mmk),
       platform_due_mmk: money(payment.platform_due_mmk),
     };
@@ -247,7 +257,7 @@ export function buildMonthlyAccountingSnapshotFromOrders({ reseller, orders, per
     review_status: order.review_status ?? "confirmed",
     price_mmk: money(order.price_mmk),
     total_paid_mmk: amountPaid(order),
-    commission_percent: Number(order.commission_percent || reseller?.commission_percent || 0),
+    commission_percent: Number(order.commission_percent ?? reseller?.commission_percent ?? 0),
     commission_amount_mmk: money(order.commission_amount_mmk),
     platform_due_mmk: Math.max(0, amountPaid(order) - money(order.commission_amount_mmk)),
   }));

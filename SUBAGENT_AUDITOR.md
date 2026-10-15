@@ -17,7 +17,8 @@ Independently review completed implementations for security, performance, reliab
 - Check input validation on all public and authenticated routes
 - Check CORS configuration matches intended origins
 - Check for inefficient N+1 Supabase queries
-- Check server capacity concurrency (optimistic loop in `subscriptionProvisionService.js`)
+- Check server capacity concurrency (`reserve_pending_key` / `activate_vpn_key`
+  in `subscriptionProvisionService.js`, ownership/retry guards, database counter)
 - Check background jobs (`autoStopJob`, `syncUsageJob`) for silent failure modes
 - Check environment variable guards (no production secrets in seed data or logs)
 - Save report to `audit/reports/audit-YYYYMMDD-HHMMSS.md`
@@ -27,7 +28,7 @@ Independently review completed implementations for security, performance, reliab
 - `SKILL_BACKEND.md`
 - `SKILL_DATABASE.md`
 - `SCHEMA.md`
-- `SYSTEM_DESIGN.md` §7 (engineering principles)
+- `SYSTEM_DESIGN.md` (Engineering Principles; distinguish development from production)
 
 ## Risk Levels
 

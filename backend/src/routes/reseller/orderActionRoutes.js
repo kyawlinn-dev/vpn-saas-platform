@@ -68,6 +68,7 @@ async function assertNormalCustomer(orderId, resellerId) {
 }
 
 function sendActionError(res, err, fallbackMessage) {
+  if (err.code?.startsWith("SETUP_") && err.status) return res.status(err.status).json({success:false,error:err.message,code:err.code});
   if (err instanceof OrderLifecycleError) {
     return res.status(err.status || 400).json({
       success: false,
