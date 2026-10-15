@@ -1,6 +1,6 @@
 # Production Business Display Consistency Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Make production business displays agree and simplify dashboard purchases to automatically start or queue after payment, with safe setup recovery.
 
@@ -343,20 +343,20 @@ change; Task 6A now includes the separately approved migration 0037.
 
 **Interfaces:** Browser runner exports `validateBaseUrls(urls) -> void`, accepts `ADMIN_BASE_URL`, `RESELLER_BASE_URL`, `MINIAPP_BASE_URL`, defaults to loopback ports 3001/3002/3003, and refuses non-loopback hosts. Direct CLI execution runs cases; importing it must not launch browsers. It mocks auth/data/mutations/provider requests and renders the common fixture cases. Validation report records command, commit, result, viewport/locale/time zone and gaps.
 
-- [ ] Add a failing runner guard test: any production/non-loopback URL is rejected before browser navigation. Complete cross-app assertions for date/month boundaries, full-scope totals across pages, action refresh, stale receipt precedence, no-current filters, EN/MM customer copy and no leaked staff financial fields.
+- [x] Add a failing runner guard test: any production/non-loopback URL is rejected before browser navigation. Complete cross-app assertions for date/month boundaries, full-scope totals across pages, action refresh, stale receipt precedence, no-current filters, EN/MM customer copy and no leaked staff financial fields.
   Named test `rejects production browser targets`: `assert.throws(() => validateBaseUrls(['https://app.novanetmm.com']), /loopback/)`. Run `node --test tests/businessDisplayRunner.test.mjs` in reseller-dashboard; expected all guard tests pass after implementation.
-- [ ] Run all backend tests, three apps' Node tests, both dashboard builds, Mini App lint/build and the browser runner against independently launched loopback app servers. Use test/development env only; do not start production jobs. Repeat a check only after relevant changes or failures.
+- [x] Run all backend tests, three apps' Node tests, both dashboard builds, Mini App lint/build and the browser runner against independently launched loopback app servers. Use test/development env only; do not start production jobs. Repeat a check only after relevant changes or failures.
   Commands: backend `npm test`; each dashboard `node --test tests/*.test.mjs` then `npm run build`; Mini App `node --test tests/*.test.js tests/*.test.mjs`, `npm run lint`, `npm run build`; reseller `node scripts/check-business-displays.mjs`. Expected: all tests/cases pass and all commands exit 0. Run required CI dependency audits as configured, without changing dependencies to silence an unrelated baseline finding.
-- [ ] Review every inventory row: mark verified unchanged or changed with evidence. Ensure runtime changes include no Messenger migrations/services, production secrets or unrelated files. Confirm no historical data backfills or settlement snapshot edits; Task 6A may write only scoped operational order/payment/key changes through existing services. Include dashboard create/confirm/retry, duplicate requests and provider-failure recovery in final verification.
-- [ ] Keep documentation current within each owning task's commit: API shapes in
+- [x] Review every inventory row: mark verified unchanged or changed with evidence. Ensure runtime changes include no Messenger migrations/services, production secrets or unrelated files. Confirm no historical data backfills or settlement snapshot edits; Task 6A may write only scoped operational order/payment/key changes through existing services. Include dashboard create/confirm/retry, duplicate requests and provider-failure recovery in final verification.
+- [x] Keep documentation current within each owning task's commit: API shapes in
   Task 4, exact source-copy references after Tasks 5–8, and behavior/known-bug
   status when verified. Task 9 must rerun dictionary/export/route/link checks and
   compare docs with the final release source. Mark the usage-bar bug resolved only
   after regression and rendered verification; retain historical evidence and
   development/production stage labels. Do not claim future deployment from a local
   passing test or change an existing settlement snapshot.
-- [ ] Write release order: approved migration 0037 first, compatible backend second, dependent dashboards/Mini App after; preserve per-component rollback references and old API aliases. Document that old dashboard clients may still submit an activate request after automatic setup: it must safely return the existing active order without repeating payment/provisioning. Document behavior rollback for paid pending/setup-failed orders without undoing recorded money or bulk reactivation. Add the read-only post-release comparison checklist using current live values, not frozen Ye Yint readings. No deployments occur in this task.
-- [ ] Run `git diff --check`, inspect exact release diff and perform the selected execution method's final code review; resolve findings, rerun affected checks, then commit `test: verify production business display consistency` and report files, tests and explicit deployment follow-up.
+- [x] Write release order: approved migration 0037 first, compatible backend second, dependent dashboards/Mini App after; preserve per-component rollback references and old API aliases. Document that old dashboard clients may still submit an activate request after automatic setup: it must safely return the existing active order without repeating payment/provisioning. Document behavior rollback for paid pending/setup-failed orders without undoing recorded money or bulk reactivation. Add the read-only post-release comparison checklist using current live values, not frozen Ye Yint readings. No deployments occur in this task.
+- [x] Run `git diff --check`, inspect exact release diff and perform the selected execution method's final code review; resolve findings, rerun affected checks, then commit `test: verify production business display consistency` and report files, tests and explicit deployment follow-up.
 
 ## Self-review and execution handoff
 

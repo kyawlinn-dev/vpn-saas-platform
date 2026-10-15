@@ -487,6 +487,10 @@ export function OrdersTable({
 
       setDetailsDialog({open:false,order:null});
       const data = res?.data;
+      if (data?.purchase_outcome === "setup_failed" || data?.purchase_outcome === "setup_in_progress") {
+        setMessage(data.message || "Payment recorded. Check setup on the new order.");
+        return;
+      }
       const accessUrl: string = getPreferredAccessUrlFromPayload(data);
       const customerName = order.customer?.full_name || "Customer";
 

@@ -1,4 +1,4 @@
-import { summarizeOrderBusiness, toPublicBusinessSummary, selectCustomerPackages } from "../../services/businessDisplayService.js";
+import { summarizeOrderBusiness, toPublicBusinessSummary, toPublicPurchaseReceipt, selectCustomerPackages } from "../../services/businessDisplayService.js";
 import { readAllRows } from "../../utils/readAllRows.js";
 import { loadUsageFreshness,summarizeUsageFreshness } from "../../services/usageFreshnessService.js";
 import express from "express";
@@ -1008,6 +1008,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
           telegram_username: telegramUsername,
         },
         last_subscription: lastSubscription,
+        purchase_receipts: (history || []).filter(order => order.order_type === "purchase").map(toPublicPurchaseReceipt),
         subscription: activeOrder
           ? {
               business_summary: toPublicBusinessSummary(summarizeOrderBusiness({...activeOrder,keys:currentKeyRow ? [{...currentKeyRow,status:"active"}] : []},{quota:toQuotaPayload(orderQuota),freshness})),

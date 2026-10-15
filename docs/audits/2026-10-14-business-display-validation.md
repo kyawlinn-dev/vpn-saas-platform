@@ -1,7 +1,7 @@
 # Business display consistency validation
 
 Execution date: 2026-10-15, Asia/Bangkok. Branch: codex/production-business-display-consistency.
-Baseline: main 786dd5f. Production remains unchanged. Independent final review pending.
+Baseline: main 786dd5f. Production remains unchanged. Independent whole-branch review completed; all eight Important findings fixed with regression evidence.
 
 ## Implemented behavior
 
@@ -29,9 +29,9 @@ Baseline: main 786dd5f. Production remains unchanged. Independent final review p
 
 ## Verification evidence
 
-- Backend: 39 files / 231 tests passed using loopback-only placeholder DB settings;
+- Backend: 43 files / 238 tests passed using loopback-only placeholder DB settings;
   no server/job process or real DB/provider/notification mutation was started.
-- Client Node contracts: 4 admin, 6 reseller (including browser safety guards), 11
+- Client Node contracts: 4 admin, 6 reseller (including browser safety guards), 12
   Mini App tests passed. Timezone checks spawn UTC, America/Los_Angeles and Asia/Yangon
   processes and agree at Bangkok midnight/month rollover.
 - All three production builds and Mini App lint passed. Native Node syntax checked
@@ -84,7 +84,59 @@ services, customer protocol and oldest-server freshness regressions are covered.
 - Task 9: Ruling: preserve legacy paid-order price fallback when old cached total_paid_mmk is zero; this is separate from ledger-backed zero, which never falls back — existing pre-ledger compatibility — treating legacy zero as definite free money would drop historical paid orders. Added RED→GREEN regression.
 - Task 9: Ruling: confirmed paid dashboard pending setup reserves current purchase position; a subsequent purchase queues behind it and third queue is rejected — prevents multiple paid pending purchases bypassing the queue limit during provider delay — retry must complete the first purchase before queued service starts. SQL RED→GREEN. Claim re-reads order under locks to prevent a stale request reverting active access to pending.
 
-Final review is dispatched read-only against a949af1. The documentation index
-now distinguishes local implementation from production and names the actual
-GitHub Actions dashboard deployment path. No runtime edits are being made while
-the independent review runs.
+## Independent review and fix pass
+
+Reviewer examined 786dd5f..a949af1 read-only. No Critical findings; eight Important
+findings were accepted and fixed in one pass. No second reviewer pass was requested.
+The reviewer initially hit a usage limit, then resumed the same review context.
+
+1. Concurrent empty-ledger confirmation could create duplicate receipts. Forced
+   concurrent reads reproduced two receipts; deterministic per-order initial keys
+   now use the existing database uniqueness/reload path. Test RED→GREEN.
+2. Rejected queued checkout could retain cached pending review. A public whitelist
+   of scoped historical receipt facts lets a matching rejected order supersede cache
+   without becoming current/last. Backend projection and client tests RED→GREEN.
+3. Staff renewal and admin next-package purchases bypassed durable setup. They now
+   use atomic prepare/start/queue with source and receipt type retained. Provider
+   failure preserves recognized money and a retryable order. Lifecycle tests
+   RED→GREEN; executable SQL verifies admin source/renew type/failed setup receipt
+   preservation and owner retry. Restrictive payment FKs made the old attempted
+   deletion fail silently, leaving an active keyless failed-payment row.
+4. Admin disabled confirmation for unpaid purchases with no ledger rows. Rendered
+   zero-event unpaid fixture failed before the eligibility fix and passes afterward.
+5. Accounting dropped unpaid no-ledger amounts/counts. Regression RED→GREEN;
+   operational unpaid/order totals remain separate from recognized money.
+6. Bot active selection used UTC, with no last-package fallback before lifecycle
+   cleanup. Bangkok midnight regression RED→GREEN, including raw-active expired rows.
+7. Keyed creation ignored requested changes to an existing customer. SQL regression
+   RED→GREEN for name/notes/phone/protocol and inert exact replay, under the lock.
+8. Telegram queue promotion used edited catalogue values. Recorded matching payment
+   duration/quota now drives provisioning; snapshot regression RED→GREEN, including
+   unlimited quota. Missing/ambiguous history keeps the documented catalogue fallback.
+
+Post-fix backend: 43 files/238 tests passed. Client contracts: 4 admin, 6 reseller,
+12 Mini App; three production builds, Mini App lint, loopback browser matrix
+(including newly unpaid admin action) and executable SQL passed. No dependencies
+changed; prior four zero-vulnerability audits remain applicable.
+
+Final: Ruling: existing paid queue cancellation/refund accounting is preserved —
+no refund-policy change was approved — cost if wrong: requires a separate product
+policy and accounting change before changing cancellation treatment.
+Final: Ruling: crashed running ownership remains operator-reconciled — approved
+no-timeout-takeover policy — cost if wrong: stuck setup needs operator attention.
+Final: Ruling: old unkeyed clients retain their weaker create replay guarantee —
+compatible staged rollout — cost if wrong: old-client retries can still duplicate intent.
+Final: Ruling: live constraints/triggers/grants certification remains release
+preflight — local implementation does not authorize production operations — cost
+if wrong: production-specific DDL incompatibility must be caught before deployment.
+Final: Ruling: unrelated Messenger/development changes remain outside this branch —
+production baseline is the authorized scope — cost if wrong: separate integration is
+needed for development-only features.
+
+Deferred minors (reviewer findings; no extra polish pass):
+- Equal activation/start selection uses ID before creation-time tie-breaker.
+- Admin customer detail omits the freshness map, so known sync time can show unavailable.
+- Later unpaid receipt/read duration may use labelled catalogue fallback despite an
+  exact operation snapshot being stored; provisioning still uses the exact snapshot.
+
+Production remains unchanged. Migration 0037 and release still require authorization.

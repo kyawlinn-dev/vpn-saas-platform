@@ -59,3 +59,12 @@ it('receipt keeps review separate from active access',()=>{const result=resolveP
 it('fresh matching queue review replaces stale checkout without replacing it with unrelated current access',()=>{const result=resolvePaymentStatus({subscription:{order_id:'active',status:'active',review_status:'confirmed'},queued_subscription:{order_id:'queue',status:'scheduled',review_status:'confirmed'}},null,{is_queued:true,order:{id:'queue',status:'scheduled',review_status:'pending_review'}});assert.equal(result.isQueuedConfirmed,true);assert.equal(result.isPending,false);assert.equal(result.accessStatus,'queued');});
 it('promotion changes receipt access without asking for another payment',()=>{const result=resolvePaymentStatus({subscription:{order_id:'queue',status:'active',review_status:'confirmed'}},null,{is_queued:true,order:{id:'queue',status:'scheduled',review_status:'pending_review'}});assert.equal(result.isQueued,false);assert.equal(result.isApproved,true);});
 it('uses the recorded submitted amount before snapshotted or catalogue price',()=>{assert.equal(resolvePaymentStatus(null,{price_mmk:9000},{order:{amount_mmk:4500,price_mmk:5000}}).priceMmk,4500);});
+
+it('a refreshed rejected queued receipt supersedes cached review while another package stays active', () => {
+  const data = { subscription: { order_id: 'current', status: 'active', review_status: 'confirmed' }, purchase_receipts: [{ order_id: 'queue', status: 'stopped', review_status: 'rejected', business_summary: { access_status: 'stopped', payment_review_status: 'rejected' } }] };
+  const result = resolvePaymentStatus(data, null, { is_queued: true, order: { id: 'queue', status: 'scheduled', review_status: 'pending_review' } });
+  assert.equal(result.isRejected, true);
+  assert.equal(result.isPending, false);
+  assert.equal(result.isQueued, false);
+  assert.equal(data.subscription.status, 'active');
+});

@@ -43,6 +43,13 @@ Status: prepared locally; no deployment or production database application autho
 A failed dashboard setup retains the confirmed/applied payment. Retry setup uses
 that order and its snapshotted plan, with one persisted owner per customer. Never
 resubmit a new purchase or mark payment unpaid to recover provisioning.
+This also applies to paid Renew/Buy next actions from both staff dashboards; admin
+source is retained. Verify an unpaid order with no payment events can be confirmed
+from either dashboard. Concurrent confirmations must leave one initial receipt.
+Confirm a rejected next-package receipt updates while existing current access stays
+active, and a queued Telegram purchase retains purchased duration/quota after a
+catalogue edit. Accounting must retain unpaid amounts/counts outside recognized
+revenue. Bot current/last selection must agree at Bangkok midnight before cleanup.
 
 A running owner is never stolen merely because a timestamp is old. After a crash,
 an operator must stop the relevant workers, establish that the original operation

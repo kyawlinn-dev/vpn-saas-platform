@@ -135,7 +135,8 @@ export function buildSettlementPayload({ snapshot, transferNote, transferReferen
 export function buildMonthlyAccountingSnapshot({ reseller, orders, payments, period }) {
   if (!Array.isArray(payments)) return buildMonthlyAccountingSnapshotFromOrders({ reseller, orders, period });
   const ledgerIds = new Set(payments.map((p) => p.order_id));
-  const legacy = (orders || []).filter((o) => !ledgerIds.has(o.id) && isEligibleLegacyOrder(o, {ledgerLoaded:true}));
+  const legacy = (orders || []).filter((o) => !ledgerIds.has(o.id) && Array.isArray(o.payments) && !o.payments.length &&
+    (isEligibleLegacyOrder(o, {ledgerLoaded:true}) || !isConfirmedPaidPurchase(o)));
   const a = buildMonthlyAccountingSnapshotFromPayments({reseller, payments, period});
   const b = buildMonthlyAccountingSnapshotFromOrders({reseller, orders:legacy, period});
   for (const key of Object.keys(a.summary)) a.summary[key] += b.summary[key];

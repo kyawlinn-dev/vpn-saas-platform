@@ -944,7 +944,11 @@ not cached fallback. Quota uses exact order bytes; key cap is not package total.
 Staff customer payloads add current_order, queued_order and last_order; active_order
 is retained as a compatibility alias. No ended order substitutes for current access.
 Mini App auth adds public business_summary to subscription and queued_subscription,
-and a separate last_subscription without keys/access links. Checkout order adds
+and a separate last_subscription without keys/access links. purchase_receipts
+contains customer/tenant-scoped historical purchase review projections with only
+order_id, status, review_status and public business_summary. This includes a
+rejected unstarted queue so a matching receipt can refresh independently of current
+access; it does not become Last package. Checkout order adds
 public business_summary and amount_mmk from its recorded payment. Explicit public
 projection excludes money_summary, commission/due and staff retry controls.
 Usage freshness is fresh within two hours of the oldest relevant successful server
@@ -977,6 +981,18 @@ evidence; public summaries omit staff recovery controls. Never infer a provider
 failure solely from no key. Already running setup requires reconciliation after a
 crash rather than stealing the owner or resubmitting a purchase.
 
+Paid staff Renew/Buy next actions also use atomic prepare/start/queue for dashboard
+and admin sources, retaining the source and renew/extend payment type. Admin follow-up
+actions may retain their existing Telegram-customer eligibility only with a verified
+same-tenant/customer origin order. Reseller manual creation remains Telegram-gated.
+Failed follow-up setup preserves the recognized receipt and new pending order for
+Retry setup. No provider error deletes or unrecognizes that sale. Initial receipt
+creation during empty-ledger confirmation/rejection uses a deterministic per-order
+idempotency key, protected by the existing reseller/key unique index.
+
 Business summaries also expose duration_days. A single matching payment duration
 snapshot wins over a changed catalogue; ambiguous multi-event legacy duration is
 labelled catalogue/unavailable rather than reconstructed as a historical fact.
+Telegram queue promotion also provisions from a single confirmed/applied matching
+payment snapshot where available, preserving recorded duration/quota after catalogue
+edits. Missing/ambiguous historical snapshots retain catalogue fallback.

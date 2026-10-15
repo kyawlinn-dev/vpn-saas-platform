@@ -148,7 +148,7 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
 
   const getActions = (order: Order): ActionMenuItem[] => {
     const summary = summarizePayments(order);
-    const hasPendingPayment = summary.pendingCount > 0;
+    const hasPendingPayment = summary.pendingCount > 0 || (order.order_type === 'purchase' && order.payment_status === 'unpaid' && order.review_status !== 'rejected' && ['pending', 'scheduled'].includes(order.status));
     const busy = loadingId.startsWith(`${order.id}:`);
 
     return [

@@ -1,4 +1,4 @@
-import {ensureDashboardPurchaseOperation,runDashboardPurchaseSetup} from "./dashboardPurchaseService.js";
+import {prepareDashboardPurchase,ensureDashboardPurchaseOperation,runDashboardPurchaseSetup} from "./dashboardPurchaseService.js";
 import crypto from "node:crypto";
 import { supabase } from "../lib/supabase.js";
 import { getActiveServers, ServerAvailabilityError } from "./serverService.js";
@@ -747,9 +747,16 @@ export async function startOrQueueDashboardPurchase({orderId,resellerId}) {
  return await runDashboardPurchaseSetup({order,resellerId,activate:async planSnapshot=>{await ensureCommissionEntry(await getResellerScopedOrder(orderId,resellerId));return activateOrderDirect({orderId,reseller:{id:resellerId},planSnapshot});}});
  } catch(err) { if(err.status)throw new OrderLifecycleError(err.message,err.status,err.code);throw err; }
 }
+async function createStaffFollowupPurchase({order,plan,source,idempotencyKey,paymentType}) {
+ try {
+ const op=await prepareDashboardPurchase({resellerId:order.reseller_id,requestKey:idempotencyKey || crypto.randomUUID(),payload:{customer_id:order.customer_id,full_name:order.customer?.full_name || "Customer",plan_id:plan.id,payment_status:"paid",source,payment_type:paymentType,origin_order_id:order.id}});
+ const result=await startOrQueueDashboardPurchase({orderId:op.order_id,resellerId:order.reseller_id});
+ return {...result,queued:result.purchase_outcome === "queued"};
+ } catch(err) { if(err.status)throw new OrderLifecycleError(err.message,err.status,err.code);throw err; }
+}
 export async function activateOrder({orderId,reseller}) {
  const order=await getResellerScopedOrder(orderId,reseller.id);
- if(order.source === "dashboard" && order.order_type === "purchase") return startOrQueueDashboardPurchase({orderId,resellerId:reseller.id});
+ if(["dashboard","admin"].includes(order.source) && order.order_type === "purchase") return startOrQueueDashboardPurchase({orderId,resellerId:reseller.id});
  return activateOrderDirect({orderId,reseller});
 }
 async function activateOrderDirect({ orderId, reseller, planSnapshot = null }) {
@@ -872,6 +879,10 @@ export async function extendOrder({ orderId, resellerId, planId, idempotencyKey 
   const reseller = await loadResellerForLifecycle({ id: resellerId });
   const commissionPercent = getPackageCommissionPercent({ order, reseller, plan });
 
+  if (["dashboard","admin"].includes(source) && !plan.is_trial) {
+    return createStaffFollowupPurchase({order,plan,source,idempotencyKey,paymentType:"extend"});
+  }
+
   // Idempotency pre-check: because extend now inserts a queued row, a naive
   // retry would create a duplicate. Return the already-queued plan instead.
   if (idempotencyKey) {
@@ -981,8 +992,13 @@ async function getOldestScheduledOrder(customerId, resellerId) {
 // Bring a queued plan online: set its dates active-from-now and provision fresh
 // keys. On provisioning failure it reverts to 'scheduled' so the next job run
 // retries rather than leaving an active-but-keyless order.
+export function resolvePurchasedPlanSnapshot(order, catalogue, payments) {
+  const recorded=(payments || []).filter(p => (!p.plan_id || p.plan_id === order.plan_id) && p.review_status === "confirmed" && (!p.apply_status || p.apply_status === "applied") && Number(p.package_duration_days)>0);
+  if(recorded.length !== 1) return catalogue;
+  return {...catalogue,duration_days:Number(recorded[0].package_duration_days),data_limit_gb:recorded[0].package_data_limit_gb,price_mmk:order.price_mmk ?? catalogue.price_mmk};
+}
 export async function activateScheduledOrder(scheduledOrder) {
-  if(scheduledOrder.source === "dashboard") return startOrQueueDashboardPurchase({orderId:scheduledOrder.id,resellerId:scheduledOrder.reseller_id});
+  if(["dashboard","admin"].includes(scheduledOrder.source)) return startOrQueueDashboardPurchase({orderId:scheduledOrder.id,resellerId:scheduledOrder.reseller_id});
   if (scheduledOrder.review_status !== "confirmed" || scheduledOrder.payment_status !== "paid") {
     throw new OrderLifecycleError("Queued payment must be confirmed before activation", 409, "PAYMENT_UNDER_REVIEW");
   }
@@ -999,7 +1015,8 @@ export async function activateScheduledOrder(scheduledOrder) {
     throw new OrderLifecycleError("Current package is still active", 409, "CUSTOMER_ALREADY_ACTIVE");
   }
   const reseller = await loadResellerForLifecycle({ id: scheduledOrder.reseller_id });
-  const plan = scheduledOrder.plan || (await resolvePlan(scheduledOrder.plan_id, null));
+  const catalogue = scheduledOrder.plan || (await resolvePlan(scheduledOrder.plan_id, null));
+  const plan = resolvePurchasedPlanSnapshot(scheduledOrder,catalogue,await loadOrderPayments(scheduledOrder.id));
   const now = new Date();
   const expiryAt = calcExpiryDate(now, plan.duration_days);
 
@@ -1175,6 +1192,9 @@ export async function renewOrder({ orderId, reseller, planId, idempotencyKey = n
   const resolvedReseller = await loadResellerForLifecycle(reseller);
   const plan = await resolvePlan(planId, oldOrder.plan);
   const targetOrderType = getPackageOrderType(plan);
+  if (["dashboard","admin"].includes(source) && targetOrderType === "purchase") {
+    return createStaffFollowupPurchase({order:oldOrder,plan,source,idempotencyKey,paymentType:"renew"});
+  }
   const commissionPercent = getPackageCommissionPercent({
     order: oldOrder,
     reseller: resolvedReseller,
@@ -1378,7 +1398,7 @@ export async function confirmPayment({ orderId, resellerId, reviewerAdminId = nu
   }
 
   if (order.review_status === "confirmed" && pendingPayments.length === 0) {
-    if(order.source === "dashboard") return startOrQueueDashboardPurchase({orderId:order.id,resellerId});
+    if(["dashboard","admin"].includes(order.source)) return startOrQueueDashboardPurchase({orderId:order.id,resellerId});
     await activateConfirmedQueueWithoutActiveOrder(order);
     return {
       success: true,
@@ -1410,9 +1430,9 @@ export async function confirmPayment({ orderId, resellerId, reviewerAdminId = nu
     reviewerAdminId,
   });
 
-  if(updated.source !== "dashboard") await ensureCommissionEntry(updated);
+  if(!["dashboard","admin"].includes(updated.source)) await ensureCommissionEntry(updated);
 
-  if(updated.source === "dashboard") return startOrQueueDashboardPurchase({orderId:updated.id,resellerId});
+  if(["dashboard","admin"].includes(updated.source)) return startOrQueueDashboardPurchase({orderId:updated.id,resellerId});
   await activateConfirmedQueueWithoutActiveOrder(updated);
 
   return {
@@ -1498,7 +1518,7 @@ export async function rejectPayment({ orderId, resellerId, reviewerAdminId = nul
 
 export async function updatePaymentStatus({ orderId, resellerId, paymentStatus }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
-  if(paymentStatus === "paid" && order.source === "dashboard" && order.order_type === "purchase") return confirmPayment({orderId,resellerId});
+  if(paymentStatus === "paid" && ["dashboard","admin"].includes(order.source) && order.order_type === "purchase") return confirmPayment({orderId,resellerId});
 
   if (order.review_status === "rejected" && paymentStatus === "paid") {
     throw new OrderLifecycleError(

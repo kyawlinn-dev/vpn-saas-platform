@@ -36,8 +36,11 @@ declare
   ord vpn_orders%rowtype;
   rate numeric;
   paid boolean := p_payload->>'payment_status'='paid';
+  sale_source text := coalesce(p_payload->>'source','dashboard');
+  sale_type text := p_payload->>'payment_type';
 begin
   if p_request_key is null or coalesce(p_request_hash,'')='' then raise exception 'REQUEST_KEY_REQUIRED'; end if;
+  if sale_source not in ('dashboard','admin') then raise exception 'INVALID_SOURCE'; end if;
   perform pg_advisory_xact_lock(hashtextextended(p_reseller_id::text||p_request_key::text,0));
   select * into op from dashboard_purchase_operations where reseller_id=p_reseller_id and request_key=p_request_key;
   if found then
@@ -66,17 +69,31 @@ begin
         case when p_payload->>'protocol_preference' in ('shadowsocks','vless','hysteria2') then p_payload->>'protocol_preference' else 'shadowsocks' end) returning * into c;
     end if;
   end if;
-  if c.customer_type is distinct from 'normal' or exists(select 1 from telegram_links where customer_id=c.id and reseller_id=p_reseller_id) then raise exception 'TELEGRAM_CUSTOMER_ACTION'; end if;
+  -- Admin's existing follow-up actions may serve Telegram customers. Require a
+  -- real, same-tenant/same-customer origin; reseller manual creation stays gated.
+  if nullif(p_payload->>'origin_order_id','') is not null then
+    perform 1 from vpn_orders where id=(p_payload->>'origin_order_id')::uuid and reseller_id=p_reseller_id and customer_id=c.id;
+    if not found then raise exception 'ORDER_NOT_FOUND'; end if;
+  end if;
+  if (c.customer_type is distinct from 'normal' or exists(select 1 from telegram_links where customer_id=c.id and reseller_id=p_reseller_id))
+    and not (sale_source='admin' and nullif(p_payload->>'origin_order_id','') is not null) then raise exception 'TELEGRAM_CUSTOMER_ACTION'; end if;
+  update vpn_customers set
+    full_name=trim(p_payload->>'full_name'),
+    phone=coalesce(nullif(p_payload->>'phone',''),phone),
+    telegram_username=coalesce(nullif(p_payload->>'telegram_username',''),telegram_username),
+    notes=coalesce(nullif(p_payload->>'notes',''),notes),
+    protocol_preference=case when p_payload->>'protocol_preference' in ('shadowsocks','vless','hysteria2') then p_payload->>'protocol_preference' else protocol_preference end
+  where id=c.id and reseller_id=p_reseller_id;
   select * into active_order from vpn_orders where reseller_id=p_reseller_id and customer_id=c.id and order_type='purchase'
-    and (status='active' or (status='pending' and source='dashboard' and payment_status='paid' and review_status='confirmed'))
+    and (status='active' or (status='pending' and source in ('dashboard','admin') and payment_status='paid' and review_status='confirmed'))
     order by created_at,id limit 1;
   if found and active_order.review_status is distinct from 'confirmed' then raise exception 'PURCHASE_UNDER_REVIEW'; end if;
   if exists(select 1 from vpn_orders where reseller_id=p_reseller_id and customer_id=c.id and status='scheduled' and order_type='purchase') then raise exception 'QUEUED_PACKAGE_EXISTS'; end if;
   insert into vpn_orders(reseller_id,customer_id,plan_id,status,payment_status,review_status,order_type,source,price_mmk,total_paid_mmk,commission_percent,commission_amount_mmk,payment_note,payment_screenshot_url,quota_limit_bytes,usage_baseline_bytes)
-  values(p_reseller_id,c.id,pl.id,case when active_order.id is not null then 'scheduled' else 'pending' end,'unpaid','pending_review','purchase','dashboard',pl.price_mmk,0,coalesce(rate,0),0,p_payload->>'payment_note',p_payload->>'payment_screenshot_url',case when pl.data_limit_gb is null then null else floor(pl.data_limit_gb*1073741824)::bigint end,0) returning * into ord;
+  values(p_reseller_id,c.id,pl.id,case when active_order.id is not null then 'scheduled' else 'pending' end,'unpaid','pending_review','purchase',sale_source,pl.price_mmk,0,coalesce(rate,0),0,p_payload->>'payment_note',p_payload->>'payment_screenshot_url',case when pl.data_limit_gb is null then null else floor(pl.data_limit_gb*1073741824)::bigint end,0) returning * into ord;
   if paid then
     insert into order_payments(order_id,customer_id,reseller_id,plan_id,amount_mmk,commission_percent,commission_amount_mmk,platform_due_mmk,review_status,apply_status,payment_type,source,package_duration_days,package_data_limit_gb,payment_note,payment_screenshot_url,idempotency_key)
-    values(ord.id,c.id,p_reseller_id,pl.id,pl.price_mmk,coalesce(rate,0),0,0,'pending_review','pending',case when ord.status='scheduled' then 'extend' else 'initial' end,'dashboard',pl.duration_days,pl.data_limit_gb,p_payload->>'payment_note',p_payload->>'payment_screenshot_url','dashboard:'||p_request_key::text);
+    values(ord.id,c.id,p_reseller_id,pl.id,pl.price_mmk,coalesce(rate,0),0,0,'pending_review','pending',case when sale_type in ('renew','extend') then sale_type when ord.status='scheduled' then 'extend' else 'initial' end,sale_source,pl.duration_days,pl.data_limit_gb,p_payload->>'payment_note',p_payload->>'payment_screenshot_url','dashboard:'||p_request_key::text);
     perform apply_confirmed_payment(ord.id,p_reseller_id,p_reseller_id,null);
   end if;
   insert into dashboard_purchase_operations(reseller_id,request_key,request_hash,customer_id,order_id,plan_snapshot,state)
@@ -89,7 +106,7 @@ returns jsonb language plpgsql security definer set search_path=public as $$
 declare ord vpn_orders%rowtype; op dashboard_purchase_operations%rowtype; snapshot jsonb;
 begin
  select * into ord from vpn_orders where id=p_order_id and reseller_id=p_reseller_id;
- if not found or ord.source<>'dashboard' or ord.order_type<>'purchase' then raise exception 'ORDER_NOT_FOUND'; end if;
+ if not found or ord.source not in ('dashboard','admin') or ord.order_type<>'purchase' then raise exception 'ORDER_NOT_FOUND'; end if;
  perform 1 from vpn_customers where id=ord.customer_id and reseller_id=p_reseller_id for update;
  select * into op from dashboard_purchase_operations where order_id=p_order_id and reseller_id=p_reseller_id;
  if found then return to_jsonb(op); end if;
@@ -117,12 +134,12 @@ begin
   -- Re-read after the ownership locks: another attempt may have completed since
   -- the initial customer lookup. Never reset an already active order to pending.
   select * into ord from vpn_orders where id=p_order_id and reseller_id=p_reseller_id for update;
-  if ord.source<>'dashboard' or ord.order_type<>'purchase' then raise exception 'INVALID_SOURCE'; end if;
+  if ord.source not in ('dashboard','admin') or ord.order_type<>'purchase' then raise exception 'INVALID_SOURCE'; end if;
   if ord.status='active' then return jsonb_build_object('claimed',false,'state','ready'); end if;
   if ord.status not in ('pending','scheduled') or ord.review_status='rejected' then raise exception 'INVALID_STATUS'; end if;
   if ord.payment_status<>'paid' or ord.review_status<>'confirmed' then return jsonb_build_object('claimed',false,'state','awaiting_payment'); end if;
   select * into active_order from vpn_orders where reseller_id=p_reseller_id and customer_id=ord.customer_id and order_type='purchase' and id<>ord.id
-    and (status='active' or (status='pending' and source='dashboard' and payment_status='paid' and review_status='confirmed'
+    and (status='active' or (status='pending' and source in ('dashboard','admin') and payment_status='paid' and review_status='confirmed'
       and (ord.status='scheduled' or (created_at,id)<(ord.created_at,ord.id))))
     order by created_at,id limit 1;
   if found then

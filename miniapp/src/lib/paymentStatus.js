@@ -1,7 +1,7 @@
 export function resolvePaymentStatus(data, checkoutPlan, paymentResult) {
  const submittedOrder=paymentResult?.order ?? null;
  const id=submittedOrder?.id ?? submittedOrder?.order_id;
- const refreshed=id ? [data?.subscription,data?.queued_subscription,data?.last_subscription].find(o=>(o?.order_id ?? o?.id)===id) : null;
+ const refreshed=id ? [data?.subscription,data?.queued_subscription,data?.last_subscription,...(data?.purchase_receipts || [])].find(o=>(o?.order_id ?? o?.id)===id) : null;
  const subscription=refreshed ?? submittedOrder ?? data?.subscription ?? null;
  const review=subscription?.business_summary?.payment_review_status;
  const reviewStatus=subscription?.review_status ?? null;

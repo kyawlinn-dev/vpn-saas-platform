@@ -20,7 +20,7 @@ export async function ensureDashboardPurchaseOperation(order) {
   checkRpc(error); return data;
 }
 export async function runDashboardPurchaseSetup({order,resellerId,activate}) {
-  if (!order || order.reseller_id !== resellerId || order.source !== "dashboard" || order.order_type !== "purchase") throw failure("Order not found", "ORDER_NOT_FOUND",404);
+  if (!order || order.reseller_id !== resellerId || !["dashboard","admin"].includes(order.source) || order.order_type !== "purchase") throw failure("Order not found", "ORDER_NOT_FOUND",404);
   const owner = crypto.randomUUID();
   const args = {p_reseller_id:resellerId,p_order_id:order.id,p_owner:owner};
   const {data:claim,error} = await supabase.rpc("claim_dashboard_purchase_setup",args);

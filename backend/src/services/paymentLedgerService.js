@@ -228,6 +228,9 @@ export async function confirmOrderPayments({ order, reviewerResellerId, reviewer
       source: order.source,
       paymentNote: order.payment_note,
       paymentScreenshotUrl: order.payment_screenshot_url,
+      // Both concurrent reviewers may observe an empty ledger. The database's
+      // reseller/key uniqueness makes this one initial receipt across retries.
+      idempotencyKey: `order-initial:${order.id}`,
     });
   }
 
@@ -268,6 +271,7 @@ export async function rejectOrderPayments({ order, reviewerResellerId, reviewerA
       source: order.source,
       paymentNote: order.payment_note,
       paymentScreenshotUrl: order.payment_screenshot_url,
+      idempotencyKey: `order-initial:${order.id}`,
     });
   }
 

@@ -870,6 +870,13 @@ finish_dashboard_purchase_setup(uuid,uuid,uuid,text,text) verifies the owner and
 records ready/failed. Provider calls occur outside transactions. A running owner
 is never stolen by timeout; crash recovery requires operator reconciliation.
 
+The same operations cover paid staff renew/extend actions with source dashboard or
+admin, preserving renew/extend receipt type. A new operation updates permitted
+existing-customer contact/name/notes/protocol fields under the customer lock; exact
+request replay returns before applying those updates again. Admin follow-ups to a
+Telegram customer require a verified same-tenant/customer origin order. These are
+service-role-only inputs, not new public permissions or additional RPCs.
+
 Local isolated PGlite execution verifies SQL/RPC behavior and permissions against
 a synthetic core schema; this does not certify live constraints or apply SQL to
 Supabase. Recheck live production prerequisites before deployment.
