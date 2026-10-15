@@ -1,0 +1,218 @@
+[
+  {
+    "path": "AGENTS.md",
+    "sha256": "feb9b91e1a528f77c8ff1f9f8d94ab39798703bf11050c46fad57ad1a5a10b9e"
+  },
+  {
+    "path": "API_REFERENCE.md",
+    "sha256": "d6852197f1d1dc13b298eac8f9305bb1519d30b2df18d04a3fecb015b7d6aa92"
+  },
+  {
+    "path": "BOT_UX_10_OUT_OF_10_BURMESE_REVIEW.md",
+    "sha256": "a80b953511966b99651d5daf14fcb5142293afdc36f122d505d827f8e0660538"
+  },
+  {
+    "path": "BURMESE_TEXT.md",
+    "sha256": "315519478a3a5bae3a6f051669ef39b4214e6cf5d491480a715239dbba526888"
+  },
+  {
+    "path": "DEPLOYMENT.md",
+    "sha256": "9b7c330c779e09d90abf103dc3825b17cc999776232010b647d3f65cbb18479b"
+  },
+  {
+    "path": "DEPLOYMENT_RUNBOOK.md",
+    "sha256": "f85f6afb11d55a7b4086a8d2212602101093c137844cbae7ff0659d7d7681eb5"
+  },
+  {
+    "path": "FINAL_DATA_MODEL.md",
+    "sha256": "0aabead36879a2350302fda4896f5559f5ff402d8cdf4012261da45e6328987a"
+  },
+  {
+    "path": "KNOWN_BUGS.md",
+    "sha256": "899e1b9a3b1d025cc286bb32090a9f1ff293d41a9f3c1c06ca252ec6eadd6cd0"
+  },
+  {
+    "path": "MINIAPP_TEXT.md",
+    "sha256": "1db506d6534da080d79986d2cd917662ce7f31ffa3b04cabbcb665ed698fc77a"
+  },
+  {
+    "path": "PROVIDER_COEXISTENCE_RUNBOOK.md",
+    "sha256": "5c2d4f01741a3ef628a048297d72981c3c6e5093c66f8f318abe94facab01bcd"
+  },
+  {
+    "path": "README.md",
+    "sha256": "3b6899deb7a55000fb9a875a3a127253e59fc00c191522cea4fd172933c53035"
+  },
+  {
+    "path": "SCHEMA.md",
+    "sha256": "e6133dd7fbcb28603d61b4e3c5668843b320888008c4b286e0d8110033bdc5fc"
+  },
+  {
+    "path": "SKILL_API_CONTRACTS.md",
+    "sha256": "f6e7f38614610313bfa446f0dbe2ae30195254ae8a9b9eab42373e3da5a31a00"
+  },
+  {
+    "path": "SKILL_BOT.md",
+    "sha256": "2ded6949748af53d8a093f39be387d6f3d2f204c5a534bd97bce7817ddf74621"
+  },
+  {
+    "path": "SKILL_DATABASE.md",
+    "sha256": "8bbf387780b2bc3957da23d5a644c1f0e5d550f46404da3f307be590a138e8ec"
+  },
+  {
+    "path": "SKILL_MINIAPP.md",
+    "sha256": "b386cd1f97969c41a18c1251688d31b133c04eb06ab6f6d8dbd8f02506cec055"
+  },
+  {
+    "path": "SKILL_TEST.md",
+    "sha256": "bdff8ca86e074414ad9409529e1a34231c3bc3712e7e7879176fdd2d7a673b9a"
+  },
+  {
+    "path": "SUBAGENT_AUDITOR.md",
+    "sha256": "8eb4b277c2777d613b9aaf92c5684306c2dec6656639b6aeb6ca74e77dfc6981"
+  },
+  {
+    "path": "SUBAGENT_BACKEND.md",
+    "sha256": "fe6e72261274a126df39d1858e593e1d176e37468d1c06babcb26bdc2b0e6132"
+  },
+  {
+    "path": "SUBAGENT_FRONTEND.md",
+    "sha256": "fb03beb24ea796f1e3d73f46b9a07f6bfb9e5453f3e5654cd054b9b40801e3d1"
+  },
+  {
+    "path": "SYSTEM_DESIGN.md",
+    "sha256": "5f2dcd5dad6e081dbd52213515906b1b2977ed4a2e5ce8eb8d8665fcbfcfeb57"
+  },
+  {
+    "path": "admin-dashboard/README.md",
+    "sha256": "3b4840e23b6cbdc6b05ca50c47b0de0d0ac141b6d3e055a6ce5dcb6038925b1c"
+  },
+  {
+    "path": "backend/knowledge/README.md",
+    "sha256": "71df990a345fc0a16eba18c01e05775bdf129b83508a875103c05509709c5cb5"
+  },
+  {
+    "path": "backend/knowledge/company.md",
+    "sha256": "dab1247eadd725c89815ab01dab5223b6f1be067494f88ebe5187703815172dc"
+  },
+  {
+    "path": "backend/knowledge/plans.md",
+    "sha256": "43edf3a7020a0252af6a3955f043af17d6f91f487798cf888100d2ab8350d687"
+  },
+  {
+    "path": "backend/knowledge/product.md",
+    "sha256": "2cdfbf7ff83a711a2461f1adb4d169bcb8189159b1a5aeb32a9370eb038d72d8"
+  },
+  {
+    "path": "backend/knowledge/purchase.md",
+    "sha256": "59ee7036ef8d2b8f12788ef954d448b7a8497ac77862a4154318c5f5c2b3947b"
+  },
+  {
+    "path": "backend/knowledge/servers.md",
+    "sha256": "1e9ffb4469a90a0ac3f8edc8625426664f454be0059ada8bcb16778e308d2e7e"
+  },
+  {
+    "path": "backend/knowledge/setup.md",
+    "sha256": "e19c316d0084c48bffe842698b763376d9d4fde1775d692b0b1e90df75f00dda"
+  },
+  {
+    "path": "backend/knowledge/support.md",
+    "sha256": "48aba91bafcf8586109ad415a7f767f0548d5fa03f962805a479d95f0373c7b6"
+  },
+  {
+    "path": "backend/knowledge/trial.md",
+    "sha256": "fd2d176f8c22d4b13f8c7fe8cab10a38efbd4748189180de4dc0dd80dce4e412"
+  },
+  {
+    "path": "backend/knowledge/troubleshooting.md",
+    "sha256": "431483a8b40d08cfd0b37a1b10c5974f439b69db6126bfc68ea1d3b02e60e3d9"
+  },
+  {
+    "path": "backend/scripts/FIX-A-quota-preserve-on-migration.md",
+    "sha256": "880215a11de3d13a52274da94d837068c3d89a37bb03eb2646efcbe7a3bfff05"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-14-production-business-display-consistency.md",
+    "sha256": "5b69c8b656e6a06b8000b62758f702f0f87c95a9953d7a9ef2f94f846de4f792"
+  },
+  {
+    "path": "docs/superpowers/specs/2026-10-13-channel-notifications-trials-design.md",
+    "sha256": "47f67e44a654d46090633bedef03f633d4875818d65fb653025b39c26180a058"
+  },
+  {
+    "path": "docs/superpowers/specs/2026-10-14-production-business-display-consistency-design.md",
+    "sha256": "d7e7ee50bce81db7480eed9d0ca198745a64efae2fe05cafebdc339e5ee6a148"
+  },
+  {
+    "path": "miniapp/README.md",
+    "sha256": "6a2dae355e6544c25d212c91f2725d51767fc1fc48aa17b496b7f903da2bc64e"
+  },
+  {
+    "path": "audit/reports/documentation-alignment-audit.md",
+    "sha256": "734054ef626b69abf76b2913157f6fe84ff2273dedf390df992c58b0c002f794"
+  },
+  {
+    "path": "docs/API_ROUTE_INVENTORY.md",
+    "sha256": "dbef8695010451e3169bb085d8d7b87fc611579bb3574e7a5df3107c09517943"
+  },
+  {
+    "path": "docs/DOCUMENTATION.md",
+    "sha256": "fc60225f629996692a08b46cdde796c5f5e868774201845a355ab70c595d6705"
+  },
+  {
+    "path": "docs/MESSENGER_LOCAL_SETUP.md",
+    "sha256": "ac0cf406b0436369378e69411be8f51a325b7304706b98d14defb7a1b60fb481"
+  },
+  {
+    "path": "docs/archive/telegram-bot-v2-original-design.md",
+    "sha256": "d71d046a75ef05d62cdedff5b27b02099c104b7c87d00389f7d755033171e84a"
+  },
+  {
+    "path": "docs/audits/2026-10-13-channel-notifications-execution.md",
+    "sha256": "2e92ec5cbef90faeaf939ff9503e152fc248f2218a229f1c05a2606f709bcda9"
+  },
+  {
+    "path": "docs/audits/2026-10-13-notification-delay.md",
+    "sha256": "83b4977c909784b01ca4abad801d5e6f29cce6019a0a119d06071e2d05b646c9"
+  },
+  {
+    "path": "docs/audits/2026-10-15-documentation-alignment-update.md",
+    "sha256": "db4e2433d04abc9429a80596dc8be9f00a1b751598989acf383f90f09aeb3dd5"
+  },
+  {
+    "path": "docs/superpowers/audits/2026-10-13-dashboard-purchases.md",
+    "sha256": "8a5d16b2defd4e99397fa5df0ac177c33e32b36d1e2e430832d0e50062778655"
+  },
+  {
+    "path": "docs/superpowers/audits/2026-10-13-messenger-account-menu.md",
+    "sha256": "43d817c70d75b0f2ccfc8f8cde0c5a61f7d6a839d0fc12dc228939083c69c39e"
+  },
+  {
+    "path": "docs/superpowers/audits/2026-10-13-messenger-duration-checkout.md",
+    "sha256": "24d9533b9c85b1c10f4095cf44dc873f448a6057d33313de2fe150dc510217d6"
+  },
+  {
+    "path": "docs/superpowers/audits/2026-10-13-purchase-entry-points.md",
+    "sha256": "49061e18032d3ff7b146c1e6fcb2a279a8eed6217553a15c39f19aa539965b7a"
+  },
+  {
+    "path": "docs/superpowers/audits/2026-10-13-purchase-execution.md",
+    "sha256": "1430a0985fdf32f839a13b316aad55a818682edc893a2ce2bd13d430cbb582ee"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-13-channel-notifications-trials.md",
+    "sha256": "968e06e26c56eeef64227f17d3919a28dc83d43594655f25b47d7a5e74463ff5"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-13-messenger-connection.md",
+    "sha256": "e55a4afc078f7174146a570cb6925617b046747c9309f93f1b78cd90cc515aa1"
+  },
+  {
+    "path": "docs/superpowers/plans/2026-10-13-shared-purchases-messenger.md",
+    "sha256": "d0104ccb7f9698135d6d5f5887d11f9e8ea256418a832b24d5399981656743c9"
+  },
+  {
+    "path": "docs/superpowers/specs/2026-10-13-messenger-purchases-design.md",
+    "sha256": "e56741aab52f3a96e6f4d1f452ee8ba93099a4bb3a8d00381018759de98a7040"
+  }
+]

@@ -66,7 +66,7 @@ export function KeysPage({ resellers }: Props) {
               <TableHead>Key Name</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Order ID</TableHead>
-              <TableHead>Usage</TableHead>
+              <TableHead>Key usage</TableHead>
               <TableHead>Created</TableHead>
             </TableRow>
           </TableHeader>

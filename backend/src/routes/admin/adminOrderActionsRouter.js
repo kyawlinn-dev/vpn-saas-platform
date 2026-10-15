@@ -43,6 +43,7 @@ function adminTag(req) {
 }
 
 function sendLifecycleError(res, err, fallback) {
+  if (err.code?.startsWith("SETUP_") && err.status) return res.status(err.status).json({success:false,error:err.message,code:err.code});
   if (err instanceof OrderLifecycleError) {
     return res.status(err.status || 400).json({
       success: false,
@@ -62,7 +63,7 @@ router.post("/:orderId/activate", async (req, res) => {
     const order = await getOrderWithPlan(orderId);
     if (!order) return res.status(404).json({ error: "Order not found" });
 
-    if (order.status !== "pending") {
+    if (!["pending","scheduled","active"].includes(order.status)) {
       return res.status(400).json({
         error: `Order cannot be activated — current status is "${order.status}"`,
       });

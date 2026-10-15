@@ -1,3 +1,5 @@
+import {BusinessStatus,PaymentReviewStatus} from "../components/BusinessStatus";
+import {PackageUsage} from "../components/PackageUsage";
 import { useEffect, useMemo, useState } from "react";
 import {
   Copy,
@@ -50,11 +52,11 @@ function getAccessUrl(key?: VpnKey | null) {
 
 function toSummary(customer: EnrichedCustomer): CustomerSummary {
   const orders = customer.orders ?? [];
-  const activeOrder = customer.active_order ?? undefined;
-  const latestOrder = orders[0];
+  const activeOrder = customer.current_order ?? undefined;
+  const latestOrder = customer.current_order ?? customer.last_order ?? undefined;
   const activeKey =
-    (customer.keys ?? []).find((key) => key.status === "active") || customer.keys?.[0];
-  const totalPaid = orders.reduce((sum, order) => sum + Number(order.total_paid_mmk || 0), 0);
+    activeOrder?.keys?.find((key) => key.status === "active");
+  const totalPaid = customer.payment_summary?.gross_mmk ?? 0;
   const status: CustomerSummary["status"] = activeOrder
     ? isExpiringSoon(activeOrder.expiry_date, 7)
       ? "expiring"
@@ -308,15 +310,15 @@ export function CustomersPage() {
                       <TableCell className="px-2 py-2"><TypeBadge type={item.customerType} /></TableCell>
                       <TableCell className="px-2 py-2"><CustomerStatusBadge status={item.status} /></TableCell>
                       <TableCell className="px-2 py-2">
-                        <div className="truncate text-xs font-medium">{item.latestOrder?.plan?.name || "-"}</div>
+                        <div className="truncate text-xs font-medium">{item.activeOrder?.plan?.name || "No active package"}{!item.activeOrder && item.customer.last_order && <div className="text-xs text-muted-foreground">Last package: {item.customer.last_order.plan?.name}</div>}</div>
                         <div className="text-[11px] text-muted-foreground">
                           {item.latestOrder ? formatMMK(item.latestOrder.price_mmk) : "-"}
                         </div>
                       </TableCell>
                       <TableCell className="px-2 py-2">
-                        <div>{formatDate(item.activeOrder?.expiry_date || item.latestOrder?.expiry_date)}</div>
+                        <div>{formatDate(item.activeOrder?.expiry_date)}</div>
                         <div className="text-[11px] text-muted-foreground">
-                          {formatDaysLeft(item.activeOrder?.expiry_date || item.latestOrder?.expiry_date)}
+                          {formatDaysLeft(item.activeOrder?.expiry_date)}
                         </div>
                       </TableCell>
                       <TableCell className="px-2 py-2">{item.totalOrders}</TableCell>
@@ -363,11 +365,11 @@ export function CustomersPage() {
                   <div className="mt-2.5 grid grid-cols-3 gap-2 border-t border-border pt-2.5 text-xs">
                     <div>
                       <div className="text-[10px] text-muted-foreground">Latest plan</div>
-                      <div className="truncate font-medium">{item.latestOrder?.plan?.name || "-"}</div>
+                      <div className="truncate font-medium">{item.activeOrder?.plan?.name || "No active package"}{!item.activeOrder && item.customer.last_order && <div className="text-xs text-muted-foreground">Last package: {item.customer.last_order.plan?.name}</div>}</div>
                     </div>
                     <div>
                       <div className="text-[10px] text-muted-foreground">Expiry</div>
-                      <div>{formatDaysLeft(item.activeOrder?.expiry_date || item.latestOrder?.expiry_date) || "-"}</div>
+                      <div>{formatDaysLeft(item.activeOrder?.expiry_date) || "-"}</div>
                     </div>
                     <div>
                       <div className="text-[10px] text-muted-foreground">Total paid</div>
@@ -422,12 +424,12 @@ export function CustomersPage() {
                 </Card>
                 <Card className="p-2.5">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Latest plan</div>
-                  <div className="mt-1 truncate text-sm font-bold">{selectedCustomer.latestOrder?.plan?.name || "-"}</div>
+                  <div className="mt-1 truncate text-sm font-bold">{selectedCustomer.activeOrder?.plan?.name || "No active package"}{!selectedCustomer.activeOrder && selectedCustomer.customer.last_order && <div className="text-xs text-muted-foreground">Last package: {selectedCustomer.customer.last_order.plan?.name}</div>}</div>
                 </Card>
                 <Card className="p-2.5">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Expiry</div>
                   <div className="mt-1 text-sm font-bold">
-                    {formatDaysLeft(selectedCustomer.activeOrder?.expiry_date || selectedCustomer.latestOrder?.expiry_date)}
+                    {formatDaysLeft(selectedCustomer.activeOrder?.expiry_date)}
                   </div>
                 </Card>
               </div>
@@ -457,6 +459,7 @@ export function CustomersPage() {
               </Card>
 
               <Card className="p-3">
+                <PackageUsage quota={selectedCustomer.activeOrder?.business_summary?.quota} />
                 <h3 className="mb-2 text-xs font-black">Order History</h3>
                 <div className="divide-y divide-border rounded-md border border-border">
                   {selectedCustomer.orders.map((order) => (
@@ -467,8 +470,8 @@ export function CustomersPage() {
                           {formatDate(order.created_at)} - {formatDaysLeft(order.expiry_date)}
                         </div>
                       </div>
-                      <StatusBadge status={order.status} />
-                      <StatusBadge status={order.order_type === "trial" ? "trial" : order.payment_status} />
+                      <BusinessStatus summary={order.business_summary} />
+                      <PaymentReviewStatus summary={order.business_summary} />
                       <div className="whitespace-nowrap text-right font-bold">{formatMMK(order.price_mmk)}</div>
                     </div>
                   ))}

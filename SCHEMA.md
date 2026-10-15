@@ -1,522 +1,585 @@
 # NovaNet MM — Database Schema Reference
 
-**Source:** Live Supabase project (`huqmzvlzfcexycdrsxpn`), queried via PostgREST OpenAPI spec.  
-**Last updated:** 2026-09-23
+## Scope and verification
 
-> **Final Data Model in progress:** the sections below the "Final Data Model Additions"
-> heading at the bottom of this file document (a) columns/tables that were live but
-> undocumented as of the 2026-09-23 re-introspection, and (b) the new functions,
-> trigger, and views added by migrations `0020`–`0023`. See `FINAL_DATA_MODEL.md`
-> for the design and rationale. Live production migration state must be
-> verified independently before deploying migrations `0020`–`0024`.
+Verified read-only on 2026-10-15 using service-role PostgREST OpenAPI, separately for production and development.
 
-> **NOT NULL semantics:** The `Required` column below means the column is `NOT NULL` in Postgres.  
-> Many required columns have server-side defaults (UUIDs, timestamps, booleans) — they don't need to be  
-> supplied in INSERTs. Columns marked `NOT NULL · no default` **must** be supplied explicitly.
+| Environment | Project | Observed API relations |
+| --- | --- | --- |
+| Production | daenwuszqdfkbjiatsjs | 20 tables and 3 views |
+| Development | huqmzvlzfcexycdrsxpn | Production-compatible core plus development channel additions below |
 
----
+This is a column/type/required/default snapshot, not proof of every live SQL CHECK, trigger, grant or migration execution. Validate migration DDL independently before a release. Source code and migrations live under backend/src and backend/supabase/migrations. Production secrets are never documented here.
 
-## Tables
+Required means NOT NULL in the API schema, not necessarily caller-supplied: defaults may satisfy it. Column names retain compatibility history. Do not rename/drop outline_* fields or legacy tables without tracing current references.
 
-- [access\_tokens](#access_tokens)
+## Production tables
+
+- [access_tokens](#access_tokens)
 - [admins](#admins)
-- [app\_events](#app_events)
-- [commission\_ledger](#commission_ledger)
-- [monthly\_settlements](#monthly_settlements)
-- [order\_payments](#order_payments)
-- [reseller\_miniapps](#reseller_miniapps)
+- [app_events](#app_events)
+- [commission_ledger](#commission_ledger)
+- [monthly_settlements](#monthly_settlements)
+- [notifications_sent](#notifications_sent)
+- [order_payments](#order_payments)
+- [platform_settings](#platform_settings)
+- [reseller_miniapps](#reseller_miniapps)
+- [reseller_notification_templates](#reseller_notification_templates)
 - [resellers](#resellers)
-- [server\_health\_status](#server_health_status)
-- [system\_job\_runs](#system_job_runs)
-- [telegram\_links](#telegram_links)
-- [token\_server\_assignments](#token_server_assignments)
-- [vpn\_customers](#vpn_customers)
-- [vpn\_keys](#vpn_keys)
-- [vpn\_orders](#vpn_orders)
-- [vpn\_plans](#vpn_plans)
-- [vpn\_servers](#vpn_servers)
-
----
+- [server_health_status](#server_health_status)
+- [system_job_runs](#system_job_runs)
+- [telegram_links](#telegram_links)
+- [token_server_assignments](#token_server_assignments)
+- [vpn_customers](#vpn_customers)
+- [vpn_keys](#vpn_keys)
+- [vpn_orders](#vpn_orders)
+- [vpn_plans](#vpn_plans)
+- [vpn_servers](#vpn_servers)
 
 ## access_tokens
 
-Legacy token-based portal. Generated when a reseller activates an order and sends a `tok_xxx` URL to the customer.
+Legacy internal token rows; old public portal routes are unmounted.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `customer_id` | uuid | ✓ | — | FK → vpn_customers.id |
-| `reseller_id` | uuid | ✓ | — | FK → resellers.id |
-| `order_id` | uuid | | — | FK → vpn_orders.id |
-| `token` | text | ✓ | — | `tok_xxx` access token |
-| `status` | text | ✓ | — | `active` \| `expired` \| `revoked` |
-| `expires_at` | timestamptz | | — | |
-| `last_used_at` | timestamptz | | — | |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
-
----
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `customer_id` | uuid | yes | — | FK → vpn_customers.id |
+| `reseller_id` | uuid | yes | — | FK → resellers.id |
+| `order_id` | uuid | no | — | FK → vpn_orders.id |
+| `token` | text | yes | — | `tok_xxx` access token |
+| `status` | text | yes | — | `active` \ \| `expired` \ \| `revoked` |
+| `expires_at` | timestamp with time zone | no | — |  |
+| `last_used_at` | timestamp with time zone | no | — |  |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
 
 ## admins
 
-Super-admin accounts. Login via Supabase email+password auth; backend checks this table before issuing admin cookies.
+Platform owner accounts.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `supabase_user_id` | uuid | ✓ | — | FK → auth.users.id |
-| `full_name` | text | | — | Display name (NOT `name`) |
-| `email` | text | | — | |
-| `status` | text | ✓ | — | `active` \| `disabled` |
-| `created_at` | timestamptz | ✓ | now() | |
-
-> **Column trap:** this table uses `full_name`, not `name`. See also `vpn_customers.full_name`.
-
----
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `supabase_user_id` | uuid | yes | — | FK → auth.users.id |
+| `full_name` | text | no | — | Display name (NOT `name`) |
+| `email` | text | no | — |  |
+| `status` | text | yes | — | `active` \ \| `disabled` |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
 
 ## app_events
 
-Backend-owned business event ledger for monitoring Mini App usage, checkout
-flow, server selection, and provisioning health. Frontends never write this
-table directly; backend service-role code records safe events only.
+Backend-owned business telemetry; do not store credentials or receipt/access URLs.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `event_name` | text | ✓ | — | e.g. `miniapp_config_loaded`, `miniapp_authenticated`, `server_selected`, `key_provisioned` |
-| `event_source` | text | ✓ | `'backend'` | `backend`, `miniapp`, `bot`, `admin`, `reseller` |
-| `actor_type` | text | | — | `customer`, `reseller`, `admin`, `system`, `anonymous` |
-| `reseller_id` | uuid | | — | FK → resellers.id |
-| `customer_id` | uuid | | — | FK → vpn_customers.id |
-| `admin_id` | uuid | | — | FK → admins.id |
-| `telegram_user_id` | bigint | | — | Safe Telegram numeric ID, no init data |
-| `order_id` | uuid | | — | FK → vpn_orders.id |
-| `payment_id` | uuid | | — | FK → order_payments.id |
-| `server_id` | uuid | | — | FK → vpn_servers.id |
-| `plan_id` | uuid | | — | FK → vpn_plans.id |
-| `page` | text | | — | Logical app page |
-| `route` | text | | — | Backend route path without query string |
-| `status` | text | ✓ | `'info'` | `info` \| `success` \| `blocked` \| `failed` |
-| `metadata` | jsonb | ✓ | `'{}'` | Safe allowlisted metadata only |
-| `session_id` | text | | — | Optional anonymous session correlation |
-| `user_agent` | text | | — | Request user agent |
-| `ip_hash` | text | | — | Salted hash, never raw IP |
-| `created_at` | timestamptz | ✓ | now() | |
-
-> **Privacy rule:** never store Outline API URLs, Outline access URLs, Telegram
-> init data, bot tokens, payment screenshot paths, or other secrets in
-> `app_events.metadata`.
-
-Monitoring query indexes:
-
-- `idx_app_events_created_at` on `created_at desc`
-- `idx_app_events_reseller_created` on `(reseller_id, created_at desc)`
-- `idx_app_events_customer_created` on `(customer_id, created_at desc)`
-- `idx_app_events_name_created` on `(event_name, created_at desc)`
-- `idx_app_events_server_created` on `(server_id, created_at desc)` where `server_id is not null`
-- `idx_app_events_failed_recent` on `created_at desc` where `status = 'failed'`
-- `idx_app_events_session_created` on `(session_id, created_at desc)` where `session_id is not null`
-- `idx_app_events_status_created` on `(status, created_at desc)`
-- `idx_app_events_telegram_created` on `(telegram_user_id, created_at desc)` where `telegram_user_id is not null`
-
-Admin monitoring uses service-role-only RPC helpers:
-
-- `admin_monitoring_summary`
-- `admin_monitoring_funnel`
-- `admin_monitoring_daily`
-- `admin_monitoring_server_events`
-
----
-
-## server_health_status
-
-Compact operational health state for Outline servers. Backend service-role code
-updates this table from usage sync and periodic Outline API health checks.
-
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `server_id` | uuid | ✓ | — | PK, FK → vpn_servers.id |
-| `outline_api_status` | text | ✓ | `'unknown'` | `unknown` \| `healthy` \| `degraded` \| `failed` \| `stale` |
-| `last_checked_at` | timestamptz | | — | Last Outline API health check attempt |
-| `last_success_at` | timestamptz | | — | Last successful Outline API health check |
-| `last_usage_sync_at` | timestamptz | | — | Last successful usage sync for this server |
-| `last_error` | text | | — | Sanitized operational error only |
-| `response_ms` | integer | | — | Outline API health check duration |
-| `active_key_count_seen` | integer | | — | Key count observed from Outline API |
-| `consecutive_failures` | integer | ✓ | `0` | |
-| `updated_at` | timestamptz | ✓ | now() | |
-
-Indexes:
-
-- `idx_server_health_status_status` on `(outline_api_status, updated_at desc)`
-- `idx_server_health_status_usage_sync` on `(last_usage_sync_at desc)`
-
----
-
-## system_job_runs
-
-Compact operational health state for backend jobs such as usage sync and
-Outline health checks.
-
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `job_name` | text | ✓ | — | PK, e.g. `usage_sync`, `outline_health_check` |
-| `status` | text | ✓ | `'idle'` | `idle` \| `running` \| `success` \| `failed` \| `stale` |
-| `last_started_at` | timestamptz | | — | |
-| `last_finished_at` | timestamptz | | — | |
-| `last_success_at` | timestamptz | | — | |
-| `last_error` | text | | — | Sanitized operational error only |
-| `consecutive_failures` | integer | ✓ | `0` | |
-| `run_count` | integer | ✓ | `0` | |
-| `updated_at` | timestamptz | ✓ | now() | |
-
-Indexes:
-
-- `idx_system_job_runs_status` on `(status, updated_at desc)`
-
----
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `event_name` | text | yes | — | e.g. `miniapp_config_loaded`, `miniapp_authenticated`, `server_selected`, `key_provisioned` |
+| `event_source` | text | yes | "backend" | `backend`, `miniapp`, `bot`, `admin`, `reseller` |
+| `actor_type` | text | no | — | `customer`, `reseller`, `admin`, `system`, `anonymous` |
+| `reseller_id` | uuid | no | — | FK → resellers.id |
+| `customer_id` | uuid | no | — | FK → vpn_customers.id |
+| `admin_id` | uuid | no | — | FK → admins.id |
+| `telegram_user_id` | bigint | no | — | Safe Telegram numeric ID, no init data |
+| `order_id` | uuid | no | — | FK → vpn_orders.id |
+| `payment_id` | uuid | no | — | FK → order_payments.id |
+| `server_id` | uuid | no | — | FK → vpn_servers.id |
+| `plan_id` | uuid | no | — | FK → vpn_plans.id |
+| `page` | text | no | — | Logical app page |
+| `route` | text | no | — | Backend route path without query string |
+| `status` | text | yes | "info" | `info` \ \| `success` \ \| `blocked` \ \| `failed` |
+| `metadata` | jsonb | yes | — | Safe allowlisted metadata only |
+| `session_id` | text | no | — | Optional anonymous session correlation |
+| `user_agent` | text | no | — | Request user agent |
+| `ip_hash` | text | no | — | Salted hash, never raw IP |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
 
 ## commission_ledger
 
-Records commission earned by resellers on paid orders.
+Retained commission compatibility/history; payment ledger remains accounting source.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `order_id` | uuid | ✓ | — | FK → vpn_orders.id |
-| `reseller_id` | uuid | ✓ | — | FK → resellers.id |
-| `amount_mmk` | integer | ✓ | — | Commission in MMK |
-| `status` | text | ✓ | — | `pending` \| `paid` |
-| `created_at` | timestamptz | ✓ | now() | |
-| `paid_at` | timestamptz | | — | |
-| `updated_at` | timestamptz | ✓ | now() | |
-
----
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `order_id` | uuid | yes | — | FK → vpn_orders.id |
+| `reseller_id` | uuid | yes | — | FK → resellers.id |
+| `amount_mmk` | integer | yes | — | Commission in MMK |
+| `status` | text | yes | — | `pending` \ \| `paid` |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `paid_at` | timestamp with time zone | no | — |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
 
 ## monthly_settlements
 
-Month-end reseller transfer snapshots. Resellers submit transfer details after
-paying the platform owner; admins confirm or reopen the submitted settlement.
+Month-end submission snapshots; live month totals are separate from submitted/confirmed snapshots.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `reseller_id` | uuid | ✓ | — | FK → resellers.id |
-| `settlement_month` | date | ✓ | — | First day of the settlement month |
-| `status` | text | ✓ | `'draft'` | `draft` \| `submitted` \| `confirmed` \| `reopened` |
-| `gross_paid_mmk` | integer | ✓ | `0` | Confirmed paid purchase total |
-| `reseller_commission_mmk` | integer | ✓ | `0` | Commission retained by reseller |
-| `platform_due_mmk` | integer | ✓ | `0` | Amount reseller transfers to platform owner |
-| `pending_review_mmk` | integer | ✓ | `0` | Pending payment review total at submission time |
-| `unpaid_mmk` | integer | ✓ | `0` | Unpaid purchase total at submission time |
-| `rejected_mmk` | integer | ✓ | `0` | Rejected purchase total at submission time |
-| `confirmed_order_count` | integer | ✓ | `0` | |
-| `pending_review_count` | integer | ✓ | `0` | |
-| `unpaid_order_count` | integer | ✓ | `0` | |
-| `rejected_order_count` | integer | ✓ | `0` | |
-| `total_order_count` | integer | ✓ | `0` | |
-| `transfer_note` | text | | — | Reseller note |
-| `transfer_reference` | text | | — | Transaction/account reference |
-| `transfer_proof_url` | text | | — | Optional proof URL/path |
-| `submitted_at` | timestamptz | | — | |
-| `confirmed_at` | timestamptz | | — | |
-| `confirmed_by_admin_id` | uuid | | — | FK → admins.id |
-| `reopened_at` | timestamptz | | — | |
-| `admin_note` | text | | — | |
-| `snapshot_basis` | jsonb | ✓ | `'{}'` | Frozen calculation details |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `reseller_id` | uuid | yes | — | FK → resellers.id |
+| `settlement_month` | date | yes | — | First day of the settlement month |
+| `status` | text | yes | "draft" | `draft` \ \| `submitted` \ \| `confirmed` \ \| `reopened` |
+| `gross_paid_mmk` | integer | yes | 0 | Confirmed paid purchase total |
+| `reseller_commission_mmk` | integer | yes | 0 | Commission retained by reseller |
+| `platform_due_mmk` | integer | yes | 0 | Amount reseller transfers to platform owner |
+| `pending_review_mmk` | integer | yes | 0 | Pending payment review total at submission time |
+| `unpaid_mmk` | integer | yes | 0 | Unpaid purchase total at submission time |
+| `rejected_mmk` | integer | yes | 0 | Rejected purchase total at submission time |
+| `confirmed_order_count` | integer | yes | 0 |  |
+| `pending_review_count` | integer | yes | 0 |  |
+| `unpaid_order_count` | integer | yes | 0 |  |
+| `rejected_order_count` | integer | yes | 0 |  |
+| `total_order_count` | integer | yes | 0 |  |
+| `transfer_note` | text | no | — | Reseller note |
+| `transfer_reference` | text | no | — | Transaction/account reference |
+| `transfer_proof_url` | text | no | — | Optional proof URL/path |
+| `submitted_at` | timestamp with time zone | no | — |  |
+| `confirmed_at` | timestamp with time zone | no | — |  |
+| `confirmed_by_admin_id` | uuid | no | — | FK → admins.id |
+| `reopened_at` | timestamp with time zone | no | — |  |
+| `admin_note` | text | no | — |  |
+| `snapshot_basis` | jsonb | yes | — | Frozen calculation details |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
 
-Unique constraint: `(reseller_id, settlement_month)`.
+## notifications_sent
 
----
+Production Telegram notification deduplication ledger.
+
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" |  |
+| `customer_id` | uuid | yes | — |  |
+| `event_type` | text | yes | — |  |
+| `order_id` | uuid | no | — |  |
+| `channel` | text | yes | "telegram" |  |
+| `sent_at` | timestamp with time zone | yes | "now()" |  |
 
 ## order_payments
 
-Payment ledger rows. Each customer payment/recharge is recorded separately and
-reviewed independently. This table is the source of truth for gross paid,
-commission, and platform due calculations; `vpn_orders` keeps cached summary
-fields for compatibility and fast dashboard display.
+Payment events and accounting source of truth. Recognized revenue requires confirmed and applied events.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `order_id` | uuid | ✓ | — | FK → vpn_orders.id |
-| `customer_id` | uuid | ✓ | — | FK → vpn_customers.id |
-| `reseller_id` | uuid | ✓ | — | FK → resellers.id |
-| `amount_mmk` | integer | ✓ | — | Actual paid/submitted amount |
-| `commission_percent` | numeric | ✓ | — | Snapshotted at payment creation |
-| `commission_amount_mmk` | integer | ✓ | `0` | `floor(amount_mmk * commission_percent / 100)` |
-| `platform_due_mmk` | integer | ✓ | `0` | `amount_mmk - commission_amount_mmk` |
-| `payment_method` | text | | — | Optional method label |
-| `payment_note` | text | | — | Customer/reseller note |
-| `payment_screenshot_url` | text | | — | Private storage path |
-| `review_status` | text | ✓ | `'pending_review'` | `pending_review` \| `confirmed` \| `rejected` |
-| `payment_type` | text | ✓ | `'initial'` | `initial` \| `extend` \| `renew` |
-| `apply_status` | text | ✓ | `'applied'` | `pending` \| `applied` \| `failed` \| `reversed` |
-| `plan_id` | uuid | | — | FK → vpn_plans.id; plan bought for this package event |
-| `package_duration_days` | integer | | — | Snapshotted plan duration for this package event |
-| `package_data_limit_gb` | numeric | | — | Snapshotted plan data limit for this package event |
-| `applied_at` | timestamptz | | — | Set when package duration/data has been applied |
-| `apply_error` | text | | — | Failure reason when `apply_status = failed` |
-| `idempotency_key` | text | | — | Optional duplicate-protection key per reseller |
-| `source` | text | | — | `miniapp` \| `dashboard` \| future sources |
-| `submitted_at` | timestamptz | ✓ | now() | |
-| `reviewed_at` | timestamptz | | — | |
-| `reviewed_by_reseller_id` | uuid | | — | FK → resellers.id |
-| `reviewed_by_admin_id` | uuid | | — | FK → admins.id |
-| `review_note` | text | | — | |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `order_id` | uuid | yes | — | FK → vpn_orders.id |
+| `customer_id` | uuid | yes | — | FK → vpn_customers.id |
+| `reseller_id` | uuid | yes | — | FK → resellers.id |
+| `amount_mmk` | integer | yes | — | Actual paid/submitted amount |
+| `commission_percent` | numeric | yes | — | Snapshotted at payment creation |
+| `commission_amount_mmk` | integer | yes | 0 | `floor(amount_mmk * commission_percent / 100)` |
+| `platform_due_mmk` | integer | yes | 0 | `amount_mmk - commission_amount_mmk` |
+| `payment_method` | text | no | — | Optional method label |
+| `payment_note` | text | no | — | Customer/reseller note |
+| `payment_screenshot_url` | text | no | — | Private storage path |
+| `review_status` | text | yes | "pending_review" | `pending_review` \ \| `confirmed` \ \| `rejected` |
+| `source` | text | no | — | `miniapp` \ \| `dashboard` \ \| future sources |
+| `submitted_at` | timestamp with time zone | yes | "now()" |  |
+| `reviewed_at` | timestamp with time zone | no | — |  |
+| `reviewed_by_reseller_id` | uuid | no | — | FK → resellers.id |
+| `reviewed_by_admin_id` | uuid | no | — | FK → admins.id |
+| `review_note` | text | no | — |  |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
+| `payment_type` | text | yes | "initial" | `initial` \ \| `extend` \ \| `renew` |
+| `apply_status` | text | yes | "applied" | `pending` \ \| `applied` \ \| `failed` \ \| `reversed` |
+| `plan_id` | uuid | no | — | FK → vpn_plans.id; plan bought for this package event |
+| `package_duration_days` | integer | no | — | Purchased duration snapshot when recorded; do not infer exact historical duration from current catalogue. |
+| `package_data_limit_gb` | numeric | no | — | Purchased allowance snapshot when recorded. |
+| `applied_at` | timestamp with time zone | no | — | Set when package duration/data has been applied |
+| `apply_error` | text | no | — | Failure reason when `apply_status = failed` |
+| `idempotency_key` | text | no | — | Optional duplicate-protection key per reseller |
 
----
+## platform_settings
+
+Singleton platform configuration.
+
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | boolean | yes | true | Singleton boolean key; existing configuration is backend-managed. |
+| `payment_accounts` | jsonb | yes | — |  |
+| `settlement_instructions` | text | no | — |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
 
 ## reseller_miniapps
 
-One row per reseller — configures the Telegram Mini App experience for that reseller's customers. The `miniapp_slug` is the URL identifier.
+Tenant workspace configuration. Bot/slug/logo/color/trial/reviewer are admin-managed; brand/support/payment information are reseller-managed.
 
-**Ownership:** `bot_token_encrypted`, `miniapp_slug`, `brand_logo_url`,
-`primary_color`, and the `trial_*` columns are admin-managed only, via
-`PATCH /api/admin/resellers/:id/workspace`. `brand_name`, `support_username`,
-and `payment_info` stay reseller-managed via `PATCH /api/reseller/workspace`,
-which also exposes `bot_connected`/bot status read-only so a reseller can
-tell whether to contact the admin.
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `reseller_id` | uuid | yes | — | FK → resellers.id · UNIQUE |
+| `miniapp_slug` | text | yes | — | URL slug, a-z 0-9 hyphens only · UNIQUE |
+| `bot_token_encrypted` | text | no | — | AES-256-GCM encrypted; never returned to frontend |
+| `bot_username` | text | no | — | Set after successful webhook registration |
+| `bot_id` | bigint | no | — | Telegram bot numeric ID |
+| `bot_connected` | boolean | yes | false | True after webhook registration succeeds |
+| `brand_name` | text | yes | — | **Must supply in INSERT** |
+| `brand_logo_url` | text | no | — |  |
+| `support_username` | text | no | — | Telegram username without @ |
+| `primary_color` | text | yes | "#2f7bff" | Hex colour; has DB default but **cannot pass null** |
+| `trial_enabled` | boolean | yes | false | Admin-managed eligibility switch; default false. Check the actual workspace, not a global trial promise. |
+| `trial_data_limit_gb` | integer | yes | 5 | Has DB default but **cannot pass null** |
+| `trial_duration_days` | integer | yes | 7 | Has DB default but **cannot pass null** |
+| `is_enabled` | boolean | yes | true | Disabling blocks all miniapp routes for this slug |
+| `payment_info` | jsonb | no | — | Array of `{method, account_name, account_number, qr_url?}` |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
+| `trial_protocol` | text | yes | "shadowsocks" | Admin-managed trial protocol; validate trial-only service assignments. |
+| `admin_telegram_user_id` | bigint | no | — | Configured Telegram reviewer/receipt-alert identity; admin-managed. |
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `reseller_id` | uuid | ✓ | — | FK → resellers.id · UNIQUE |
-| `miniapp_slug` | text | ✓ | — | URL slug, a-z 0-9 hyphens only · UNIQUE |
-| `bot_token_encrypted` | text | | — | AES-256-GCM encrypted; never returned to frontend |
-| `bot_username` | text | | — | Set after successful webhook registration |
-| `bot_id` | bigint | | — | Telegram bot numeric ID |
-| `bot_connected` | boolean | ✓ | false | True after webhook registration succeeds |
-| `brand_name` | text | ✓ | — | **Must supply in INSERT** |
-| `brand_logo_url` | text | | — | |
-| `support_username` | text | | — | Telegram username without @ |
-| `primary_color` | text | ✓ | `'#2f7bff'` | Hex colour; has DB default but **cannot pass null** |
-| `trial_enabled` | boolean | ✓ | false | |
-| `trial_data_limit_gb` | integer | ✓ | `5` | Has DB default but **cannot pass null** |
-| `trial_duration_days` | integer | ✓ | `7` | Has DB default but **cannot pass null** |
-| `trial_protocol` | text | ✓ | `'shadowsocks'` | `shadowsocks` or `vless` — protocol used when provisioning trial keys |
-| `is_enabled` | boolean | ✓ | true | Disabling blocks all miniapp routes for this slug |
-| `payment_info` | jsonb | | `'[]'` | Array of `{method, account_name, account_number, qr_url?}` |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
+## reseller_notification_templates
 
-> **INSERT rule:** `primary_color`, `trial_data_limit_gb`, and `trial_duration_days` are NOT NULL with  
-> DB defaults. Passing explicit `null` overrides the default and causes a NOT NULL violation.  
-> Always supply `'#2f7bff'`, `5`, `7` (or real values) — never `null`.
+Per-reseller notification text overrides.
 
----
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" |  |
+| `reseller_id` | uuid | yes | — |  |
+| `event_type` | text | yes | — |  |
+| `custom_text` | text | yes | — |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
 
 ## resellers
 
-One row per reseller business. Auth is via Supabase email+password; `supabase_user_id` links to `auth.users`.
+Tenant businesses and account status.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `name` | text | ✓ | — | Business/display name (NOT `full_name`) |
-| `email` | text | | — | |
-| `telegram_username` | text | | — | |
-| `phone` | text | | — | |
-| `commission_percent` | numeric | ✓ | — | 0–100 |
-| `status` | text | ✓ | — | `active` \| `disabled` |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
-| `supabase_user_id` | uuid | | — | FK → auth.users.id |
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `name` | text | yes | — | Business/display name (NOT `full_name`) |
+| `email` | text | no | — |  |
+| `telegram_username` | text | no | — |  |
+| `phone` | text | no | — |  |
+| `commission_percent` | numeric | yes | — | 0–100 |
+| `status` | text | yes | — | `active` \ \| `disabled` |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
+| `supabase_user_id` | uuid | no | — | FK → auth.users.id |
+| `notifications_paused` | boolean | yes | false | Pauses applicable customer notification delivery for this workspace. |
 
-> **Column trap:** this table uses `name`, not `full_name`. Contrast with `admins.full_name` and `vpn_customers.full_name`.
+## server_health_status
 
----
+Panel/usage-sync operational readings. outline_api_status is a retained compatibility column name.
+
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `server_id` | uuid | yes | — | PK, FK → vpn_servers.id |
+| `outline_api_status` | text | yes | "unknown" | `unknown` \ \| `healthy` \ \| `degraded` \ \| `failed` \ \| `stale` |
+| `last_checked_at` | timestamp with time zone | no | — | Last panel API health check attempt |
+| `last_success_at` | timestamp with time zone | no | — | Last successful panel API health check |
+| `last_usage_sync_at` | timestamp with time zone | no | — | Last successful usage sync for this server |
+| `last_error` | text | no | — | Sanitized operational error only |
+| `response_ms` | integer | no | — | panel API health check duration |
+| `active_key_count_seen` | integer | no | — | Key count observed from panel API |
+| `consecutive_failures` | integer | yes | 0 |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
+
+## system_job_runs
+
+Backend job health; successful metadata does not replace inspecting a failed component.
+
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `job_name` | text | yes | — | PK, e.g. `usage_sync`, `outline_health_check` |
+| `status` | text | yes | "idle" | `idle` \ \| `running` \ \| `success` \ \| `failed` \ \| `stale` |
+| `last_started_at` | timestamp with time zone | no | — |  |
+| `last_finished_at` | timestamp with time zone | no | — |  |
+| `last_success_at` | timestamp with time zone | no | — |  |
+| `last_error` | text | no | — | Sanitized operational error only |
+| `consecutive_failures` | integer | yes | 0 |  |
+| `run_count` | integer | yes | 0 |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
 
 ## telegram_links
 
-One row per (reseller, Telegram user) pair. Connects a Telegram user identity to a `vpn_customers` record and tracks trial usage.
+Production reseller-scoped Telegram/customer linkage and trial history.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `telegram_user_id` | bigint | ✓ | — | Telegram numeric user ID |
-| `telegram_username` | text | | — | May be null if user has no username |
-| `customer_id` | uuid | ✓ | — | FK → vpn_customers.id |
-| `reseller_id` | uuid | ✓ | — | FK → resellers.id |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
-| `trial_used_at` | timestamptz | | — | Set when trial order is created |
-| `trial_order_id` | uuid | | — | FK → vpn_orders.id |
-
-Unique constraint: `(reseller_id, telegram_user_id)`.
-
----
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `telegram_user_id` | bigint | yes | — | Telegram numeric user ID |
+| `telegram_username` | text | no | — | May be null if user has no username |
+| `customer_id` | uuid | yes | — | FK → vpn_customers.id |
+| `reseller_id` | uuid | yes | — | FK → resellers.id |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
+| `trial_used_at` | timestamp with time zone | no | — | Set when trial order is created |
+| `trial_order_id` | uuid | no | — | FK → vpn_orders.id |
 
 ## token_server_assignments
 
-Legacy token portal. Maps an `access_token` to a specific server and VPN key.
+Legacy internal token-to-server links still used by provisioning; do not drop based on public-route retirement.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `token_id` | uuid | ✓ | — | FK → access_tokens.id |
-| `server_id` | uuid | ✓ | — | FK → vpn_servers.id |
-| `vpn_key_id` | uuid | | — | FK → vpn_keys.id |
-| `is_active` | boolean | ✓ | — | |
-| `created_at` | timestamptz | ✓ | now() | |
-
----
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `token_id` | uuid | yes | — | FK → access_tokens.id |
+| `server_id` | uuid | yes | — | FK → vpn_servers.id |
+| `vpn_key_id` | uuid | no | — | FK → vpn_keys.id |
+| `is_active` | boolean | yes | — |  |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
 
 ## vpn_customers
 
-End customers (VPN subscribers). One customer belongs to one reseller. Telegram Mini App users are auto-created here on first auth.
+Customers isolated by reseller; full_name is the display-name column.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `reseller_id` | uuid | | — | FK → resellers.id |
-| `full_name` | text | ✓ | — | Display name (NOT `name`) |
-| `telegram_username` | text | | — | |
-| `phone` | text | | — | |
-| `notes` | text | | — | |
-| `status` | text | ✓ | — | `active` \| `inactive` |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
-| `ssconf_token` | text | | — | Permanent per-customer token for ssconf:// URLs · UNIQUE |
-
-| `customer_type` | text | yes | `'normal'` | `normal` \| `telegram` |
-
-> **Column trap:** this table uses `full_name`, not `name`.
-
----
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `reseller_id` | uuid | no | — | FK → resellers.id |
+| `full_name` | text | yes | — | Display name (NOT `name`) |
+| `telegram_username` | text | no | — |  |
+| `phone` | text | no | — |  |
+| `notes` | text | no | — |  |
+| `status` | text | yes | — | `active` \ \| `inactive` |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
+| `ssconf_token` | text | no | — | Permanent per-customer token for ssconf:// URLs · UNIQUE |
+| `customer_type` | text | yes | "normal" | normal or telegram in production; development additionally supports messenger. |
+| `protocol_preference` | text | yes | "shadowsocks" | Intent for next provisioning; active key.protocol is current access. |
 
 ## vpn_keys
 
-Active and historical Outline VPN keys. One key per order (swapped when customer changes server).
+Active Marzneshin keys and immutable historical key usage.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `order_id` | uuid | | — | FK → vpn_orders.id |
-| `customer_id` | uuid | | — | FK → vpn_customers.id |
-| `reseller_id` | uuid | | — | FK → resellers.id |
-| `server_id` | uuid | | — | FK → vpn_servers.id |
-| `outline_key_id` | text | | — | Numeric key ID from Outline API |
-| `key_name` | text | ✓ | — | Human-readable label on the Outline server |
-| `access_url` | text | | — | `ss://…` Shadowsocks URL |
-| `data_limit_bytes` | bigint | | — | null = unlimited |
-| `used_bytes` | bigint | ✓ | — | |
-| `status` | text | ✓ | — | `active` \| `deleted` |
-| `is_used` | boolean | | — | |
-| `used_at` | timestamptz | | — | |
-| `ssconf_token` | text | | — | Per-key token (legacy; current flow uses customer ssconf_token) |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
-| `deleted_at` | timestamptz | | — | |
-
----
-
-Partial unique index: one active, non-deleted key per `(order_id, server_id)`.
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `order_id` | uuid | no | — | FK → vpn_orders.id |
+| `customer_id` | uuid | no | — | FK → vpn_customers.id |
+| `reseller_id` | uuid | no | — | FK → resellers.id |
+| `server_id` | uuid | no | — | FK → vpn_servers.id |
+| `outline_key_id` | text | no | — | Marzneshin username for active keys; numeric Outline ID only in historical rows. |
+| `key_name` | text | yes | — | Human-readable key label; not a provider credential. |
+| `access_url` | text | no | — | Provider subscription URL on Marzneshin keys. Backend projects protocol-specific customer access URLs. |
+| `data_limit_bytes` | bigint | no | — | Per-key enforcement cap. After a switch this is carried balance, not the full package allowance; null is an unlimited/legacy marker requiring canonical quota interpretation. |
+| `used_bytes` | bigint | yes | — | Synced per-key usage; historical deleted-key readings are retained for package accounting. |
+| `status` | text | yes | — | `active` \ \| `deleted` |
+| `is_used` | boolean | no | — |  |
+| `used_at` | timestamp with time zone | no | — |  |
+| `ssconf_token` | text | no | — | Per-key token (legacy; current flow uses customer ssconf_token) |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
+| `deleted_at` | timestamp with time zone | no | — |  |
+| `protocol` | text | yes | "shadowsocks" | Authoritative protocol of this key: shadowsocks, vless or historical/supported hysteria2. |
+| `key_credentials` | jsonb | no | — | Provider metadata; backend-only, may include subscription credentials. |
 
 ## vpn_orders
 
-A customer's VPN subscription period. Drives billing, key provisioning, and expiry.
+Package containers, dates, quota snapshots and compatibility payment fields.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `customer_id` | uuid | ✓ | — | FK → vpn_customers.id |
-| `reseller_id` | uuid | | — | FK → resellers.id |
-| `plan_id` | uuid | ✓ | — | FK → vpn_plans.id |
-| `status` | text | ✓ | — | `pending` \| `active` \| `expired` \| `stopped` |
-| `price_mmk` | integer | ✓ | — | Snapshotted at order creation |
-| `commission_percent` | numeric | ✓ | — | Snapshotted at order creation |
-| `commission_amount_mmk` | integer | ✓ | — | |
-| `total_paid_mmk` | integer | ✓ | — | |
-| `start_date` | date | | — | |
-| `expiry_date` | date | | — | Used by autoStopJob |
-| `usage_baseline_bytes` | bigint | ✓ | `0` | Lifetime key usage before this package period; subtracted from current-period usage |
-| `quota_limit_bytes` | bigint | | — | Snapshotted allowance for this package period; null means unlimited or unavailable |
-| `payment_status` | text | ✓ | — | `unpaid` \| `paid` \| `overdue` |
-| `payment_note` | text | | — | |
-| `payment_screenshot_url` | text | | — | Storage path (not public URL) |
-| `activated_at` | timestamptz | | — | |
-| `stopped_at` | timestamptz | | — | |
-| `order_type` | text | | — | `trial` \| `purchase` |
-| `review_status` | text | | — | `pending_review` \| `confirmed` \| `rejected` |
-| `source` | text | | — | `miniapp` \| `dashboard` |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
-
----
-
-Partial unique index: one active purchase per `(reseller_id, customer_id)`.
-Migration `0006_business_integrity_constraints.sql` also enforces composite
-customer/order/key tenant ownership for all new writes.
-Migration `0026_order_quota_source_of_truth.sql` snapshots finite plan quotas
-and makes package-period usage independent from immutable historical key usage.
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `customer_id` | uuid | yes | — | FK → vpn_customers.id |
+| `reseller_id` | uuid | no | — | FK → resellers.id |
+| `plan_id` | uuid | yes | — | FK → vpn_plans.id |
+| `status` | text | yes | — | pending, active, expired, stopped or scheduled; do not conflate with payment review. |
+| `price_mmk` | integer | yes | — | Snapshotted at order creation |
+| `commission_percent` | numeric | yes | — | Snapshotted at order creation |
+| `commission_amount_mmk` | integer | yes | — |  |
+| `total_paid_mmk` | integer | yes | — |  |
+| `start_date` | date | no | — |  |
+| `expiry_date` | date | no | — | Used by autoStopJob |
+| `payment_status` | text | yes | — | `unpaid` \ \| `paid` \ \| `overdue` |
+| `payment_note` | text | no | — |  |
+| `payment_screenshot_url` | text | no | — | Storage path (not public URL) |
+| `activated_at` | timestamp with time zone | no | — |  |
+| `stopped_at` | timestamp with time zone | no | — |  |
+| `order_type` | text | no | — | `trial` \ \| `purchase` |
+| `review_status` | text | no | — | `pending_review` \ \| `confirmed` \ \| `rejected` |
+| `source` | text | no | — | `miniapp` \ \| `dashboard` |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
+| `usage_baseline_bytes` | bigint | yes | 0 | Historical key usage before the current package period; subtracted by canonical quota. |
+| `quota_limit_bytes` | bigint | no | — | Snapshotted current package allowance. Use the canonical quota service to distinguish finite, unlimited and unavailable. |
 
 ## vpn_plans
 
-Subscription plan catalogue. Shared across resellers. `is_trial = true` rows are used for free trial orders.
+Shared current catalogue. Zero data_limit_gb means unlimited; max_devices is catalogue metadata, not proof of device enforcement.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `name` | text | ✓ | — | |
-| `price_mmk` | integer | ✓ | — | 0 for trial plans |
-| `data_limit_gb` | integer | ✓ | — | 0 = unlimited |
-| `duration_days` | integer | ✓ | — | |
-| `max_devices` | integer | ✓ | — | |
-| `is_active` | boolean | ✓ | — | Inactive plans are hidden from reseller dashboard |
-| `is_trial` | boolean | ✓ | — | |
-| `features` | jsonb | ✓ | `'{}'` | Array of feature strings for display |
-| `sort_order` | integer | ✓ | — | Controls display order |
-| `allowed_regions` | text[] | | — | null = all regions |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | ✓ | now() | |
-
----
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `name` | text | yes | — |  |
+| `price_mmk` | integer | yes | — | 0 for trial plans |
+| `data_limit_gb` | integer | yes | — | 0 = unlimited |
+| `duration_days` | integer | yes | — |  |
+| `max_devices` | integer | yes | — |  |
+| `is_active` | boolean | yes | — | Inactive plans are hidden from reseller dashboard |
+| `is_trial` | boolean | yes | — |  |
+| `features` | jsonb | yes | — | Array of feature strings for display |
+| `sort_order` | integer | yes | — | Controls display order |
+| `allowed_regions` | text[] | no | — | null = all regions |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
 
 ## vpn_servers
 
-VPN servers (DigitalOcean droplets). Managed by Marzneshin panel.
+Marzneshin service/node capacity and historical provider rows.
 
-| Column | Type | NOT NULL | Default | Notes |
-|--------|------|----------|---------|-------|
-| `id` | uuid | ✓ | gen_random_uuid() | PK |
-| `name` | text | ✓ | — | |
-| `provider` | text | ✓ | — | `digitalocean` |
-| `region` | text | ✓ | — | e.g. `sgp1` |
-| `region_code` | text | | — | Display code e.g. `SG` |
-| `droplet_id` | bigint | | — | DigitalOcean droplet ID |
-| `host_ip` | text | | — | |
-| `outline_api_url` | text | | — | Legacy column; credentials cleared after Outline retirement |
-| `outline_cert_sha256` | text | | — | Legacy column; credentials cleared after Outline retirement |
-| `panel_type` | text | ✓ | `'outline'` after `0025` | Historical rows may be `outline`; active rows must be `marzneshin` |
-| `panel_url` | text | | — | Marzneshin panel API URL (e.g. `http://127.0.0.1:8000`) |
-| `panel_public_url` | text | | — | Public HTTPS URL for subscription links |
-| `panel_username` | text | | — | Marzneshin admin username |
-| `panel_password_encrypted` | text | | — | Encrypted admin password |
-| `marzneshin_service_ids` | integer[] | | `'{}'` | Per-server SS service IDs (one node's SS inbound only) |
-| `marzneshin_vless_service_ids` | integer[] | | `'{}'` | Global VLESS service IDs (all nodes' VLESS inbounds — same value on every server row) |
-| `marzneshin_vless_trial_service_ids` | integer[] | | `'{}'` | Trial-only VLESS service IDs — references a Marzneshin service containing ONLY this trial server's VLESS inbound. Set on trial servers only; empty on premium servers. |
-| `status` | text | ✓ | — | `active` \| `provisioning` \| `error` \| `inactive` |
-| `is_active` | boolean | | — | |
-| `is_default` | boolean | ✓ | — | One server is the default for new mini-app orders |
-| `max_active_keys` | integer | ✓ | — | Capacity ceiling |
-| `current_active_keys` | integer | ✓ | — | Database-owned after `0021`; legacy production uses app-side updates until cutover |
-| `last_error` | text | | — | |
-| `display_country` | text | | — | e.g. `Singapore` |
-| `display_city` | text | | — | e.g. `Singapore` |
-| `flag_emoji` | text | | — | e.g. `🇸🇬` |
-| `server_number` | integer | | — | Display number |
-| `sort_order` | integer | ✓ | — | Controls display order |
-| `created_at` | timestamptz | ✓ | now() | |
-| `updated_at` | timestamptz | | — | |
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" | PK |
+| `name` | text | yes | — |  |
+| `provider` | text | yes | — | `digitalocean` |
+| `region` | text | yes | — | e.g. `sgp1` |
+| `region_code` | text | no | — | Display code e.g. `SG` |
+| `droplet_id` | bigint | no | — | DigitalOcean droplet ID |
+| `host_ip` | text | no | — |  |
+| `outline_api_url` | text | no | — | Legacy column; credentials cleared after Outline retirement |
+| `outline_cert_sha256` | text | no | — | Legacy column; credentials cleared after Outline retirement |
+| `status` | text | yes | — | Runtime active/provisioning/error states and historical inactive/decommissioned rows; selectable capacity uses existing status guards. |
+| `is_active` | boolean | no | — |  |
+| `is_default` | boolean | yes | — | One server is the default for new mini-app orders |
+| `max_active_keys` | integer | yes | — | Capacity ceiling |
+| `current_active_keys` | integer | yes | — | Database-owned capacity counter in the current code path; do not write directly. |
+| `last_error` | text | no | — |  |
+| `display_country` | text | no | — | e.g. `Singapore` |
+| `display_city` | text | no | — | e.g. `Singapore` |
+| `flag_emoji` | text | no | — | e.g. `🇸🇬` |
+| `server_number` | integer | no | — | Display number |
+| `sort_order` | integer | yes | — | Controls display order |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | no | — |  |
+| `server_tier` | text | yes | "premium" | trial or premium. Trial cannot use premium; paid manual switching may use eligible trial capacity. |
+| `panel_type` | text | yes | "outline" | marzneshin for active access; outline retained only for historical rows. |
+| `panel_url` | text | no | — | Marzneshin panel API URL (e.g. `http://127.0.0.1:8000`) |
+| `panel_public_url` | text | no | — | Public HTTPS URL for subscription links |
+| `panel_username` | text | no | — | Marzneshin admin username |
+| `panel_password_encrypted` | text | no | — | Encrypted admin password |
+| `marzneshin_service_ids` | integer[] | no | — | Per-server SS service IDs (one node's SS inbound only) |
+| `marzneshin_vless_service_ids` | integer[] | no | — | Global VLESS service IDs (all nodes' VLESS inbounds — same value on every server row) |
+| `marzneshin_vless_trial_service_ids` | integer[] | no | — | Trial-only VLESS service IDs — references a Marzneshin service containing ONLY this trial server's VLESS inbound. Set on trial servers only; empty on premium servers. |
 
----
+## Production canonical views
 
-## Foreign Key Map
+These are service-layer read helpers; frontends still use authenticated Express routes. They do not mean every existing route already reads exclusively from a view.
+
+## customer_view
+
+Canonical backend read view; inspect migration 0023 for derivation and privileges.
+
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | no | — |  |
+| `reseller_id` | uuid | no | — |  |
+| `display_name` | text | no | — |  |
+| `telegram_username` | text | no | — |  |
+| `phone` | text | no | — |  |
+| `notes` | text | no | — |  |
+| `status` | text | no | — |  |
+| `customer_type` | text | no | — |  |
+| `protocol_preference` | text | no | — |  |
+| `ssconf_token` | text | no | — |  |
+| `created_at` | timestamp with time zone | no | — |  |
+| `updated_at` | timestamp with time zone | no | — |  |
+| `reseller_display_name` | text | no | — |  |
+| `active_order_id` | uuid | no | — |  |
+
+## order_view
+
+Canonical backend read view; inspect migration 0023 for derivation and privileges.
+
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | no | — |  |
+| `customer_id` | uuid | no | — |  |
+| `reseller_id` | uuid | no | — |  |
+| `plan_id` | uuid | no | — |  |
+| `status` | text | no | — |  |
+| `price_mmk` | integer | no | — |  |
+| `commission_percent` | numeric | no | — |  |
+| `start_date` | date | no | — |  |
+| `expiry_date` | date | no | — |  |
+| `payment_note` | text | no | — |  |
+| `payment_status` | text | no | — |  |
+| `activated_at` | timestamp with time zone | no | — |  |
+| `stopped_at` | timestamp with time zone | no | — |  |
+| `order_type` | text | no | — |  |
+| `review_status` | text | no | — |  |
+| `payment_screenshot_url` | text | no | — |  |
+| `source` | text | no | — |  |
+| `created_at` | timestamp with time zone | no | — |  |
+| `updated_at` | timestamp with time zone | no | — |  |
+| `total_paid_mmk` | bigint | no | — |  |
+| `commission_amount_mmk` | bigint | no | — |  |
+| `platform_due_mmk` | bigint | no | — |  |
+| `protocol` | text | no | — |  |
+| `active_key_id` | uuid | no | — |  |
+| `active_key_access_url` | text | no | — |  |
+| `active_key_protocol` | text | no | — |  |
+| `active_key_server_id` | uuid | no | — |  |
+| `customer_display_name` | text | no | — |  |
+| `customer_ssconf_token` | text | no | — |  |
+| `customer_protocol_preference` | text | no | — |  |
+| `reseller_display_name` | text | no | — |  |
+| `plan_name` | text | no | — |  |
+
+## server_view
+
+Canonical backend read view; inspect migration 0023 for derivation and privileges.
+
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | no | — |  |
+| `name` | text | no | — |  |
+| `provider` | text | no | — |  |
+| `region` | text | no | — |  |
+| `region_code` | text | no | — |  |
+| `droplet_id` | bigint | no | — |  |
+| `host_ip` | text | no | — |  |
+| `outline_api_url` | text | no | — |  |
+| `outline_cert_sha256` | text | no | — |  |
+| `status` | text | no | — |  |
+| `is_active` | boolean | no | — |  |
+| `is_default` | boolean | no | — |  |
+| `max_active_keys` | integer | no | — |  |
+| `current_active_keys` | integer | no | — |  |
+| `last_error` | text | no | — |  |
+| `display_country` | text | no | — |  |
+| `display_city` | text | no | — |  |
+| `flag_emoji` | text | no | — |  |
+| `server_number` | integer | no | — |  |
+| `sort_order` | integer | no | — |  |
+| `created_at` | timestamp with time zone | no | — |  |
+| `updated_at` | timestamp with time zone | no | — |  |
+| `server_tier` | text | no | — |  |
+| `panel_type` | text | no | — |  |
+| `panel_url` | text | no | — |  |
+| `panel_public_url` | text | no | — |  |
+| `panel_username` | text | no | — |  |
+| `panel_password_encrypted` | text | no | — |  |
+| `marzneshin_service_ids` | integer[] | no | — |  |
+| `marzneshin_vless_service_ids` | integer[] | no | — |  |
+| `marzneshin_vless_trial_service_ids` | integer[] | no | — |  |
+| `outline_api_status` | text | no | — |  |
+| `last_checked_at` | timestamp with time zone | no | — |  |
+| `last_success_at` | timestamp with time zone | no | — |  |
+| `last_usage_sync_at` | timestamp with time zone | no | — |  |
+| `health_consecutive_failures` | integer | no | — |  |
+| `live_active_key_count` | bigint | no | — |  |
+
+## Production RPCs and concurrency
+
+Observed RPC paths:
+
+- `activate_vpn_key`
+- `admin_monitoring_daily`
+- `admin_monitoring_funnel`
+- `admin_monitoring_server_events`
+- `admin_monitoring_summary`
+- `apply_confirmed_payment`
+- `cleanup_old_app_events`
+- `fail_pending_key`
+- `reserve_pending_key`
+- `rls_auto_enable`
+
+Provisioning calls reserve_pending_key, activate_vpn_key and fail_pending_key. apply_confirmed_payment keeps relevant payment/cache updates atomic. Current serverService treats capacity as database-owned (migration 0021); do not bypass reservation/ownership/retry guards or write counters directly. RPC exposure alone does not verify live trigger DDL. RLS/grants must be checked against the migration and intended caller.
+
+## Foreign key reference
+
+The following logical map is carried from the migration reference; OpenAPI column verification above is not a fresh constraint audit.
 
 > `vpn_servers.server_tier` was added in migration `0005_add_server_tier.sql`.
 > It is NOT NULL, defaults to `'premium'`, and accepts `trial` or `premium`.
@@ -566,120 +629,258 @@ VPN servers (DigitalOcean droplets). Managed by Marzneshin panel.
 
 ---
 
-## Column Name Traps
+## Naming, states and source-of-truth rules
 
-Three tables use different name columns — this has caused bugs:
+- resellers.name differs from admins.full_name and vpn_customers.full_name. No physical display_name rename has been completed.
+- vpn_orders: pending/active/expired/stopped/scheduled. Access state differs from payment review.
+- vpn_keys: pending reservation, active or deleted; protocol is the live key fact.
+- Payment review: pending_review/confirmed/rejected. Application: pending/applied/failed/reversed. Payment types: initial/extend/renew.
+- Production sources include miniapp, dashboard, bot and admin where accepted by the existing route. Messenger is a development addition, not a production source claim.
+- Canonical package quota uses quota_limit_bytes and usage_baseline_bytes with key history. Per-key cap is not the package total.
+- Confirmed/applied payment entries drive recognized revenue/commission; preserve submitted settlement snapshots.
+- reseller_miniapps has defaults for color/trial quota/duration. Explicit null does not invoke a default. Bot tokens and panel passwords remain backend-only.
 
-| Table | Name column |
-|-------|------------|
-| `resellers` | `name` |
-| `admins` | `full_name` |
-| `vpn_customers` | `full_name` |
+## Development-only additions (0027–0036)
 
----
+Verified in development, absent from the production OpenAPI snapshot. Existence here is not production migration/deployment authorization. The shared purchase callers need their migrations even when Messenger is disabled.
 
-## Key Enumerations
+## customer_trial_claims
 
-These are stored as `text`. Critical customer, order, key, payment, settlement,
-and server lifecycle values have DB-level CHECK constraints; the remaining rows
-document accepted application values.
+Development-only channel table; see the migration semantics below.
 
-| Table.column | Known values |
-|---|---|
-| `resellers.status` | `active`, `disabled` |
-| `admins.status` | `active`, `disabled` |
-| `vpn_customers.status` | `active`, `inactive` |
-| `vpn_servers.status` | `active`, `provisioning`, `error`, `inactive` |
-| `vpn_orders.status` | `pending`, `active`, `expired`, `stopped`, `scheduled` |
-| `vpn_orders.payment_status` | `unpaid`, `paid`, `overdue` |
-| `vpn_orders.order_type` | `trial`, `purchase` |
-| `vpn_orders.review_status` | `pending_review`, `confirmed`, `rejected` |
-| `vpn_orders.source` | `miniapp`, `dashboard`, `bot`, `admin` |
-| `vpn_keys.status` | `active`, `deleted` |
-| `access_tokens.status` | `active`, `expired`, `revoked` |
-| `commission_ledger.status` | `pending`, `paid` |
-| `monthly_settlements.status` | `draft`, `submitted`, `confirmed`, `reopened` |
-| `order_payments.review_status` | `pending_review`, `confirmed`, `rejected` |
-| `order_payments.payment_type` | `initial`, `extend`, `renew`, `adjustment` |
-| `order_payments.apply_status` | `pending`, `applied`, `failed`, `reversed` |
-| `app_events.status` | `info`, `success`, `blocked`, `failed` |
-| `system_job_runs.status` | `idle`, `running`, `success`, `failed`, `stale` |
-| `server_health_status.outline_api_status` | `unknown`, `healthy`, `degraded`, `failed`, `stale` |
-| `vpn_servers.provider` | `digitalocean` |
-| `vpn_servers.panel_type` | `marzneshin` |
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `reseller_id` | uuid | yes | — |  |
+| `customer_id` | uuid | yes | — |  |
+| `used_at` | timestamp with time zone | yes | "now()" |  |
+| `order_id` | uuid | no | — |  |
+| `plan_snapshot` | jsonb | no | — |  |
+| `protocol` | text | no | — |  |
+| `provision_status` | text | yes | "ready" |  |
+| `provision_owner` | uuid | no | — |  |
 
----
+## messenger_events
 
-# Final Data Model Additions
+Development-only channel table; see the migration semantics below.
 
-Documents live-but-previously-undocumented objects (found in the 2026-09-23
-re-introspection) and the new objects from migrations `0020`–`0023`. See
-`FINAL_DATA_MODEL.md` for design/rationale.
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" |  |
+| `reseller_id` | uuid | yes | — |  |
+| `page_id` | text | yes | — |  |
+| `sender_id` | text | yes | — |  |
+| `message_id` | text | yes | — |  |
+| `payload` | jsonb | yes | — |  |
+| `status` | text | yes | "pending" |  |
+| `attempts` | integer | yes | 0 |  |
+| `lease_owner` | uuid | no | — |  |
+| `lease_until` | timestamp with time zone | no | — |  |
+| `retry_at` | timestamp with time zone | yes | "now()" |  |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
 
-## Previously undocumented tables (live since migrations 0011/0012/0016)
+## messenger_links
 
-- **`notifications_sent`** — dedup ledger for customer notifications. Columns:
-  `id` (uuid PK), `customer_id` (uuid, NOT NULL), `event_type` (text, NOT NULL),
-  `order_id` (uuid), `channel` (text, NOT NULL), `sent_at` (timestamptz, NOT NULL).
-- **`reseller_notification_templates`** — per-reseller custom notification copy.
-  `id` (uuid PK), `reseller_id` (uuid, NOT NULL), `event_type` (text, NOT NULL),
-  `custom_text` (text, NOT NULL), `updated_at` (timestamptz, NOT NULL).
-- **`platform_settings`** — singleton (boolean PK `id` always true). `payment_accounts`
-  (jsonb, NOT NULL), `settlement_instructions` (text), `updated_at` (timestamptz, NOT NULL).
+Development-only channel table; see the migration semantics below.
 
-## Previously undocumented columns
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" |  |
+| `reseller_id` | uuid | yes | — |  |
+| `page_id` | text | yes | — |  |
+| `sender_id` | text | yes | — |  |
+| `customer_id` | uuid | yes | — |  |
+| `last_interaction_at` | timestamp with time zone | yes | "now()" |  |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `profile_name` | text | no | — |  |
+| `profile_checked_at` | timestamp with time zone | no | — |  |
+| `profile_applied_name` | text | no | — |  |
 
-| Table | Column | Type | Notes |
-|-------|--------|------|-------|
-| `vpn_customers` | `protocol_preference` | text NOT NULL `'shadowsocks'` | Intent for the NEXT provision; CHECK in (`shadowsocks`,`vless`,`hysteria2`). NOT the live key's protocol. |
-| `vpn_keys` | `protocol` | text NOT NULL `'shadowsocks'` | Authoritative protocol of THIS key; CHECK in (`shadowsocks`,`vless`,`hysteria2`). Bot + views read this. |
-| `vpn_keys` | `key_credentials` | jsonb | Marzneshin `{ username, subscription_key, service_ids }`. |
-| `vpn_servers` | `server_tier` | text NOT NULL `'premium'` | `trial` \| `premium`. |
-| `reseller_miniapps` | `admin_telegram_user_id` | bigint | Reseller admin's Telegram id for purchase notifications. |
-| `resellers` | `notifications_paused` | boolean NOT NULL | Pauses reseller Telegram notifications. |
+## notification_deliveries
 
-## Enum corrections
+Development-only channel table; see the migration semantics below.
 
-- `vpn_keys.status` — now `active` \| `deleted` \| `pending` (migration 0020 added
-  `pending`, a transient reservation state during provisioning).
-- `vpn_servers.status` CHECK — live constraint is stricter than the docs above:
-  it rejects `inactive`. Use `active` \| `provisioning` \| `error` for new rows.
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" |  |
+| `reseller_id` | uuid | yes | — |  |
+| `record_id` | uuid | yes | — |  |
+| `event_type` | text | yes | — |  |
+| `channel` | text | yes | — |  |
+| `recipient_id` | text | yes | — |  |
+| `status` | text | yes | "pending" |  |
+| `owner_token` | uuid | no | — |  |
+| `lease_until` | timestamp with time zone | no | — |  |
+| `attempt_count` | integer | yes | 0 |  |
+| `next_attempt_at` | timestamp with time zone | yes | "now()" |  |
+| `provider_message_id` | text | no | — |  |
+| `error_code` | text | no | — |  |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
+| `event_key` | text | yes | "" |  |
 
-## Functions / RPCs (service_role only)
+## purchase_operations
 
-Provisioning saga (0020, redefined by 0021):
-- **`reserve_pending_key(order,customer,reseller,server,key_name,data_limit_bytes,protocol) → uuid`**
-  Tenant-guarded; inserts a `pending` vpn_key. Capacity enforced by the trigger below.
-- **`activate_vpn_key(key,reseller,outline_key_id,access_url,key_credentials) → void`**
-  Flips a reserved key to `active` with the panel result.
-- **`fail_pending_key(key,reseller) → void`** Idempotent soft-delete releasing the reservation.
+Development-only channel table; see the migration semantics below.
 
-Payments (0022):
-- **`apply_confirmed_payment(order,reseller,reviewer_reseller,reviewer_admin) → void`**
-  Atomically confirm+apply all pending `order_payments` for an order and recompute
-  the order's cached summary. Mirrors `confirmOrderPayments()`/`summarizePayments()`.
+| Column | PostgreSQL type | Required | Default | Meaning |
+| --- | --- | --- | --- | --- |
+| `id` | uuid | yes | "gen_random_uuid()" |  |
+| `reseller_id` | uuid | yes | — |  |
+| `customer_id` | uuid | yes | — |  |
+| `order_id` | uuid | no | — |  |
+| `request_key` | text | yes | — |  |
+| `command` | jsonb | yes | — |  |
+| `policy` | text | yes | — |  |
+| `is_queued` | boolean | yes | false |  |
+| `status` | text | yes | "created" |  |
+| `lease_owner` | uuid | no | — |  |
+| `lease_until` | timestamp with time zone | no | — |  |
+| `created_at` | timestamp with time zone | yes | "now()" |  |
+| `updated_at` | timestamp with time zone | yes | "now()" |  |
 
-## Trigger (0021)
+### Development-only RPCs
 
-- **`sync_server_active_keys()`** on `vpn_keys` (AFTER INSERT/UPDATE/DELETE) — sole owner
-  of `vpn_servers.current_active_keys`: recomputes `count(status in ('active','pending'))`
-  per affected server and enforces `max_active_keys` race-free (locks the server row,
-  raises `capacity exceeded`). App-side `incrementServerUsage`/`decrementServerUsage` are
-  now a read-only check / no-op respectively.
+- `claim_messenger_event`
+- `claim_notification_delivery`
+- `claim_purchase_execution`
+- `claim_trial_provisioning`
+- `create_customer_trial`
+- `customer_trial_eligibility`
+- `decrement_server_usage_atomic`
+- `finish_messenger_event`
+- `finish_notification_delivery`
+- `finish_purchase_execution`
+- `finish_trial_provisioning`
+- `increment_server_usage_atomic`
+- `resolve_messenger_customer`
+- `submit_purchase`
 
-## Views (0023, service_role only)
+### Development migration semantics
 
-- **`order_view`** — canonical order read model. Derived `protocol` (from the active key,
-  falling back to `protocol_preference`), derived `total_paid_mmk`/`commission_amount_mmk`/
-  `platform_due_mmk` (summed from `order_payments` where `review_status='confirmed' AND
-  (apply_status is null or 'applied')`), `customer_display_name`/`reseller_display_name`
-  aliases, and the active-key surface. All frontends should read money+protocol from here.
-- **`customer_view`** — customer + `display_name` alias + `active_order_id`.
-- **`server_view`** — server + health + `live_active_key_count` cross-check for the counter.
+- `notification_deliveries`: backend-only delivery ledger. UUID ID, reseller_id,
+  record_id (scoped order FK), event_type, channel, recipient_id, event_key,
+  status, owner_token, lease_until, attempt_count, next_attempt_at,
+  provider_message_id, error_code, created_at, updated_at. Unique identity is
+  reseller/event/order/channel/recipient/event_key. Payment event_key is the
+  reviewed payment UUID; other events use an empty string.
+- Statuses: pending, sending, sent, retryable, uncertain, skipped. A claim leases
+  for 60 seconds; expired sending is uncertain, not automatically resent. Only
+  explicit retryable failures permit at most three attempts.
+- Service-role-only RPCs: `claim_notification_delivery` and
+  `finish_notification_delivery`, with owner fencing and reseller validation.
+- `enqueue_purchase_admin_notification` trigger records a pending admin alert
+  atomically when a customer purchase operation completes (0034).
+- `messenger_links` adds profile_name, profile_checked_at, profile_applied_name
+  (0032). Profile enrichment caches name-only requests for 24 hours and uses
+  compare-and-set customer updates to preserve staff edits.
+- `customer_trial_claims`: composite PK reseller_id/customer_id, used_at,
+  nullable order_id, plan_snapshot, protocol, provision_status, provision_owner.
+  Both customer and order FKs are reseller-scoped. Deleting an order clears its
+  reference, never consumed eligibility. RLS enabled; service-role access only.
+- Service-role-only trial RPCs: customer_trial_eligibility,
+  create_customer_trial, claim_trial_provisioning, finish_trial_provisioning.
+  Order creation and claim are atomic; Telegram link fields remain compatibility
+  projections. Existing Telegram and trial-order history is backfilled. Trial
+  quota/duration are snapshotted from reseller_miniapps; capacity stays trial-only.
+- 0035 reapplies reviewed recovery and authorization rules so an earlier 0033
+  application does not retain stale retry behavior. Development verification and
+  production application are separate gates.
+- 0036 corrects the trial-claim record name in create_customer_trial so it cannot
+  conflict with the SQL customer alias. This is a function-only forward fix;
+  used history, customer records, and order data are unchanged.
 
-## Queued purchase uniqueness (0024)
+### Shared purchases and Messenger (0027–0030)
 
-- **`idx_vpn_orders_one_scheduled_purchase`** — unique on
-  `(reseller_id, customer_id)` for `status = 'scheduled' AND order_type = 'purchase'`.
-  A customer can hold one active and one queued purchase. Migration `0024`
-  refuses to run when existing duplicate scheduled purchases need review.
+Applied and tested in development only. Production requires an explicit rollout.
+
+- `vpn_customers.customer_type` additionally accepts `messenger`; identities are
+  not automatically linked to Telegram customers.
+- `vpn_orders.source` and `order_payments.source` additionally accept `messenger`.
+  Migration 0028 preserves existing source whitelists.
+- `purchase_operations`: UUID `id`, tenant/customer/order IDs, `request_key`, JSON
+  `command`, `policy` (`customer`/`staff`), `is_queued`, `status`
+  (`created`/`processing`/`completed`/`recovery_required`), lease owner/expiry and
+  timestamps. Unique `(reseller_id,request_key)`. Customer and order references
+  include tenant IDs. `order_id` is nullable after 0028: cancellation leaves an
+  idempotency tombstone rather than allowing replay to create another order.
+- `messenger_links`: UUID ID, reseller/Page/sender/customer IDs, interaction and
+  creation timestamps. Unique `(reseller_id,page_id,sender_id)`, tenant-aware
+  customer FK. Stores Page-scoped identity, not a Facebook login identity.
+- `messenger_events`: UUID ID, reseller/Page/sender/message IDs, JSON payload,
+  status (`pending`/`processing`/`completed`/`failed`), attempts, lease fields,
+  retry/creation/update timestamps. Unique `(page_id,message_id)`. Durable
+  checkpoints live in payload; successful delivery clears that payload.
+
+All three tables have RLS enabled and no anon/authenticated grants. Their RPCs
+are `SECURITY DEFINER`, fixed `search_path=public`, service-role-only:
+`submit_purchase`, `claim_purchase_execution`, `finish_purchase_execution`,
+`resolve_messenger_customer`, `claim_messenger_event`, `finish_messenger_event`.
+`submit_purchase` locks the scoped customer and atomically records the order,
+payment and operation. External panel provisioning remains in the existing
+reservation/concurrency services, outside that transaction. Execution leases
+last 15 minutes; ambiguous pending panel keys require operator recovery.
+Migration 0029 prevents later events from overtaking an earlier same-sender retry
+and treats null review status as unconfirmed. Apply it before enabling purchases.
+Migration 0030 preserves staff preparation for inactive customers while still
+rejecting customer-initiated checkout for inactive identities.
+
+## Related references
+
+- SYSTEM_DESIGN.md: production architecture and separately labelled local work.
+- SKILL_DATABASE.md: tenancy, migration and snapshot rules.
+- DEPLOYMENT.md: verified production release process and development migration gates.
+- FINAL_DATA_MODEL.md: historical target design with partial implementation status; not permission to drop current fields.
+- docs/DOCUMENTATION.md: document authority and stage index.
+
+## Pending implementation migration 0037 (not deployed)
+
+Owner-approved on 2026-10-15. The production OpenAPI snapshot above remains
+unchanged until separately authorized deployment. 0037 depends on existing core
+0022/0026 effects and does not depend on the development 0027–0036 chain.
+
+### dashboard_purchase_operations
+
+Backend-only durable manual-purchase replay/setup coordination. RLS enabled;
+no anon/authenticated policies or grants. service_role owns access.
+
+| Column | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| id | uuid | yes | PK, generated UUID |
+| reseller_id | uuid | yes | Tenant FK; part of both composite ownership FKs |
+| request_key | uuid | yes | Unique with reseller_id; stable per submitted purchase |
+| request_hash | text | yes | Canonical normalized request fingerprint; changed-payload replay rejected |
+| customer_id | uuid | yes | Composite FK to vpn_customers(id,reseller_id) |
+| order_id | uuid | yes | Unique; composite FK to vpn_orders(id,reseller_id) |
+| plan_snapshot | jsonb | yes | Purchased plan values for setup/retry; legacy adoption uses recorded payment snapshot where available, otherwise labelled catalogue provenance |
+| state | text | yes | not_started, awaiting_payment, queued, running, ready or failed |
+| setup_owner | uuid | no | Non-null exactly while running; owner checked on completion |
+| claimed_at | timestamptz | no | Claim time; never authorizes automatic takeover |
+| last_error_code | text | no | Sanitized setup code; separate from ledger apply_error |
+| created_at | timestamptz | yes | Default now() |
+| updated_at | timestamptz | yes | Default now(); updated by RPC |
+
+Partial unique index permits at most one running operation per reseller/customer.
+Service-role-only RPCs: prepare_dashboard_purchase(uuid,uuid,text,jsonb) atomically
+creates/replays a manual purchase and records paid receipt through the existing
+apply_confirmed_payment RPC; ensure_dashboard_purchase_operation(uuid,uuid) adopts
+an explicitly acted-on legacy dashboard order; claim_dashboard_purchase_setup
+(uuid,uuid,uuid) chooses start/queue/wait and claims setup;
+finish_dashboard_purchase_setup(uuid,uuid,uuid,text,text) verifies the owner and
+records ready/failed. Provider calls occur outside transactions. A running owner
+is never stolen by timeout; crash recovery requires operator reconciliation.
+
+The same operations cover paid staff renew/extend actions with source dashboard or
+admin, preserving renew/extend receipt type. A new operation updates permitted
+existing-customer contact/name/notes/protocol fields under the customer lock; exact
+request replay returns before applying those updates again. Admin follow-ups to a
+Telegram customer require a verified same-tenant/customer origin order. These are
+service-role-only inputs, not new public permissions or additional RPCs.
+
+Local isolated PGlite execution verifies SQL/RPC behavior and permissions against
+a synthetic core schema; this does not certify live constraints or apply SQL to
+Supabase. Recheck live production prerequisites before deployment.
+
+Operation ownership FKs cascade only when the owning order/customer is explicitly
+deleted through existing authorized cleanup; no independent purge is introduced.
+Keep operation rows for as long as the purchase exists to preserve replay identity.

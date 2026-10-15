@@ -1,3 +1,7 @@
+import { summarizeUsageFreshness } from "./usageFreshnessService.js";
+import { selectCustomerPackages, summarizeOrderBusiness, toQuotaPayload } from "./businessDisplayService.js";
+import { summarizeOrderMoney } from "./paymentSummaryService.js";
+import { isRecognizedPayment, legacyOrderMoney } from "./paymentSummaryService.js";
 import { buildAccessUrlForProtocol } from "./publicAccessUrlService.js";
 import { buildOrderQuotaSnapshot } from "./subscriptionProvisionService.js";
 
@@ -6,27 +10,13 @@ function bytesToGb(bytes) {
   return value > 0 ? Number((value / 1024 / 1024 / 1024).toFixed(2)) : 0;
 }
 
-function toQuotaPayload(quota) {
-  return {
-    limit_bytes: quota.totalAllowanceBytes,
-    used_bytes: quota.totalUsedBytes,
-    remaining_bytes: quota.remainingBytes,
-    limit_gb:
-      typeof quota.totalAllowanceBytes === "number" ? bytesToGb(quota.totalAllowanceBytes) : null,
-    used_gb: bytesToGb(quota.totalUsedBytes),
-    remaining_gb:
-      typeof quota.remainingBytes === "number" ? bytesToGb(quota.remainingBytes) : null,
-    is_unlimited: quota.isUnlimited,
-  };
-}
-
 export function toNumber(value) {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
 export function isConfirmedAppliedPayment(payment) {
-  return payment?.review_status === "confirmed" && String(payment?.apply_status || "applied") === "applied";
+  return isRecognizedPayment(payment);
 }
 
 export function addPaymentToBucket(bucket, payment) {
@@ -36,7 +26,7 @@ export function addPaymentToBucket(bucket, payment) {
   bucket.payment_count += 1;
 }
 
-export function enrichOrderAccess(order, req) {
+export function enrichOrderAccess(order, req, { now = new Date(), freshness, paymentsLoaded = Array.isArray(order?.payments) } = {}) {
   const customerToken = order?.customer?.ssconf_token;
   const label = order?.reseller?.name || "NovaNet MM";
 
@@ -62,6 +52,7 @@ export function enrichOrderAccess(order, req) {
   // from an earlier package period while retaining it for audit/history.
   const quota = buildOrderQuotaSnapshot(order?.keys ?? [], order);
   const quotaPayload = toQuotaPayload(quota);
+  if (freshness instanceof Map) freshness = summarizeUsageFreshness((order?.keys || []).filter(k=>k.status === "active").map(k=>({last_usage_sync_at:freshness.get(k.server_id)?.last_synced_at})),{now});
 
   const keys = (order?.keys ?? []).map((key) => {
     const urls = pickUrls(key.access_url || null);
@@ -88,6 +79,8 @@ export function enrichOrderAccess(order, req) {
 
   return {
     ...order,
+    business_summary: summarizeOrderBusiness(order, {quota:quotaPayload,now,freshness,paymentsLoaded}),
+    money_summary: summarizeOrderMoney(order, {paymentsLoaded}),
     protocol,
     ssconf_url: orderUrls.ssconf_url,
     dynamic_access_url: orderUrls.dynamic_access_url,
@@ -141,18 +134,8 @@ function isLegacyConfirmedPaidOrder(order) {
   );
 }
 
-function paidOrderAmount(order) {
-  const totalPaid = toNumber(order?.total_paid_mmk);
-  if (totalPaid > 0) return totalPaid;
-  return String(order?.payment_status || "").toLowerCase() === "paid" ? toNumber(order?.price_mmk) : 0;
-}
-
-function legacyOrderCommission(order, amount) {
-  const cachedCommission = toNumber(order?.commission_amount_mmk);
-  if (cachedCommission > 0) return cachedCommission;
-  const percent = toNumber(order?.commission_percent ?? order?.reseller?.commission_percent);
-  return Math.floor((amount * percent) / 100);
-}
+function paidOrderAmount(order) { return legacyOrderMoney(order).amount_mmk; }
+function legacyOrderCommission(order) { return legacyOrderMoney(order).commission_amount_mmk; }
 
 export function addLegacyOrderSummary(paymentSummary, orders) {
   const summary = { ...paymentSummary };
@@ -173,33 +156,26 @@ export function addLegacyOrderSummary(paymentSummary, orders) {
   return summary;
 }
 
-export function getCustomerActiveOrder(orders) {
-  const rows = Array.isArray(orders) ? orders : [];
-  return (
-    rows.find((order) => order.status === "active" && String(order.order_type || "purchase") === "purchase") ||
-    rows.find((order) => order.status === "active") ||
-    rows[0] ||
-    null
-  );
-}
+export function getCustomerActiveOrder(orders) { return selectCustomerPackages(orders).current_order; }
 
-export function enrichCustomer(customer, { orders = [], telegramLink = null, req } = {}) {
+export function enrichCustomer(customer, { orders = [], telegramLink = null, req, now = new Date(), freshness } = {}) {
   const customerOrders = orders
-    .filter((order) => order.customer_id === customer.id)
-    .map((order) => enrichOrderAccess({ ...order, customer, reseller: customer.reseller || order.reseller }, req))
+    .filter((order) => order.customer_id === customer.id && (!customer.reseller_id || order.reseller_id === customer.reseller_id))
+    .map((order) => enrichOrderAccess({ ...order, customer, reseller: customer.reseller || order.reseller }, req, {now, freshness}))
     .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-  const activeOrder = getCustomerActiveOrder(customerOrders);
+  const selection = selectCustomerPackages(customerOrders, {now});
+  const activeOrder = selection.current_order;
   const allPayments = customerOrders.flatMap((order) => order.payments ?? []);
   const paymentSummary = addLegacyOrderSummary(summarizeOrderPayments(allPayments), customerOrders);
   const label = customer.reseller?.name || "NovaNet MM";
 
   // Protocol-aware customer-level access URL: SS → ssconf token portal,
   // VLESS/Hysteria2 → the active order's subscription URL (never ssconf).
-  const protocol = customer.protocol_preference || "shadowsocks";
   const activeKey =
     (activeOrder?.keys ?? []).find((key) => key.status === "active") ||
     (activeOrder?.keys ?? [])[0] ||
     null;
+  const protocol = activeKey?.protocol || activeOrder?.protocol || customer.protocol_preference || "shadowsocks";
   const urls = buildAccessUrlForProtocol({
     protocol,
     ssconfToken: customer.ssconf_token,
@@ -214,6 +190,7 @@ export function enrichCustomer(customer, { orders = [], telegramLink = null, req
     telegram_link: telegramLink,
     orders: customerOrders,
     active_order: activeOrder,
+    ...selection,
     keys: customerOrders.flatMap((order) => order.keys ?? []),
     payment_summary: paymentSummary,
     protocol,

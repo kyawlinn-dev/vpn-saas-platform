@@ -246,8 +246,8 @@ describe('balanceText with queuedPlan', () => {
       expiryDate: '2026-10-15',
       formatBurmeseDate: dummyDateFmt,
     })
-    expect(text).toContain('အသုံးပြုထားသော ဒေတာ: <b>2.5 GB</b>')
-    expect(text).toContain('ကျန်ရှိသော ဒေတာ: <b>7.5 GB</b>')
+    expect(text).toContain('အသုံးပြုထားသော ဒေတာ: <b>2.50 GB</b>')
+    expect(text).toContain('ကျန်ရှိသော ဒေတာ: <b>7.50 GB</b>')
     expect(text).toContain('သက်တမ်းကုန်ဆုံးမည့်ရက်: 2026-10-15')
     expect(text).not.toContain('ကြိုတင်ဝယ်ယူထားသော နောက်ပက်ကေ့ဂျ်')
   })
@@ -266,8 +266,8 @@ describe('balanceText with queuedPlan', () => {
         durationDays: 30,
       },
     })
-    expect(text).toContain('အသုံးပြုထားသော ဒေတာ: <b>5 GB</b>')
-    expect(text).toContain('ကျန်ရှိသော ဒေတာ: <b>15 GB</b>')
+    expect(text).toContain('အသုံးပြုထားသော ဒေတာ: <b>5.00 GB</b>')
+    expect(text).toContain('ကျန်ရှိသော ဒေတာ: <b>15.00 GB</b>')
     expect(text).toContain('ကြိုတင်ဝယ်ယူထားသော နောက်ပက်ကေ့ဂျ်')
     expect(text).toContain('VIP 30 Days')
     expect(text).toContain('50 GB')

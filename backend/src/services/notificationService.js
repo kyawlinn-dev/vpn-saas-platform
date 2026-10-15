@@ -385,9 +385,10 @@ async function findPaymentEvent(reviewStatus, eventType) {
       customer_id,
       reseller_id,
       payment_note,
+      amount_mmk,
       review_status,
       reviewed_at,
-      order:vpn_orders(id, expiry_date, plan:vpn_plans(id, name)),
+      order:vpn_orders(id, status, expiry_date, plan:vpn_plans(id, name)),
       customer:vpn_customers!order_payments_customer_id_fkey(id, full_name, telegram_links(telegram_user_id)),
       reseller_row:resellers!order_payments_reseller_id_fkey!inner(id, notifications_paused)
     `)
@@ -417,6 +418,8 @@ async function findPaymentEvent(reviewStatus, eventType) {
       data: {
         brand_name: miniapp?.brand_name || "",
         plan_name: p.order?.plan?.name || "",
+        access_status: p.order?.status === "scheduled" ? "queued" : p.order?.status,
+        amount_mmk: p.amount_mmk,
         expiry_date: formatBurmeseDate(p.order?.expiry_date),
         support_username: miniapp?.support_username || "",
         reject_reason: p.payment_note || "",

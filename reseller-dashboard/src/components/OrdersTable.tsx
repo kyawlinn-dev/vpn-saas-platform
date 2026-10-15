@@ -1,3 +1,5 @@
+import {BusinessStatus,PaymentReviewStatus} from "./BusinessStatus";
+import {PackageUsage} from "./PackageUsage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, Plus, Copy, Info, Loader2, Crown, Gift,
@@ -13,7 +15,6 @@ import {
   Table, TableHeader, TableBody, TableRow, TableHead, TableCell,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { UsageBar } from "@/components/ui/usage-bar";
 import { Button } from "@/components/ui/button";
 import { ActionButton } from "@/components/ui/action-button";
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
@@ -185,36 +186,9 @@ function getPreferredAccessUrlFromPayload(data: any) {
   );
 }
 
-function getOrderUsageGb(key?: VpnKey | null) {
-  if (!key) return 0;
-  if (typeof key.order_total_used_gb === "number") return key.order_total_used_gb;
-  if (typeof key.order_total_used_bytes === "number") {
-    return key.order_total_used_bytes / 1024 / 1024 / 1024;
-  }
-  if (typeof key.used_gb_30d === "number") return key.used_gb_30d;
-  // Orders now embed keys straight from the DB (no live Prometheus fetch on
-  // every list load) — used_bytes is the cumulative usage kept in sync by
-  // syncUsageJob, the best available figure without a live metrics call.
-  if (typeof key.used_bytes === "number") return key.used_bytes / 1024 / 1024 / 1024;
-  return 0;
-}
 
-function getOrderRemainingGb(key?: VpnKey | null) {
-  if (!key) return null;
-  if (typeof key.order_total_remaining_gb === "number") return key.order_total_remaining_gb;
-  if (key.remaining_gb_30d != null) return Number(key.remaining_gb_30d);
-  if (typeof key.data_limit_bytes === "number" && typeof key.used_bytes === "number") {
-    return Math.max((key.data_limit_bytes - key.used_bytes) / 1024 / 1024 / 1024, 0);
-  }
-  return null;
-}
 
-function getOrderLimitGb(key?: VpnKey | null) {
-  if (!key) return 0;
-  if (typeof key.data_limit_gb === "number") return key.data_limit_gb;
-  if (typeof key.data_limit_bytes === "number") return key.data_limit_bytes / 1024 / 1024 / 1024;
-  return 0;
-}
+
 
 function getActiveKeyForOrder(order: Order): VpnKey | undefined {
   return order.keys?.find((key) => key.status === "active");
@@ -511,11 +485,17 @@ export function OrdersTable({
       const res = await api.post(`/reseller/order-actions/${order.id}/activate`);
       await refreshAll();
 
+      setDetailsDialog({open:false,order:null});
       const data = res?.data;
+      if (data?.purchase_outcome === "setup_failed" || data?.purchase_outcome === "setup_in_progress") {
+        setMessage(data.message || "Payment recorded. Check setup on the new order.");
+        return;
+      }
       const accessUrl: string = getPreferredAccessUrlFromPayload(data);
       const customerName = order.customer?.full_name || "Customer";
 
-      if (accessUrl) {
+      if (["setup_failed","setup_in_progress","queued","awaiting_payment"].includes(data?.purchase_outcome)) { setMessage(data.message || "Purchase recorded; setup is pending."); }
+      else if (accessUrl) {
         setAccessKeyDialog({
           open: true,
           customerName,
@@ -650,17 +630,7 @@ export function OrdersTable({
     }
   };
 
-  const renderUsageCompact = (key?: VpnKey) => {
-    if (!key) return <span className="text-muted-foreground">-</span>;
-    return (
-      <UsageBar
-        used={getOrderUsageGb(key)}
-        limit={getOrderLimitGb(key)}
-        remaining={getOrderRemainingGb(key)}
-        connections={Number(key.recent_connections_24h || 0)}
-      />
-    );
-  };
+  const renderUsageCompact = (order:Order) => <PackageUsage quota={order.business_summary?.quota} freshness={order.business_summary?.usage_freshness} />;
 
   const renderAccessDetails = (order: Order) => {
     const key = getAnyKeyForOrder(order);
@@ -762,13 +732,23 @@ export function OrdersTable({
     }
 
     if (!isTelegramCustomer) {
+      if(order.order_type !== "trial" && order.payment_status === "unpaid" && order.review_status !== "rejected" && ["pending","scheduled"].includes(order.status)) {
+        actions.push({label:"Confirm payment",icon:<Check size={14}/>,disabled:!!loadingId,onSelect:async()=>{
+          try {
+            setLoadingId(order.id+":confirm");
+            const result=await api.post(`/reseller/order-actions/${order.id}/confirm-payment`);
+            setMessage(result.data.message || "Payment confirmed");
+            await refreshAll();
+            setDetailsDialog({open:false,order:null});
+          } catch(err:any) { setError(err?.response?.data?.error || "Could not confirm payment"); }
+          finally { setLoadingId(""); }
+        }});
+      }
       if (
-        order.status === "pending" &&
-        order.payment_status === "paid" &&
-        order.review_status !== "rejected"
+        (order.order_type === "trial" || order.business_summary?.can_retry_setup) && order.status === "pending" && order.payment_status === "paid"
       ) {
         actions.push({
-          label: loadingId === `${order.id}:activate` ? "Activating..." : "Activate",
+          label: loadingId === `${order.id}:activate` ? "Setting up..." : order.order_type === "trial" ? "Activate trial" : "Retry setup",
           icon: <KeyRound size={14} />,
           disabled: loadingId === `${order.id}:activate`,
           onSelect: () => void runActivate(order),
@@ -778,7 +758,7 @@ export function OrdersTable({
       if (order.status === "active") {
         actions.push(
           {
-            label: loadingId === `${order.id}:extend` ? "Extending..." : "Extend",
+            label: loadingId === `${order.id}:extend` ? "Saving..." : "Buy next package",
             icon: <RefreshCw size={14} />,
             disabled: loadingId === `${order.id}:extend`,
             onSelect: () => openRenewDialog(order, "extend"),
@@ -1104,7 +1084,7 @@ export function OrdersTable({
                           {order.customer?.telegram_username || order.customer?.phone || "-"}
                         </div>
                       </div>
-                      <StatusBadge status={order.status} />
+                      <BusinessStatus summary={order.business_summary} />
                     </div>
 
                     <div className="mt-3 flex gap-6">
@@ -1183,10 +1163,10 @@ export function OrdersTable({
                         <ProtocolBadge protocol={order.protocol} className="mt-1" />
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
-                        <StatusBadge status={order.status} />
+                        <BusinessStatus summary={order.business_summary} />
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
-                        <StatusBadge status={getPaymentDisplayStatus(order)} />
+                        <PaymentReviewStatus summary={order.business_summary} />
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
                         <div className="text-xs">{formatDate(order.expiry_date)}</div>
@@ -1196,7 +1176,7 @@ export function OrdersTable({
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
                         <div className="text-xs">
-                          {key ? formatUsageGb(getOrderUsageGb(key)) : "-"}
+                          {<PackageUsage quota={order.business_summary?.quota} />}
                         </div>
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
@@ -1567,7 +1547,7 @@ export function OrdersTable({
                     </div>
                   </div>
                 </div>
-                <StatusBadge status={liveDetailsOrder.status} />
+                <BusinessStatus summary={liveDetailsOrder.business_summary} />
               </div>
 
               <div className="grid gap-2 lg:grid-cols-[0.82fr_1.18fr]">
@@ -1576,10 +1556,14 @@ export function OrdersTable({
                     <DetailItem label="Plan" value={liveDetailsOrder.plan?.name || "-"} />
                     <DetailItem
                       label="Payment"
-                      value={<StatusBadge status={getPaymentDisplayStatus(liveDetailsOrder)} />}
+                      value={<PaymentReviewStatus summary={liveDetailsOrder.business_summary} />}
                     />
                     <DetailItem label="Price" value={formatMMK(liveDetailsOrder.price_mmk)} />
+                    <DetailItem label="Paid" value={formatMMK(liveDetailsOrder.money_summary?.recognized_gross_mmk)} />
+                    <DetailItem label="Commission" value={formatMMK(liveDetailsOrder.money_summary?.commission_mmk)} />
+                    <DetailItem label="Platform due" value={formatMMK(liveDetailsOrder.money_summary?.platform_due_mmk)} />
                     <DetailItem label="Expiry" value={formatDate(liveDetailsOrder.expiry_date)} />
+                    <DetailItem label={liveDetailsOrder.business_summary?.snapshot_basis.duration === "catalogue" ? "Duration (current catalogue)" : "Purchased duration"} value={liveDetailsOrder.business_summary?.duration_days == null ? "Unavailable" : `${liveDetailsOrder.business_summary.duration_days} days`} />
                     <DetailItem
                       label="Server"
                       value={
@@ -1620,7 +1604,7 @@ export function OrdersTable({
 
                   <div className="rounded-md border border-border bg-card p-2.5">
                     <div className="mb-1.5 text-xs font-bold">Usage</div>
-                    {renderUsageCompact(getActiveKeyForOrder(liveDetailsOrder))}
+                    {renderUsageCompact(liveDetailsOrder)}
                   </div>
                 </div>
 

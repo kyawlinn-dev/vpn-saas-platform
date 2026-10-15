@@ -1,3 +1,5 @@
+import { readAllRows } from "../../utils/readAllRows.js";
+import { summarizeMoneyInPeriod } from "../../services/paymentSummaryService.js";
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import {
@@ -34,19 +36,7 @@ export function belongsInRecentActivity(order) {
 // payment sits at review_status="pending_review" until the reseller
 // confirms it, so it must not inflate today/month revenue before that.
 export function revenueInWindow({ payments, legacyOrders, startIso, endIso }) {
-  const inWindow = (value) => Boolean(value) && value >= startIso && value < endIso;
-
-  const ledgerTotal = payments
-    .filter(isConfirmedAppliedPayment)
-    .filter((payment) => inWindow(payment.created_at))
-    .reduce((sum, payment) => sum + toNumber(payment.amount_mmk), 0);
-
-  const legacyTotal = legacyOrders
-    .filter((order) => !order.payments?.length && order.order_type === "purchase" && order.review_status === "confirmed")
-    .filter((order) => inWindow(order.created_at))
-    .reduce((sum, order) => sum + toNumber(order.total_paid_mmk), 0);
-
-  return ledgerTotal + legacyTotal;
+ return summarizeMoneyInPeriod({payments,orders:legacyOrders,ledgerOrderIds:new Set([...payments.map(p=>p.order_id),...legacyOrders.filter(o=>o.payments?.length).map(o=>o.id)]),startIso,endIso}).recognized_gross_mmk;
 }
 
 // GET /api/reseller/stats/overview
@@ -69,7 +59,7 @@ router.get("/overview", async (req, res) => {
       { data: orders, error: ordersError },
       { count: activeKeysCount, error: keysError },
     ] = await Promise.all([
-      supabase
+      readAllRows(() => supabase
         .from("vpn_orders")
         .select(
           `id, customer_id, status, order_type, review_status, payment_status, source,
@@ -79,7 +69,7 @@ router.get("/overview", async (req, res) => {
           payments:order_payments(id, amount_mmk, review_status, apply_status, created_at)`
         )
         .eq("reseller_id", reseller.id)
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: false }).order("id")),
       supabase.from("vpn_keys").select("*", { count: "exact", head: true }).eq("reseller_id", reseller.id).eq("status", "active"),
     ]);
 
@@ -91,7 +81,7 @@ router.get("/overview", async (req, res) => {
     const rows = orders ?? [];
     const allPayments = rows.flatMap((order) => order.payments ?? []);
 
-    const activeOrders = rows.filter((order) => order.status === "active");
+    const activeOrders = rows.filter((order) => order.status === "active" && (!order.expiry_date || order.expiry_date >= today));
     const pendingOrders = rows.filter((order) => order.status === "pending");
     const activeCustomers = new Set(activeOrders.map((order) => order.customer_id)).size;
 

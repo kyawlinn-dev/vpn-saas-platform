@@ -35,7 +35,7 @@ function UsageBar({ used, limit, remaining, connections, showMeta = true }: Usag
       {showMeta && (
         <p className="text-xs text-muted-foreground">
           {percent.toFixed(0)}% • Rem: {remaining == null ? "-" : formatUsageGb(remaining)} • Conn:{" "}
-          {Number(connections || 0).toLocaleString()}
+          {connections == null ? "Unavailable" : Number(connections).toLocaleString()}
         </p>
       )}
     </div>

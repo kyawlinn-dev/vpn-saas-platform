@@ -1,5 +1,7 @@
 # Fix A — preserve remaining data balance on server migration / switch
 
+> Historical pre-cutover material; status clarified 2026-10-15. Original commands, dates and observations below are retained as history, not the current release procedure. Use [DEPLOYMENT.md](../../DEPLOYMENT.md) for the Marzneshin-only production system. Do not execute this old sequence as a routine deployment.
+
 **Problem.** `migrateActiveOrderToServer` creates the new key with
 `data_limit_bytes = gbToBytes(order.plan.data_limit_gb)` (the **full plan
 allowance**) and `used_bytes = 0`. So every admin *decommission* migration and

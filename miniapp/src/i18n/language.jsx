@@ -10,6 +10,16 @@ export const LANGUAGE_OPTIONS = [
 
 const DICTIONARY = {
   MM: {
+    "business.lastPackage": "နောက်ဆုံးအသုံးပြုခဲ့သော ပက်ကေ့ချ်",
+    "business.queued": "နောက်တစ်ခုအတွက် စောင့်ဆိုင်းနေသည်",
+    "business.remaining": "ကျန်ဒေတာ",
+    "business.unlimited": "အကန့်အသတ်မရှိ",
+    "business.unavailable": "အချက်အလက် မရနိုင်သေးပါ",
+    "business.syncUnknown": "ဒေတာနောက်ဆုံးစစ်ဆေးချိန် မရနိုင်ပါ",
+    "business.synced": "ဒေတာနောက်ဆုံးစစ်ဆေးချိန်",
+    "business.stale": "ဒေတာ အပ်ဒိတ်နောက်ကျနေသည်",
+    "business.confirmedQueue": "ငွေပေးချေမှု အတည်ပြုပြီးပါပြီ။ လက်ရှိပက်ကေ့ချ်ကုန်ဆုံးလျှင် နောက်ပက်ကေ့ချ် အလိုအလျောက် စတင်ပါမည်။",
+    "business.noPayment": "ငွေပေးချေရန်မလိုပါ",
     "access.active": "VPN အသုံးပြုနိုင်ပါပြီ",
     "access.addKey": "Subscription Link ကူးမည်",
     "access.alreadyActive": "သင့်မှာ active package ရှိပြီးသားပါ",
@@ -188,6 +198,16 @@ const DICTIONARY = {
     "settings.viewPackages": "ပက်ကေ့ချ်များ ကြည့်မည်",
   },
   EN: {
+    "business.lastPackage": "Last package",
+    "business.queued": "Queued",
+    "business.remaining": "Remaining",
+    "business.unlimited": "Unlimited",
+    "business.unavailable": "Usage unavailable",
+    "business.syncUnknown": "Sync time unavailable",
+    "business.synced": "Last synced",
+    "business.stale": "Usage update delayed",
+    "business.confirmedQueue": "Payment confirmed. Your next package starts automatically when the current package ends.",
+    "business.noPayment": "No payment required",
     "access.active": "VPN Access Active",
     "access.addKey": "Copy Subscription Link",
     "access.alreadyActive": "You already have an active package",

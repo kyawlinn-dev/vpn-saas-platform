@@ -133,7 +133,7 @@ export function OverviewPage() {
         <div className="grid grid-cols-2 gap-4 xl:grid-cols-6">
           <GlowStatCard
             label="Today Revenue"
-            value={Number(summary?.today_gross_mmk || 0).toLocaleString('en-US')}
+            value={summary?.today_gross_mmk == null ? "Unavailable" : Number(summary.today_gross_mmk).toLocaleString('en-US')}
             unit="MMK"
             caption="Confirmed today"
             icon={<CreditCard size={12} />}
@@ -141,7 +141,7 @@ export function OverviewPage() {
           />
           <GlowStatCard
             label="Month Revenue"
-            value={Number(summary?.month_gross_mmk || 0).toLocaleString('en-US')}
+            value={summary?.month_gross_mmk == null ? "Unavailable" : Number(summary.month_gross_mmk).toLocaleString('en-US')}
             unit="MMK"
             caption="Platform-wide, this month"
             icon={<TrendingUp size={12} />}
@@ -149,7 +149,7 @@ export function OverviewPage() {
           />
           <GlowStatCard
             label="Platform Due"
-            value={Number(summary?.platform_due_mmk || 0).toLocaleString('en-US')}
+            value={summary?.platform_due_mmk == null ? "Unavailable" : Number(summary.platform_due_mmk).toLocaleString('en-US')}
             unit="MMK"
             caption="Owed from resellers"
             icon={<Calculator size={12} />}
@@ -157,7 +157,7 @@ export function OverviewPage() {
           />
           <GlowStatCard
             label="Pending Review"
-            value={Number(summary?.pending_review_mmk || 0).toLocaleString('en-US')}
+            value={summary?.pending_review_mmk == null ? "Unavailable" : Number(summary.pending_review_mmk).toLocaleString('en-US')}
             unit="MMK"
             caption="Awaiting confirmation"
             icon={<Clock size={12} />}

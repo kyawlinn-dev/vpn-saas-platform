@@ -1,32 +1,23 @@
 # NovaNet MM Knowledge Base
 
-Business facts, canonical numbers, and content-ready explanations.
-Serves two consumers: the content agent (immediate) and the RAG chatbot
-(SKILL_BOT.md Feature 3, future). Both read the SAME files.
+Reviewed 2026-10-15. These are scoped customer/content reference facts. No production RAG chatbot currently reads them. The earlier RAG proposal is historical; do not interpret this directory as an enabled AI support service.
 
-## File index
+| File | Scope |
+| --- | --- |
+| plans.md | Catalogue snapshot and dynamic pricing rules |
+| product.md | Marzneshin-backed Shadowsocks/VLESS and package lifecycle |
+| servers.md | Verified fleet snapshot, tier rules and location semantics |
+| trial.md | Explicit claim, workspace eligibility and expiry |
+| purchase.md | Initial versus queued purchase, receipt and review |
+| setup.md | App/protocol-specific link import |
+| troubleshooting.md | Current access, quota, queue and review troubleshooting |
+| support.md | Workspace-specific support and safe escalation |
+| company.md | Platform/white-label identity and limits of verified claims |
 
-| File | Purpose | Status |
-|---|---|---|
-| `plans.md` | Pricing tiers, GB, MMK, duration | ✅ Complete (DB-sourced) |
-| `product.md` | Outline VPN + Shadowsocks tech story | ✅ Complete |
-| `servers.md` | Country list (SG + JP), use cases | ✅ Complete (DB-sourced) |
-| `trial.md` | Free 5GB / 7-day trial details | ✅ Complete (DB-sourced) |
-| `purchase.md` | Bot buy flow + payment methods | ✅ Complete (DB-sourced) |
-| `setup.md` | Outline install + add-key + troubleshooting | ✅ Complete |
-| `troubleshooting.md` | Common issues + fixes (Outline, payment, 409) | ✅ Complete |
-| `support.md` | Channels + escalation + expectations | ✅ Complete (prod-sourced) |
-| `company.md` | Brand story, team, official channels | ✅ Complete (prod-sourced) |
-| `reseller.md` | Commission structure, dashboard | 🟢 Deferred (fill when reseller policy is public) |
+## Authority and updates
 
-## How to update
+Runtime values come from the current reseller workspace, plan/order/payment snapshots and backend responses. Do not publish a static payment account, support identity, server count or trial promise as universal. The documents record a reviewed snapshot, not a promise that future configuration stays unchanged.
 
-Every file follows the schema in `SKILL_KNOWLEDGE_BASE.md`. When you edit,
-bump `last_updated` in the frontmatter. Both consumers reload on next
-run/deploy — no cache invalidation needed.
+When code or configuration changes, update the affected facts and last_updated date; compare current source and the intended environment. Source copy is in backend/src/bot/strings.js, notificationTemplates.js and miniapp/src/i18n/language.jsx. Root SCHEMA.md, SYSTEM_DESIGN.md, SKILL_API_CONTRACTS.md and DEPLOYMENT.md own technical details; docs/DOCUMENTATION.md identifies stages.
 
-## Verification markers
-
-Some values are marked `[VERIFY]` because they were pulled from seed data
-or user manual and may differ from live production. Please confirm the
-actual numbers against your production DB and remove the `[VERIFY]` markers.
+Historical marketing work is outside this application repository. No missing SKILL_KNOWLEDGE_BASE.md or deferred reseller.md is required to use these files. Reseller commercial policy is not established by this customer knowledge base.

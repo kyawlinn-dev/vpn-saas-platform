@@ -11,6 +11,9 @@
 
 import crypto from "node:crypto";
 import { supabase } from "../lib/supabase.js";
+import { businessDateOnly } from "../utils/businessTime.js";
+import { selectCustomerPackages } from "../services/businessDisplayService.js";
+import { readAllRows } from "../utils/readAllRows.js";
 
 // ── Customer resolution ────────────────────────────────────────────────────────
 
@@ -74,7 +77,7 @@ export async function getCustomerTrialInfo(telegramUserId, resellerId) {
  * @returns {object|null}
  */
 export async function getBestActiveOrder(customerId, resellerId) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = businessDateOnly();
 
   const { data: orders, error } = await supabase
     .from("vpn_orders")
@@ -146,7 +149,7 @@ export async function resolveActiveKey(customerId, resellerId, orderId) {
  * @returns {object|null}
  */
 export async function getFullActiveOrder(customerId, resellerId) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = businessDateOnly();
 
   const { data: orders, error } = await supabase
     .from("vpn_orders")
@@ -339,4 +342,11 @@ export async function ensureCustomerSsconfToken(customerId) {
     throw new Error("Failed to ensure customer ssconf token");
   }
   return updated.ssconf_token;
+}
+
+export async function getLastCustomerPackage(customerId,resellerId) {
+ const {data,error}=await readAllRows(()=>supabase.from("vpn_orders").select("id,status,start_date,activated_at,expiry_date,created_at,plan:vpn_plans(name)").eq("customer_id",customerId).eq("reseller_id",resellerId).in("status",["stopped","expired","active"]).order("id"));
+ if(error)throw new Error("Failed to load last package");
+ const last=selectCustomerPackages(data || []).last_order;
+ return last ? {planName:last.plan?.name,expiryDate:last.expiry_date} : null;
 }

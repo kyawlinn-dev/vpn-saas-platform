@@ -26,3 +26,11 @@ Production customer traffic goes to a DigitalOcean Droplet:
 Cloudflare Worker and DO App Platform deployment paths are retired.
 
 See `DEPLOYMENT.md` for the source of truth.
+
+## Documentation status
+
+Use [the documentation index](docs/DOCUMENTATION.md) to distinguish production,
+local development, approved future designs and historical records. The Messenger
+and shared notification/trial work in the dirty development checkout is not a
+production availability claim. The business-display consistency design is
+approved but its implementation has not started.

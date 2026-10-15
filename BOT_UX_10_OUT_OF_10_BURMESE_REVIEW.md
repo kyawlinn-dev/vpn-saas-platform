@@ -1,5 +1,7 @@
 # NovaNet MM Telegram Bot: 10/10 UX Flow & Burmese Copy Master Review Document
 
+> Historical copy-review proposal, not a current 100%-aligned code export. Reviewed stage on 2026-10-15: original wording/line references below are retained for comparison. Use BURMESE_TEXT.md and MINIAPP_TEXT.md for current source snapshots, and SKILL_BOT.md for current navigation.
+
 > **How to use this document with ChatGPT / Copy Editors:**
 > Copy this entire markdown document into ChatGPT or share it with your Burmese copywriter/editor. It provides 100% of the actual system architecture, exact code state machine, runtime constraints, and a complete line-by-line review catalog for every Burmese message in the bot.
 >

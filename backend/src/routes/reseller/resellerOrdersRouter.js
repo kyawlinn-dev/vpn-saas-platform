@@ -1,3 +1,7 @@
+import { readAllRows } from "../../utils/readAllRows.js";
+import {prepareDashboardPurchase} from "../../services/dashboardPurchaseService.js";
+import {startOrQueueDashboardPurchase,getResellerScopedOrder} from "../../services/orderLifecycleService.js";
+import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import {
@@ -48,6 +52,7 @@ const ORDER_SELECT = `
     allowed_regions,
     is_trial
   ),
+  dashboard_setup:dashboard_purchase_operations(state,last_error_code,claimed_at),
   payments:order_payments (
     id,
     amount_mmk,
@@ -55,12 +60,14 @@ const ORDER_SELECT = `
     platform_due_mmk,
     review_status,
     payment_type,
+    package_duration_days,
+    plan_id,
     apply_status,
     created_at
   ),
   keys:vpn_keys!vpn_keys_order_tenant_fk (
     id, order_id, customer_id, reseller_id, server_id, outline_key_id,
-    key_name, access_url, data_limit_bytes, used_bytes, status, created_at,
+    key_name, access_url, protocol, data_limit_bytes, used_bytes, status, created_at,
     deleted_at,
     server:vpn_servers (id, name, region, region_code, display_country, display_city, flag_emoji, server_tier)
   )
@@ -147,11 +154,11 @@ router.get("/", gateTelegramScope, async (req, res) => {
     // ids first (same base-table-only pattern as search below, and cheap:
     // one reseller's customer list, not a system-wide scan).
     if (customer_type === "normal" || customer_type === "telegram") {
-      const { data: typedCustomers, error: typeError } = await supabase
+      const { data: typedCustomers, error: typeError } = await readAllRows(() => supabase
         .from("vpn_customers")
         .select("id")
         .eq("reseller_id", reseller.id)
-        .eq("customer_type", customer_type);
+        .eq("customer_type", customer_type).order("id"));
 
       if (typeError) {
         console.error("GET /api/reseller/orders customer_type query error:", typeError);
@@ -175,6 +182,8 @@ router.get("/", gateTelegramScope, async (req, res) => {
         .eq("status", "active")
         .gte("expiry_date", today)
         .lte("expiry_date", horizon);
+    } else if (status === "expired") {
+      query = query.or(`status.eq.expired,and(status.eq.active,expiry_date.lt.${businessDateOnly()})`);
     } else if (status) {
       query = query.eq("status", String(status).trim());
     }
@@ -272,6 +281,8 @@ router.get("/", gateTelegramScope, async (req, res) => {
       query = query.or(orParts.join(","));
     }
 
+    if (status === "active") query = query.gte("expiry_date", businessDateOnly());
+
     // Sort by creation: each row is an immutable sale/subscription period. A
     // renew inserts a NEW row (which sorts to the top by its own created_at)
     // and leaves the old row frozen in place — so existing rows never move.
@@ -297,19 +308,20 @@ router.get("/", gateTelegramScope, async (req, res) => {
     const customerIds = [...new Set(rows.map((o) => o.customer_id).filter(Boolean))];
     let activeCustomerIds = new Set();
     if (customerIds.length > 0) {
-      const { data: activeRows } = await supabase
+      const { data: activeRows } = await readAllRows(() => supabase
         .from("vpn_orders")
         .select("customer_id")
         .eq("reseller_id", reseller.id)
-        .eq("status", "active")
+        .eq("status", "active").gte("expiry_date", businessDateOnly())
         .eq("order_type", "purchase")
-        .in("customer_id", customerIds);
+        .in("customer_id", customerIds).order("id"));
       activeCustomerIds = new Set((activeRows ?? []).map((r) => r.customer_id));
     }
 
+    const freshness = await loadUsageFreshness(rows.flatMap(o=>(o.keys || []).map(k=>k.server_id)));
     return res.json({
       data: rows.map((order) => ({
-        ...enrichOrderAccess({ ...order, reseller: { name: accessLabel } }, req),
+        ...enrichOrderAccess({ ...order, reseller: { name: accessLabel } }, req, {freshness}),
         customer_has_active_order: activeCustomerIds.has(order.customer_id),
       })),
       total: count ?? 0,
@@ -331,10 +343,10 @@ router.get("/", gateTelegramScope, async (req, res) => {
 router.get("/counts", async (req, res) => {
   try {
     const reseller = req.reseller;
-    const { data, error } = await supabase
+    const { data, error } = await readAllRows(() => supabase
       .from("vpn_orders")
       .select("status, review_status, order_type, source, expiry_date")
-      .eq("reseller_id", reseller.id);
+      .eq("reseller_id", reseller.id).order("id"));
 
     if (error) {
       console.error("GET /api/reseller/orders/counts query error:", error);
@@ -353,11 +365,11 @@ router.get("/counts", async (req, res) => {
     const status = {
       all: rows.length,
       pending: rows.filter((row) => row.status === "pending").length,
-      active: rows.filter((row) => row.status === "active").length,
+      active: rows.filter((row) => row.status === "active" && (!row.expiry_date || row.expiry_date >= today)).length,
       scheduled: rows.filter((row) => row.status === "scheduled").length,
       expiring: rows.filter(isExpiringRow).length,
       overdue: rows.filter((row) => row.status === "overdue").length,
-      expired: rows.filter((row) => row.status === "expired").length,
+      expired: rows.filter((row) => row.status === "expired" || (row.status === "active" && row.expiry_date && row.expiry_date < today)).length,
       stopped: rows.filter((row) => row.status === "stopped").length,
     };
 
@@ -397,6 +409,13 @@ router.post("/", async (req, res) => {
 
     if (!full_name || !plan_id) {
       return res.status(400).json({ error: "full_name and plan_id are required" });
+    }
+
+    if(req.body.idempotency_key) {
+      const op=await prepareDashboardPurchase({resellerId:reseller.id,requestKey:req.body.idempotency_key,payload:{full_name,phone,telegram_username,notes,plan_id,customer_id,payment_status:requestedPaymentStatus === "paid" ? "paid" : "unpaid",payment_note,payment_screenshot_url,protocol_preference}});
+      const outcome=await startOrQueueDashboardPurchase({orderId:op.order_id,resellerId:reseller.id});
+      const recorded=await getResellerScopedOrder(op.order_id,reseller.id);
+      return res.status(201).json({...recorded,...outcome});
     }
 
     const { data: plan, error: planError } = await supabase
@@ -510,7 +529,7 @@ router.post("/", async (req, res) => {
     }
 
     const priceMmk = Number(plan.price_mmk || 0);
-    const commissionPercent = Number(reseller.commission_percent || 20);
+    const commissionPercent = Number(reseller.commission_percent ?? 20);
     const initialPaymentReviewStatus =
       payment_status === "paid" ? review_status : "pending_review";
     const initialPaymentAmounts = calculatePaymentAmounts({
@@ -593,7 +612,7 @@ router.post("/", async (req, res) => {
     return res.status(201).json(responseOrder);
   } catch (err) {
     console.error("POST /api/reseller/orders crash:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    return res.status(err.status || 500).json({ error:err.status ? err.message : "Internal server error",code:err.code });
   }
 });
 

@@ -67,6 +67,9 @@ A second queued purchase returns `409 QUEUED_PACKAGE_EXISTS`.
 - Display label format is `#BrandName-FullName`.
 - The Shadowsocks import bridge is backend-hosted at `/open-key`; VLESS uses
   the panel subscription URL. The live key's `protocol` controls link display.
+- Current Home interaction copies the backend-provided link for import into the
+  selected app. The compatible bridge endpoint does not imply every UI action
+  launches Outline automatically. Protocol changes may require a new import.
 - For VLESS, `current_server` identifies the provisioning node, not the node
   selected by the customer's client. Home does not present it as a connected
   server; the Servers page shows subscription nodes as included instead.

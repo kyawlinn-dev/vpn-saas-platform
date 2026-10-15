@@ -1,15 +1,14 @@
-import { ArrowUp, ChevronRight, Copy, Package, Send, Server, Share2, Wifi } from "lucide-react";
+import {PackageSummary} from "../components/business/PackageSummary";
+import { ArrowUp, ChevronRight, Copy, Package, Send, Server, Share2 } from "lucide-react";
 import {
   BrandBar,
   Chip,
-  DataRing,
   GlassCard,
   PrimaryButton,
   QuickAction,
   SecondaryButton,
 } from "../components/ui/primitives";
 import { cn } from "@/lib/utils";
-import { formatDate } from "../lib/format";
 import { getShareUrl, getImportUrl } from "../lib/links";
 import { copyText } from "../lib/clipboard";
 import {
@@ -20,39 +19,12 @@ import { useLanguage } from "../i18n/language";
 
 // ── Helpers (logic unchanged from MUI version) ────────────────────────────────
 
-function formatGb(value) {
-  const number = Number(value || 0);
-  if (!number) return "0";
-  return Number.isInteger(number) ? String(number) : number.toFixed(1);
-}
 
-function getPlanTitle(subscription, t) {
-  const type = String(subscription?.type || "");
-  if (
-    type === "trial" ||
-    String(subscription?.plan_name || "").toLowerCase().includes("trial")
-  ) {
-    return t("access.trial");
-  }
-  return subscription?.plan_name || t("access.premiumAccess");
-}
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function AccessHero({ subscription, vpnKey, keyForActions, hasImportLink, onToast }) {
+function AccessHero({ subscription, keyForActions, hasImportLink, onToast }) {
   const { t } = useLanguage();
-  const usedGb = subscription?.quota?.used_gb != null
-    ? Number(subscription.quota.used_gb)
-    : Number(vpnKey?.used_bytes || 0) / 1024 / 1024 / 1024;
-  const limitGb = subscription?.quota?.limit_gb != null
-    ? Number(subscription.quota.limit_gb)
-    : Number(subscription?.data_limit_gb || 0);
-  const percent = limitGb > 0 ? Math.min(100, (usedGb / limitGb) * 100) : 0;
-  const validUntil = subscription?.expiry_date ? formatDate(subscription.expiry_date) : null;
-  const secondary = limitGb
-    ? `${formatGb(usedGb)} / ${formatGb(limitGb)} GB`
-    : `${formatGb(usedGb)} GB`;
-
   // All protocols (SS, VLESS, Hysteria2) use a Marzneshin subscription URL.
   // Copy to clipboard — user pastes into Hiddify or Xray.
   const handleCopySubscription = async () => {
@@ -70,38 +42,7 @@ function AccessHero({ subscription, vpnKey, keyForActions, hasImportLink, onToas
 
   return (
     <GlassCard glow className="aurora-glow">
-      {/* Status row */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-success/15 text-success">
-            <Wifi size={20} />
-          </span>
-          <div>
-            <p className="text-[15px] font-semibold text-foreground">{t("access.active")}</p>
-            <p className="text-[12px] text-muted-foreground">{getPlanTitle(subscription, t)}</p>
-          </div>
-        </div>
-        <Chip tone="success" icon={<span className="h-1.5 w-1.5 rounded-full bg-success" />}>
-          {t("common.active")}
-        </Chip>
-      </div>
-
-      {/* DataRing */}
-      <div className="my-4 flex flex-col items-center">
-        <DataRing
-          percent={percent}
-          primary={`${Math.round(percent)}%`}
-          secondary={secondary}
-          size={136}
-        />
-        <p className="mt-3 text-[12px] text-muted-foreground">{t("access.dataUsed")}</p>
-      </div>
-
-      {/* Expiry */}
-      <div className="mb-4 flex items-center justify-center gap-1.5 text-[12px] text-muted-foreground">
-        <span className="h-1 w-1 rounded-full bg-muted-foreground" />
-        {validUntil ? t("access.validUntil", { date: validUntil }) : t("access.validUntilMissing")}
-      </div>
+      <PackageSummary subscription={subscription} />
 
       <PrimaryButton onClick={handleCopySubscription} disabled={!hasImportLink}>
         <Copy size={18} />
@@ -240,11 +181,12 @@ export default function HomePage({ data, hasActivePackage, hasLinkedKey, onToast
         />
       </div>
 
+      {!hasActivePackage && data?.last_subscription && <GlassCard className="p-3"><PackageSummary subscription={data.last_subscription} mode="last" /></GlassCard>}
+      {data?.queued_subscription && <GlassCard className="p-3"><PackageSummary subscription={data.queued_subscription} mode="queued" /></GlassCard>}
       {hasActivePackage ? (
         <>
           <AccessHero
             subscription={subscription}
-            vpnKey={vpnKey}
             keyForActions={keyForActions}
             hasImportLink={hasImportLink}
             onToast={onToast}

@@ -1,6 +1,6 @@
 # Shared Channel Notifications And Messenger Trials
 
-Status: design proposed for written review; implementation not started.
+Status reviewed 2026-10-15: approved design with local implementation and development verification recorded in ../../audits/2026-10-13-channel-notifications-execution.md. Production deployment is not claimed. Original design decisions below are retained; dated test counts belong to the execution ledger, not a fresh verification run.
 
 ## Intent
 
