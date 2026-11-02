@@ -9,8 +9,12 @@ import {
   renameMarzneshinUser,
   testMarzneshinServer,
   updateMarzneshinUserDataLimit,
+  updateMarzneshinUserServices,
 } from "./marzneshinService.js";
 import { decrypt } from "../lib/tokenEncryption.js";
+import { withCustomerInfrastructureMutation, registerCreatedCustomerUser } from "./infrastructure/customerMutationGuard.js";
+import { isPublicServerAccessEnabled, resolveServerAccessContext, validateServerAccessContext } from "./serverAccessContext.js";
+import { evaluateServerAccess, selectServiceIds, ServerAccessPolicyError } from "./serverAccessPolicy.js";
 export function providerForServer(server) {
   if (server?.panel_type === "marzneshin" && server?.panel_url) return "marzneshin";
   throw new Error(`Server ${server?.id || "unknown"} is not a Marzneshin server`);
@@ -58,8 +62,13 @@ export async function testServer(server) {
   return testMarzneshinServer(server);
 }
 
-export function serviceIdsForOrder({ server, protocol, orderType }) {
+export function serviceIdsForOrder({ server, protocol, orderType, accessContext }) {
   providerForServer(server);
+  if (accessContext?.publicAccessEnabled) {
+    validateServerAccessContext(accessContext);
+    return selectServiceIds({ server, protocol, pool: accessContext.pool });
+  }
+  if (isPublicServerAccessEnabled()) throw new ServerAccessPolicyError("PUBLIC_ACCESS_CONTEXT_REQUIRED");
   if (orderType !== "trial" || !["vless", "hysteria2"].includes(protocol)) return null;
   if (server?.server_tier !== "trial") {
     throw new Error("Trial VLESS access requires a trial server");
@@ -93,14 +102,30 @@ export function serviceIdsForOrder({ server, protocol, orderType }) {
  *                                            user only gets the trial node, not all nodes.
  * @param {string}   opts.expiryDate           Order expiry date (YYYY-MM-DD).
  */
-export async function createKey({ server, name, dataLimitBytes = null, protocol = "shadowsocks", serviceIds = null, expiryDate }) {
+export async function createKey(input) {
+  return withCustomerInfrastructureMutation({ serverIds: [input.server?.id] }, () => createKeyUnchecked(input));
+}
+async function createKeyUnchecked({ server, name, dataLimitBytes = null, protocol = "shadowsocks", serviceIds = null, expiryDate, accessContext }) {
   providerForServer(server);
+  const context = await resolveServerAccessContext(accessContext);
+  if (context.publicAccessEnabled) {
+    const decision = evaluateServerAccess({ server, protocol, orderType: "purchase", environment: context.environment, poolId: context.poolId, purpose: "assign" });
+    if (!decision.allowed) throw new ServerAccessPolicyError(decision.code);
+    const expected = selectServiceIds({ server, protocol, pool: context.pool });
+    if (serviceIds !== null && JSON.stringify(serviceIds) !== JSON.stringify(expected)) throw new ServerAccessPolicyError("SERVICE_CONFIGURATION_INVALID");
+    serviceIds = expected;
+  }
   requireCredentials(server);
   ensureDecryptedPassword(server);
-  return createMarzneshinUser({ server, name, dataLimitBytes, protocol, serviceIds, expiryDate });
+  const created = await createMarzneshinUser({ server, name, dataLimitBytes, protocol, serviceIds, expiryDate });
+  await registerCreatedCustomerUser({ server, created });
+  return created;
 }
 
-export async function deleteKey({ server, keyId }) {
+export async function deleteKey(input) {
+  return withCustomerInfrastructureMutation({ serverIds: [input.server?.id] }, () => deleteKeyUnchecked(input));
+}
+async function deleteKeyUnchecked({ server, keyId }) {
   providerForServer(server);
   requireCredentials(server);
   ensureDecryptedPassword(server);
@@ -121,7 +146,10 @@ export async function listKeys(server) {
   return listMarzneshinUsers(server);
 }
 
-export async function updateKeyDataLimit({ server, keyId, dataLimitBytes, expiryDate }) {
+export async function updateKeyDataLimit(input) {
+  return withCustomerInfrastructureMutation({ serverIds: [input.server?.id] }, () => updateKeyDataLimitUnchecked(input));
+}
+async function updateKeyDataLimitUnchecked({ server, keyId, dataLimitBytes, expiryDate }) {
   providerForServer(server);
   requireCredentials(server);
   ensureDecryptedPassword(server);
@@ -133,7 +161,24 @@ export async function updateKeyDataLimit({ server, keyId, dataLimitBytes, expiry
   });
 }
 
-export async function renameKey({ server, keyId, name }) {
+export async function updateKeyServices(input) {
+  return withCustomerInfrastructureMutation({ serverIds: [input.server?.id] }, () => updateKeyServicesUnchecked(input));
+}
+async function updateKeyServicesUnchecked({ server, keyId, serviceIds }) {
+  providerForServer(server);
+  requireCredentials(server);
+  ensureDecryptedPassword(server);
+  return updateMarzneshinUserServices({
+    server,
+    outlineKeyId: keyId,
+    serviceIds,
+  });
+}
+
+export async function renameKey(input) {
+  return withCustomerInfrastructureMutation({ serverIds: [input.server?.id] }, () => renameKeyUnchecked(input));
+}
+async function renameKeyUnchecked({ server, keyId, name }) {
   providerForServer(server);
   requireCredentials(server);
   ensureDecryptedPassword(server);

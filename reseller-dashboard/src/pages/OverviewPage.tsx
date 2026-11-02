@@ -18,7 +18,7 @@ import {
 import { useScopedDashboard } from "../hooks/useScopedDashboard";
 import { useResellerOverviewStats } from "../hooks/useResellerOverviewStats";
 import { api } from "../lib/api";
-import { formatDate, formatDaysLeft, formatMMK } from "../lib/format";
+import { formatDate, formatExpiryDeadline, formatDaysLeft, formatMMK } from "../lib/format";
 import { CreateOrderDialog } from "../components/CreateOrderDialog";
 import { OrdersTable } from "../components/OrdersTable";
 import { Badge } from "@/components/ui/badge";
@@ -122,7 +122,7 @@ export function OverviewPage() {
       ...stats.telegram_review.recent.slice(0, 3).map((order) => ({
         id: `review:${order.id}`,
         order,
-        label: "Review Telegram payment",
+        label: "Review payment",
         caption: `${order.customer?.full_name || "Customer"} · ${formatMMK(order.price_mmk)}`,
         tone: "warning" as const,
       })),
@@ -130,7 +130,7 @@ export function OverviewPage() {
         id: `expiry:${order.id}`,
         order,
         label: "Expires soon",
-        caption: `${order.customer?.full_name || "Customer"} · ${formatDaysLeft(order.expiry_date)}`,
+        caption: `${order.customer?.full_name || "Customer"} · ${formatExpiryDeadline(order)} (${formatDaysLeft(order)})`,
         tone: "info" as const,
       })),
     ];
@@ -211,7 +211,7 @@ export function OverviewPage() {
         <GlowStatCard
           label="Pending reviews"
           value={stats.telegram_review.count}
-          caption="Telegram payments"
+          caption="Self-service payments"
           icon={<CreditCard size={12} />}
           tone="warning"
         />
@@ -265,7 +265,7 @@ export function OverviewPage() {
                   type="button"
                   onClick={() =>
                     navigate(
-                      item.label.includes("Telegram")
+                      item.label === "Review payment"
                         ? "/app/telegram-orders"
                         : "/app/orders"
                     )

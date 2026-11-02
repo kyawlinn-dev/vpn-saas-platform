@@ -16,6 +16,8 @@
 // this conditional-line behavior; if a reseller writes {support_username}
 // into their custom text with no username configured, it renders empty.
 
+import { orderExpiryAt, EXPIRY_TIME_ZONE } from "../utils/businessTime.js";
+
 const BURMESE_DIGITS = ["၀","၁","၂","၃","၄","၅","၆","၇","၈","၉"];
 const BURMESE_MONTHS = [
   "ဇန်နဝါရီ", "ဖေဖော်ဝါရီ", "မတ်", "ဧပြီ", "မေ", "ဇွန်",
@@ -45,6 +47,21 @@ export function formatBurmeseDate(value) {
   return `${toBurmeseNumber(y)} ခုနှစ်၊ ${BURMESE_MONTHS[m - 1]}လ ${toBurmeseNumber(d)} ရက်`;
 }
 
+/**
+ * {expiry_deadline}: actual D+1 04:00 Myanmar deadline, including its date.
+ * {expiry_date}: unchanged stored DATE label for existing custom templates.
+ * Service data also carries expiry_cutoff_at (ISO UTC), expiry_timezone (IANA).
+ */
+export function formatExpiryDeadline(date) {
+  const cutoff = orderExpiryAt(date);
+  if (!cutoff) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: EXPIRY_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date(cutoff));
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${formatBurmeseDate(`${values.year}-${values.month}-${values.day}`)} 04:00 (Myanmar)`;
+}
+
 // ── Event catalog ────────────────────────────────────────────────────────────
 
 export const NOTIFICATION_EVENT_TYPES = [
@@ -64,30 +81,30 @@ export const NOTIFICATION_EVENT_TYPES = [
 export const EVENT_META = {
   trial_ending_24h: {
     label: "Trial ကုန်ဆုံးရန် ၂၄ နာရီ ကျန်",
-    description: "Trial package expires in exactly 1 day.",
+    description: "Trial deadline is within 24 hours; delivered 08:00-21:00 Myanmar.",
     // deep_link_url isn't in the default text — it drives the "Package
     // ဝယ်ရန်" inline button instead (see DEEP_LINK_BUTTON_EVENTS in
     // notificationService.js). Still listed here since it's available data.
-    placeholders: ["brand_name", "expiry_date", "price_from_mmk", "deep_link_url"],
+    placeholders: ["brand_name", "expiry_date", "expiry_deadline", "price_from_mmk", "deep_link_url"],
   },
   trial_expired: {
     label: "Trial ကုန်ဆုံးပြီး",
-    description: "Trial package expired today.",
+    description: "Trial cutoff passed within 24 hours; delivered 08:00-21:00 Myanmar.",
     // deep_link_url drives the "Package ဝယ်ရန်" inline button, not raw text
     // in the body — see DEEP_LINK_BUTTON_EVENTS in notificationService.js.
-    placeholders: ["brand_name", "price_from_mmk", "deep_link_url", "support_username"],
+    placeholders: ["brand_name", "expiry_date", "expiry_deadline", "price_from_mmk", "deep_link_url", "support_username"],
   },
   subscription_expiring_3d: {
     label: "Package ကုန်ဆုံးရန် ၃ ရက် ကျန်",
-    description: "Paid subscription expires in 3 days.",
+    description: "Paid deadline is over 48 and at most 72 hours away; delivered 08:00-21:00 Myanmar.",
     // deep_link_url drives the "Package ဝယ်ရန်" inline button, not raw text
     // in the body — see DEEP_LINK_BUTTON_EVENTS in notificationService.js.
-    placeholders: ["brand_name", "plan_name", "expiry_date", "deep_link_url"],
+    placeholders: ["brand_name", "plan_name", "expiry_date", "expiry_deadline", "deep_link_url"],
   },
   subscription_expired: {
     label: "Package ကုန်ဆုံးပြီး",
-    description: "Paid subscription expired today.",
-    placeholders: ["brand_name", "plan_name", "deep_link_url", "support_username"],
+    description: "Paid cutoff passed within 24 hours; delivered 08:00-21:00 Myanmar.",
+    placeholders: ["brand_name", "plan_name", "expiry_date", "expiry_deadline", "deep_link_url", "support_username"],
   },
   payment_confirmed: {
     label: "ငွေပေးချေမှု အတည်ပြုပြီး",
@@ -136,7 +153,7 @@ export const DEFAULT_TEMPLATES = {
     "<b>⏰ အခမဲ့ စမ်းသုံးခွင့် မကြာမီ ကုန်ဆုံးပါမည်</b>",
     "",
     "အခမဲ့ စမ်းသုံးခွင့်သည် နောက် ၂၄ နာရီအတွင်း ကုန်ဆုံးမည် ဖြစ်ပါသည်။",
-    "📅 ကုန်ဆုံးရက်: <b>{expiry_date}</b>",
+    "📅 ကုန်ဆုံးချိန်: <b>{expiry_deadline}</b>",
     "ဆက်လက်အသုံးပြုလိုပါက အောက်ပါ Package ဝယ်ရန် ခလုတ်မှ {price_from_mmk} ကျပ်မှစ၍ ရွေးချယ်ဝယ်ယူနိုင်ပါသည် 👇",
   ].join("\n"),
 
@@ -144,6 +161,7 @@ export const DEFAULT_TEMPLATES = {
     "<b>⌛ အခမဲ့ စမ်းသုံးခွင့် ကုန်ဆုံးသွားပါပြီ</b>",
     "",
     "အခမဲ့ စမ်းသုံးခွင့် ကုန်ဆုံးသွားပါပြီ။",
+    "📅 ကုန်ဆုံးချိန်: <b>{expiry_deadline}</b>",
     "ဆက်လက်အသုံးပြုလိုပါက အောက်ပါ Package ဝယ်ရန် ခလုတ်မှ {price_from_mmk} ကျပ်မှစ၍ ဝယ်ယူနိုင်ပါသည် 👇",
     "",
     "အကူအညီ လိုပါက Admin ကို ဆက်သွယ်ပါ 👇",
@@ -153,7 +171,7 @@ export const DEFAULT_TEMPLATES = {
     "<b>⏰ ပက်ကေ့ဂျ် သက်တမ်းကုန်ရန် ၃ ရက် ကျန်ပါသည်</b>",
     "",
     "<b>{plan_name}</b> ပက်ကေ့ဂျ်သည် နောက် ၃ ရက်အတွင်း ကုန်ဆုံးမည် ဖြစ်ပါသည်။",
-    "📅 ကုန်ဆုံးရက်: <b>{expiry_date}</b>",
+    "📅 ကုန်ဆုံးချိန်: <b>{expiry_deadline}</b>",
     "ကြိုတင်ဝယ်ယူလိုပါက အောက်ပါ Package ဝယ်ရန် ခလုတ်ကို နှိပ်ပါ 👇",
   ].join("\n"),
 
@@ -161,6 +179,7 @@ export const DEFAULT_TEMPLATES = {
     "<b>⌛ ပက်ကေ့ဂျ် သက်တမ်း ကုန်ဆုံးသွားပါပြီ</b>",
     "",
     "<b>{plan_name}</b> ပက်ကေ့ဂျ် သက်တမ်း ကုန်ဆုံးသွားပါပြီ။",
+    "📅 ကုန်ဆုံးချိန်: <b>{expiry_deadline}</b>",
     "ဆက်လက်အသုံးပြုလိုပါက အောက်ပါ Package ဝယ်ရန် ခလုတ်ကို နှိပ်ပါ 👇",
     "",
     "အကူအညီ လိုပါက Admin ကို ဆက်သွယ်ပါ 👇",

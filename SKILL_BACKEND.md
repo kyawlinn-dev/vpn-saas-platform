@@ -132,7 +132,8 @@ trigger. Initial key provisioning uses the `reserve_pending_key` and
 enforces one scheduled purchase per customer/reseller across Mini App, bot, and
 dashboard checkout.
 
-Provisioning must also respect `vpn_servers.server_tier`:
+With `PUBLIC_SERVER_ACCESS_ENABLED` false (the current default), provisioning
+respects legacy `vpn_servers.server_tier`:
 
 - trial orders -> `serverTier: "trial"`
 - paid purchases/renewals/migrations -> `serverTier: "premium"`
@@ -147,3 +148,17 @@ trial, Mini App link, switch, and migration). The panel's `fixed_date` cutoff
 is the start of the next Asia/Bangkok business day. Trial VLESS orders must use
 `marzneshin_vless_trial_service_ids`; missing IDs block provisioning rather
 than falling back to the global VLESS service.
+
+The gated public-access branch uses `serverAccessContext` and `serverAccessPolicy`
+to select proven, published, protocol-compatible pool members for both trial and
+paid users. SS remains single-server; VLESS uses the pool service. Do not combine
+legacy trial service restrictions with enabled public policy. Keep policy and
+lifecycle coordination flags off until the SQL/ownership gates pass.
+
+Infrastructure operations live in `services/infrastructure/`, behind validated
+context, injected adapters and fenced repository RPCs. HTTP commands enqueue;
+they never provision in the request. Importing `serverOperationsJob` starts no
+timer; enabling its flag also requires a ready runtime. Live mode is deliberately
+unavailable. No frontend or environment flag may bypass that boundary. Use
+`npm test -- --config vitest.offline.config.js` for fake-credential HTTP-guarded
+verification. See `docs/testing/server-access-lifecycle-local.md`.

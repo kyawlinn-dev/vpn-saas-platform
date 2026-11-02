@@ -1,6 +1,9 @@
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { getServerInventorySummary } from "../../services/serverService.js";
+import { isPublicServerAccessEnabled } from "../../services/serverAccessContext.js";
+import { serverDisplay } from "../../services/serverDisplay.js";
+import { annotateServerMaintenance } from "../../services/serverMaintenanceService.js";
 
 const router = express.Router();
 
@@ -10,19 +13,31 @@ function toNumber(value, fallback = 0) {
 }
 
 function toServerResponse(server) {
+  const display = serverDisplay(server);
   const currentActiveKeys = toNumber(server?.current_active_keys, 0);
   const maxActiveKeys = toNumber(server?.max_active_keys, 0);
 
   return {
     id: server.id,
-    name: server.name,
+    name: display.name,
+    display_city: display.city,
+    display_country: display.country,
+    flag_emoji: display.flag,
     provider: server.provider || null,
     region: server.region || null,
     droplet_id: server.droplet_id || null,
+    provider_resource_id: server.provider_resource_id || null,
+    panel_node_id: server.panel_node_id || null,
     host_ip: server.host_ip || null,
     status: server.status,
     panel_type: server.panel_type || null,
     server_tier: server.server_tier || "premium",
+    supported_protocols: server.supported_protocols || null,
+    access_pool_id: server.access_pool_id || null,
+    environment: server.environment || null,
+    is_active: server.is_active === true,
+    under_maintenance: server.under_maintenance === true,
+    lifecycle_protected: server.lifecycle_protected !== false,
     current_active_keys: currentActiveKeys,
     max_active_keys: maxActiveKeys,
     remaining_capacity: Math.max(maxActiveKeys - currentActiveKeys, 0),
@@ -61,7 +76,7 @@ router.get("/", async (req, res) => {
 
     if (error) return res.status(500).json({ error: error.message });
 
-    return res.json({ success: true, servers: (data || []).map(toServerResponse) });
+    return res.json({ success: true, servers: (await annotateServerMaintenance(data || [])).map(toServerResponse) });
   } catch (error) {
     console.error("Admin list servers crash:", error);
     return res.status(500).json({ error: error.message });
@@ -93,7 +108,7 @@ router.get("/:serverId", async (req, res) => {
     if (error) return res.status(500).json({ error: error.message });
     if (!data) return res.status(404).json({ error: "Server not found" });
 
-    return res.json({ success: true, server: toServerResponse(data) });
+    return res.json({ success: true, server: toServerResponse((await annotateServerMaintenance([data]))[0]) });
   } catch (error) {
     console.error("Admin get server crash:", error);
     return res.status(500).json({ error: error.message });
@@ -114,6 +129,7 @@ router.post("/provision", (_req, res) => {
 //                              (use when the server/IP is already banned/gone)
 
 router.patch("/:serverId/tier", async (req, res) => {
+  if (isPublicServerAccessEnabled()) return res.status(409).json({ error: "Legacy tier changes are disabled under public access", code: "PUBLIC_ACCESS_POLICY_ENABLED" });
   try {
     const { serverId } = req.params;
     const serverTier = String(req.body?.server_tier || "").trim().toLowerCase();

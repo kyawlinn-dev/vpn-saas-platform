@@ -17,6 +17,8 @@ const PlansPage = lazy(() => import("./pages/PlansPage").then((module) => ({ def
 const TelegramOrdersPage = lazy(() => import("./pages/TelegramOrdersPage").then((module) => ({ default: module.TelegramOrdersPage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage").then((module) => ({ default: module.NotificationsPage })));
+const BotContentPage = lazy(() => import("./pages/BotContentPage").then((module) => ({ default: module.BotContentPage })));
+
 
 function RouteLoading() {
   return <div className="min-h-48 animate-pulse rounded-lg bg-white/50" aria-label="Loading page" />;
@@ -45,9 +47,11 @@ export default function App() {
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="customers" element={<CustomersPage />} />
                 <Route path="accounting" element={<AccountingPage />} />
-                <Route path="telegram-orders" element={<MiniappGate><TelegramOrdersPage /></MiniappGate>} />
+                <Route path="telegram-orders" element={<TelegramOrdersPage />} />
                 <Route path="plans" element={<PlansPage />} />
                 <Route path="notifications" element={<MiniappGate><NotificationsPage /></MiniappGate>} />
+                <Route path="bot-links" element={<MiniappGate><BotContentPage /></MiniappGate>} />
+                <Route path="bot-content" element={<Navigate to="/app/bot-links" replace />} />
                 <Route path="settings" element={<MiniappGate><SettingsPage /></MiniappGate>} />
               </Route>
 

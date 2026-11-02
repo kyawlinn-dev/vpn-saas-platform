@@ -1,0 +1,3 @@
+# Preserve catalogue-derived PostgreSQL function bodies byte-for-byte. Their
+# CRLF bytes are part of baseline fingerprints used by the SQL release guards.
+backend/src/__tests__/fixtures/production-20261102.sql whitespace=cr-at-eol

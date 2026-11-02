@@ -1,0 +1,25 @@
+{
+  "managementSources": ["REPLACE_BACKEND_PUBLIC_IP", "REPLACE_PANEL_EGRESS_IP"],
+  "protectedResourceIds": ["REPLACE_CONTROLLER_PROVIDER_ID"],
+  "protectedAddresses": ["REPLACE_CONTROLLER_PUBLIC_IP"],
+  "maxActiveKeys": 100,
+  "realityServerName": "www.apple.com",
+  "providers": {
+    "digitalocean": {
+      "accountId": "REPLACE_ACCOUNT_UUID",
+      "policy": {"maxMonthlyAmount": 12},
+      "machines": {
+        "vless_only": {"image": "ubuntu-22-04-x64", "sshKeyIds": ["REPLACE_SSH_KEY_ID"], "firewallId": "REPLACE_VLESS_FIREWALL_UUID", "firewallTag": "novanet-dev-vless"},
+        "dual": {"image": "ubuntu-22-04-x64", "sshKeyIds": ["REPLACE_SSH_KEY_ID"], "firewallId": "REPLACE_DUAL_FIREWALL_UUID", "firewallTag": "novanet-dev-dual"}
+      }
+    },
+    "vultr": {
+      "accountId": "REPLACE_ACCOUNT_ID",
+      "policy": {"maxMonthlyAmount": 12},
+      "machines": {
+        "vless_only": {"sshKeyIds": ["REPLACE_SSH_KEY_ID"], "firewallId": "REPLACE_VLESS_FIREWALL_UUID"},
+        "dual": {"sshKeyIds": ["REPLACE_SSH_KEY_ID"], "firewallId": "REPLACE_DUAL_FIREWALL_UUID"}
+      }
+    }
+  }
+}

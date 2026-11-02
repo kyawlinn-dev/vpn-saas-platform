@@ -18,6 +18,7 @@ import { api } from "../lib/api";
 const SESSION_UID_KEY = "rnv_uid";
 
 interface AuthContextValue {
+  sessionId: string | null;
   isAuthenticated: boolean;
   initializing: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -29,6 +30,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function ResellerAuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   // Always holds the Supabase user ID of the session this tab considers active.
   // Using a ref so the storage-event handler always reads the live value without
@@ -38,6 +40,7 @@ export function ResellerAuthProvider({ children }: { children: ReactNode }) {
   // Write (or clear) the session UID to both the ref and localStorage.
   const setSessionUid = useCallback((uid: string | null) => {
     sessionUidRef.current = uid;
+    setSessionId(uid);
     try {
       if (uid) {
         localStorage.setItem(SESSION_UID_KEY, uid);
@@ -101,12 +104,13 @@ export function ResellerAuthProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<AuthContextValue>(
     () => ({
+      sessionId,
       isAuthenticated,
       initializing,
       login,
       logout,
     }),
-    [isAuthenticated, initializing, login, logout]
+    [sessionId, isAuthenticated, initializing, login, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

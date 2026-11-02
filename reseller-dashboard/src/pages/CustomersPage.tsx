@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/table";
 import { api } from "../lib/api";
 import { usePaginatedTable } from "../hooks/usePaginatedTable";
-import { formatDate, formatDaysLeft, formatMMK, isExpiringSoon } from "../lib/format";
+import { formatDate, formatExpiryDeadline, formatDaysLeft, formatMMK, isExpiringSoon } from "../lib/format";
 import type { EnrichedCustomer, Order, VpnKey } from "../types/api";
 
 type CustomerFilter = "all" | "normal" | "telegram" | "active" | "expiring" | "inactive";
@@ -58,7 +58,7 @@ function toSummary(customer: EnrichedCustomer): CustomerSummary {
     activeOrder?.keys?.find((key) => key.status === "active");
   const totalPaid = customer.payment_summary?.gross_mmk ?? 0;
   const status: CustomerSummary["status"] = activeOrder
-    ? isExpiringSoon(activeOrder.expiry_date, 7)
+    ? isExpiringSoon(activeOrder, 7)
       ? "expiring"
       : "active"
     : "inactive";
@@ -87,7 +87,7 @@ function initials(name?: string | null) {
   return letters || "C";
 }
 
-function TypeBadge({ type }: { type: "normal" | "telegram" }) {
+function TypeBadge({ type }: { type: CustomerSummary["customerType"] }) {
   return type === "telegram" ? (
     <Badge variant="info" className="gap-1">
       <Send size={12} />
@@ -316,9 +316,9 @@ export function CustomersPage() {
                         </div>
                       </TableCell>
                       <TableCell className="px-2 py-2">
-                        <div>{formatDate(item.activeOrder?.expiry_date)}</div>
+                        <div>{formatExpiryDeadline(item.activeOrder)}</div>
                         <div className="text-[11px] text-muted-foreground">
-                          {formatDaysLeft(item.activeOrder?.expiry_date)}
+                          {formatDaysLeft(item.activeOrder)}
                         </div>
                       </TableCell>
                       <TableCell className="px-2 py-2">{item.totalOrders}</TableCell>
@@ -369,7 +369,7 @@ export function CustomersPage() {
                     </div>
                     <div>
                       <div className="text-[10px] text-muted-foreground">Expiry</div>
-                      <div>{formatDaysLeft(item.activeOrder?.expiry_date) || "-"}</div>
+                      <div>{`${formatExpiryDeadline(item.activeOrder)} (${formatDaysLeft(item.activeOrder)})`}</div>
                     </div>
                     <div>
                       <div className="text-[10px] text-muted-foreground">Total paid</div>
@@ -429,7 +429,7 @@ export function CustomersPage() {
                 <Card className="p-2.5">
                   <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Expiry</div>
                   <div className="mt-1 text-sm font-bold">
-                    {formatDaysLeft(selectedCustomer.activeOrder?.expiry_date)}
+                    {`${formatExpiryDeadline(selectedCustomer.activeOrder)} (${formatDaysLeft(selectedCustomer.activeOrder)})`}
                   </div>
                 </Card>
               </div>
@@ -467,7 +467,7 @@ export function CustomersPage() {
                       <div className="min-w-0">
                         <div className="truncate font-semibold">{order.plan?.name || "-"}</div>
                         <div className="truncate text-[11px] text-muted-foreground">
-                          {formatDate(order.created_at)} - {formatDaysLeft(order.expiry_date)}
+                          {formatDate(order.created_at)} - {formatExpiryDeadline(order)} ({formatDaysLeft(order)})
                         </div>
                       </div>
                       <BusinessStatus summary={order.business_summary} />

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { publicAccessContext, publicServer } from "./fixtures/publicServerAccess.js";
 
 const mockFrom = vi.fn();
 
@@ -42,8 +43,34 @@ function mockQueryResult({ data = [], error = null } = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
 });
+afterEach(() => vi.unstubAllEnvs());
 
 describe("server tier selection", () => {
+  it.each(["trial", "purchase"])("excludes a queued replacement source from %s assignment", async orderType => {
+    vi.stubEnv("SERVER_LIFECYCLE_COORDINATION_ENABLED", "true");
+    const query = mockQueryResult({ data: [publicServer(), publicServer({ id: "available" })] });
+    const locks = { select: () => locks, eq: () => locks, in: () => locks,
+      then: resolve => resolve({ data: [{ resource_key: "server:dev-node",
+        operation: { kind: "replace", status: "queued", payload: { source_server_id: "dev-node" } } }], error: null }) };
+    mockFrom.mockImplementation(table => table === "server_operation_locks" ? locks : query);
+    expect((await getActiveServers({ orderType, protocol: "vless", limit: 0, accessContext: publicAccessContext })).map(row => row.id)).toEqual(["available"]);
+  });
+  it("public trials can select premium-labelled compatible capacity without a tier filter", async () => {
+    const query = mockQueryResult({ data: [publicServer()] });
+    expect(await getActiveServers({ protocol: "shadowsocks", orderType: "trial", accessContext: publicAccessContext })).toHaveLength(1);
+    expect(query.eq).not.toHaveBeenCalledWith("server_tier", "trial");
+    expect(query.eq).not.toHaveBeenCalledWith("server_tier", "premium");
+    expect(query.eq).toHaveBeenCalledWith("environment", "development");
+    expect(query.eq).toHaveBeenCalledWith("access_pool_id", "dev-public");
+  });
+  it("public SS selection excludes VLESS-only nodes even if they have free capacity", async () => {
+    mockQueryResult({ data: [publicServer({ supported_protocols: ["vless"], marzneshin_service_ids: [] }), publicServer({ id: "dual" })] });
+    expect((await getActiveServers({ protocol: "shadowsocks", limit: 0, accessContext: publicAccessContext })).map(s => s.id)).toEqual(["dual"]);
+  });
+  it("public getAvailableServer ignores the legacy trial label", async () => {
+    mockQueryResult({ data: [publicServer({ server_tier: "trial" })] });
+    expect((await getAvailableServer({ protocol: "vless", accessContext: publicAccessContext })).id).toBe("dev-node");
+  });
   it("filters active server lookup to premium by default", async () => {
     const query = mockQueryResult({
       data: [makeServer({ id: "premium-1", server_tier: "premium" })],

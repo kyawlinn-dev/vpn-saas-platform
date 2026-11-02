@@ -4,6 +4,7 @@ import { supabase } from "../lib/supabase.js";
 import { decrypt } from "../lib/tokenEncryption.js";
 import { setupHandlers } from "./handlers.js";
 import { getBotCommands, setCommandsMenu } from "./commandMenu.js";
+import {loadTelegramBotContent,getTelegramBotContentService} from '../services/telegramBotContentService.js';
 
 // A fresh webhook secret is generated per bot on every server boot, so startup
 // registers webhooks for all configured bots. Persisting secrets can be added
@@ -107,6 +108,11 @@ async function startBotForReseller(row) {
     supportUsername: support_username || "",
     trialEnabled: trial_enabled ?? false,
     adminTelegramUserId: admin_telegram_user_id || null,
+    syncCommands: async snapshot=>{
+      const entry=activeBots.get(reseller_id);
+      if(entry?.commandsSignature===JSON.stringify(getBotCommands(entry.trialEnabled,snapshot)))return {status:'synced'};
+      return syncBotContentCommands(reseller_id);
+    },
   });
 
   bot.catch((err) => {
@@ -118,8 +124,11 @@ async function startBotForReseller(row) {
 
   // Command registration and the default menu button are independent so a
   // temporary failure of either Telegram call does not prevent the other.
+  let commandsSignature=null;
   try {
-    await bot.telegram.setMyCommands(getBotCommands(trial_enabled ?? false));
+    const commands=getBotCommands(trial_enabled??false,await loadTelegramBotContent(reseller_id));
+    await bot.telegram.setMyCommands(commands);
+    commandsSignature=JSON.stringify(commands);
   } catch (err) {
     console.warn(`[bot:${reseller_id}] commands setup warning (non-fatal):`, err.message);
   }
@@ -135,6 +144,8 @@ async function startBotForReseller(row) {
     tokenEncrypted: bot_token_encrypted,
     botInfo,
     webhookRegisteredAt: new Date().toISOString(),
+    trialEnabled:trial_enabled??false,
+    commandsSignature,
   });
 
   await persistBotStatus(reseller_id, {
@@ -220,6 +231,23 @@ export async function restartBot(resellerId) {
  */
 export function getActiveBot(resellerId) {
   return activeBots.get(resellerId)?.bot;
+}
+
+export async function syncBotContentCommands(resellerId){
+  const entry=activeBots.get(resellerId);
+  if(!entry)return {status:'not_running'};
+  // Serialize remote writes and read current DB content inside the queue so an
+  // older overlapping save cannot overwrite the newest command descriptions.
+  const pending=(entry.commandSync||Promise.resolve()).catch(()=>{}).then(async()=>{
+    if(activeBots.get(resellerId)!==entry)return {status:'not_running'};
+    try{
+      const snapshot=await (await getTelegramBotContentService()).snapshot(resellerId);
+      const commands=getBotCommands(entry.trialEnabled,snapshot),signature=JSON.stringify(commands);
+      if(entry.commandsSignature!==signature){await entry.bot.telegram.setMyCommands(commands);entry.commandsSignature=signature;}
+      return {status:'synced'};
+    }catch{return {status:'pending'};}
+  });
+  entry.commandSync=pending;return pending;
 }
 
 /**

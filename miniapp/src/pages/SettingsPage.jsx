@@ -14,7 +14,7 @@ import {
 import { createElement, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Chip, GlassCard, PageHeader } from "../components/ui/primitives";
-import { formatDate } from "../lib/format";
+import { expiryCutoffAt, formatExpiryDeadline } from "../lib/businessDisplay";
 import { TAB_KEYS } from "../constants/routes";
 import { useLanguage } from "../i18n/language";
 import { openTelegramNativeLink } from "../lib/telegram";
@@ -139,8 +139,8 @@ export default function SettingsPage({ data, onTabChange, prevTab }) {
             </p>
             {paymentLabel && <p className="mt-1 text-[12px] text-muted-foreground">{paymentLabel}</p>}
             <p className="text-[12px] text-muted-foreground">
-              {sub.expiry_date
-                ? t("access.validUntil", { date: formatDate(sub.expiry_date) })
+              {expiryCutoffAt(sub)
+                ? t("access.expiryDeadline", { date: formatExpiryDeadline(sub, {timeZoneLabel:t('access.myanmarTime')}) })
                 : t("common.active")}
             </p>
             {activeProtocol && (

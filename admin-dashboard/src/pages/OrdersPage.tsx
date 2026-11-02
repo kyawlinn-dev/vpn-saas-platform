@@ -1,6 +1,6 @@
 import {PackageUsage} from "../components/PackageUsage";
 import {BusinessStatus,PaymentReviewStatus} from "../components/BusinessStatus";
-import {daysLeft} from "../lib/businessDisplay";
+import {daysLeft,formatExpiryDeadline,type ExpiryValue} from "../lib/businessDisplay";
 import { useMemo, useState } from 'react';
 import {
   CheckCircle2,
@@ -68,7 +68,7 @@ function getAccessUrl(order: Order) {
 
 function summarizePayments(order:Order) { const m=order.money_summary; return {gross:m?.recognized_gross_mmk ?? null,commission:m?.commission_mmk ?? null,platformDue:m?.platform_due_mmk ?? null,pending:m?.awaiting_review_mmk ?? null,pendingCount:order.business_summary?.pending_review_count ?? 0}; }
 
-function remainingDays(value?:string|null) { const days=daysLeft(value); return days==null ? "Unavailable" : days<0 ? "Expired" : days===0 ? "Today" : `${days} days left`; }
+function remainingDays(value?:ExpiryValue) { const days=daysLeft(value); return days==null ? "Unavailable" : days<0 ? "Expired" : days===0 ? "Less than 1 day left" : `${days} days left`; }
 
 function truncateMiddle(value: string, head = 18, tail = 8) {
   if (value.length <= head + tail + 3) return value;
@@ -298,8 +298,8 @@ export function OrdersPage({ plans, resellers, onSuccess }: Props) {
                       ) : null}
                     </TableCell>
                     <TableCell>
-                      <div className="text-foreground">{formatDate(order.expiry_date)}</div>
-                      <div className="text-xs text-muted-foreground">{remainingDays(order.expiry_date)}</div>
+                      <div className="text-foreground">{formatExpiryDeadline(order)}</div>
+                      <div className="text-xs text-muted-foreground">{remainingDays(order)}</div>
                     </TableCell>
                     <TableCell>
                       <PackageUsage quota={order.business_summary?.quota} freshness={order.business_summary?.usage_freshness} />
@@ -466,7 +466,7 @@ function OrderDetailDialog({
             <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
               <Info label="Reseller" value={order.reseller?.name || '-'} />
               <Info label="Plan" value={order.plan?.name || '-'} />
-              <Info label="Expiry" value={`${formatDate(order.expiry_date)} (${remainingDays(order.expiry_date)})`} />
+              <Info label="Expiry" value={`${formatExpiryDeadline(order)} (${remainingDays(order)})`} />
               <Info label="Source" value={sourceLabel(order.source)} />
               <PackageUsage quota={order.business_summary?.quota} freshness={order.business_summary?.usage_freshness} />
               <Info label="Key Status" value={activeKey?.status || '-'} />

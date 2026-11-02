@@ -34,6 +34,10 @@ async function assertNormalCustomer(orderId, resellerId) {
   const orderSource = String(data.source || "").toLowerCase();
   const customerType = data.customer?.customer_type;
 
+  if (customerType && !["normal", "telegram"].includes(customerType)) {
+    throw new OrderLifecycleError("Unsupported customer type", 403, "UNSUPPORTED_CUSTOMER_TYPE");
+  }
+
   if (customerType === "telegram" || orderSource === "miniapp" || orderSource === "bot") {
     throw new OrderLifecycleError(
       TELEGRAM_ACTION_MESSAGE,
@@ -65,6 +69,7 @@ async function assertNormalCustomer(orderId, resellerId) {
       "TELEGRAM_CUSTOMER_ACTION"
     );
   }
+
 }
 
 function sendActionError(res, err, fallbackMessage) {

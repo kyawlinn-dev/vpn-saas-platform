@@ -6,6 +6,7 @@
 
 import { logger } from "../lib/logger.js";
 import { runNotificationPass } from "../services/notificationService.js";
+import { recoverNotificationDeliveries } from "../services/customerNotificationService.js";
 
 const INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 const log = logger.child({ job: "customerNotifications" });
@@ -13,6 +14,7 @@ const log = logger.child({ job: "customerNotifications" });
 async function run() {
   log.info("running");
   try {
+    await recoverNotificationDeliveries({ limit: 50 });
     const result = await runNotificationPass();
     log.info({ result }, "pass complete");
   } catch (err) {

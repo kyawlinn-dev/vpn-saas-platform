@@ -8,13 +8,15 @@ function loadEnvFile(fileName, { override = false } = {}) {
   dotenv.config({ path: envPath, override });
 }
 
-loadEnvFile(".env");
+if (process.env.NOVANET_ENV_LOADING_DISABLED !== 'true') {
+  loadEnvFile(".env");
 
-const environmentName = process.env.APP_ENV || process.env.NODE_ENV;
-if (environmentName) {
-  loadEnvFile(`.env.${environmentName}`, { override: true });
-}
+  const environmentName = process.env.APP_ENV || process.env.NODE_ENV;
+  if (environmentName) {
+    loadEnvFile(`.env.${environmentName}`, { override: true });
+  }
 
-if (process.env.NODE_ENV !== "production") {
-  loadEnvFile(".env.local", { override: true });
+  if (process.env.NODE_ENV !== "production") {
+    loadEnvFile(".env.local", { override: true });
+  }
 }

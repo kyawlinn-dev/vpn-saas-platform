@@ -45,6 +45,7 @@ export interface Plan {
 }
 
 export interface Order {
+  can_switch_server?: boolean;
   business_summary?: BusinessSummary;
   money_summary?: MoneySummary;
   quota?: OrderQuota;
@@ -175,6 +176,7 @@ export interface VpnKey {
 }
 
 export interface EligibleServer {
+  under_maintenance?: boolean;
   id: string;
   name: string;
   region: string;
@@ -402,6 +404,7 @@ export interface MonthlyAccountingSnapshot {
 }
 
 export interface BusinessSummary {
+ expiry_cutoff_at?:string|null; expiry_timezone?:'Asia/Yangon';
  access_status: string; payment_review_status:string; application_status:string;
  pending_review_count:number; has_active_key:boolean; is_expiring_soon:boolean;
  quota:OrderQuota|null;
@@ -410,3 +413,26 @@ export interface BusinessSummary {
  setup_in_progress?:boolean; setup_status?:'not_started'|'ready'|'failed'|'unknown'; can_retry_setup?:boolean;
 }
 export interface MoneySummary {basis:'ledger'|'legacy'|'unavailable';confirmed_mmk:number|null;recognized_gross_mmk:number|null;commission_mmk:number|null;platform_due_mmk:number|null;awaiting_review_mmk:number|null;rejected_mmk:number|null;}
+
+export type BotContentKind = "message" | "button" | "url" | "command";
+export interface BotContentItem {
+  key: string;
+  label: string;
+  group: string;
+  kind: BotContentKind;
+  default_text: string;
+  text: string;
+  is_custom: boolean;
+  placeholders: string[];
+  max_length: number;
+  updated_at: string | null;
+}
+export interface BotContentListResponse {
+  items: BotContentItem[];
+  command_sync?: { status: string };
+}
+export interface BotContentMutationResponse {
+  item: BotContentItem;
+  command_sync?: { status: "synced" | "pending" | "not_running" | "not_applicable" };
+}
+export interface BotContentPreviewResponse { text: string; kind: BotContentKind; }

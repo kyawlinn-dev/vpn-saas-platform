@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { getBotCommands, setCommandsMenu } from "../bot/commandMenu.js";
 
 describe("bot command menu", () => {
+  it('changes descriptions only and never accepts command names or invalid markup',()=>{
+    const commands=getBotCommands(false,{'commands.start.description':'Open my account','commands.buy.description':'<b>Buy</b>'});
+    expect(commands[0]).toEqual({command:'start',description:'Open my account'});
+    expect(commands.find(x=>x.command==='buy').description).not.toContain('<b>');
+  });
   it("registers Burmese core commands and adds trial only when enabled", () => {
     const core = getBotCommands(false);
     expect(core.map(({ command }) => command)).toEqual([

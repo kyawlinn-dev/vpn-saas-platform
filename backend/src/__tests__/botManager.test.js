@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
   setupHandlers: vi.fn(),
   setCommandsMenu: vi.fn(),
+  content:vi.fn(async()=>({})),
 }));
 
 vi.mock("telegraf", () => ({
@@ -27,8 +28,9 @@ vi.mock("telegraf", () => ({
 }));
 
 vi.mock("../bot/handlers.js", () => ({ setupHandlers: mocks.setupHandlers }));
-vi.mock("../bot/commandMenu.js", () => ({
-  getBotCommands: vi.fn(() => []),
+vi.mock('../services/telegramBotContentService.js',()=>({loadTelegramBotContent:mocks.content,getTelegramBotContentService:async()=>({snapshot:mocks.content})}));
+vi.mock("../bot/commandMenu.js", async importOriginal => ({
+  ...(await importOriginal()),
   setCommandsMenu: mocks.setCommandsMenu,
 }));
 vi.mock("../lib/tokenEncryption.js", () => ({ decrypt: vi.fn(() => "plain-token") }));
@@ -68,6 +70,7 @@ describe("bot manager", () => {
     });
     mocks.setupHandlers.mockClear();
     mocks.setCommandsMenu.mockReset().mockResolvedValue(true);
+    mocks.content.mockReset().mockResolvedValue({});
     vi.stubGlobal("fetch", mocks.fetch);
     process.env.WEBHOOK_BASE_URL = "https://api.example.com";
     process.env.TELEGRAM_MINIAPP_URL = "https://app.example.com";
@@ -82,5 +85,20 @@ describe("bot manager", () => {
     expect(bot.botInfo).toEqual({ id: 123, username: "test_bot" });
     await bot.handleUpdate({ update_id: 1 });
     expect(bot.telegram.getMe).toHaveBeenCalledTimes(1);
+  });
+  it('syncs a saved command description without restarting the bot and retries failures',async()=>{
+    const manager=await import('../bot/manager.js');await manager.start();
+    const bot=mocks.botInstances[0],before=mocks.setupHandlers.mock.calls.length;
+    mocks.content.mockResolvedValue({'commands.start.description':'Custom start'});
+    expect(await manager.syncBotContentCommands('reseller-1')).toEqual({status:'synced'});
+    expect(bot.telegram.setMyCommands).toHaveBeenCalledTimes(2);
+    expect(mocks.setupHandlers.mock.calls.length).toBe(before);
+    expect(await manager.syncBotContentCommands('reseller-1')).toEqual({status:'synced'});
+    expect(bot.telegram.setMyCommands).toHaveBeenCalledTimes(2);
+    mocks.content.mockResolvedValue({'commands.start.description':'Changed again'});
+    bot.telegram.setMyCommands.mockRejectedValueOnce(new Error('rate limit'));
+    expect(await manager.syncBotContentCommands('reseller-1')).toEqual({status:'pending'});
+    expect(await manager.syncBotContentCommands('reseller-1')).toEqual({status:'synced'});
+    expect(await manager.syncBotContentCommands('other')).toEqual({status:'not_running'});
   });
 });

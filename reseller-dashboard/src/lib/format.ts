@@ -1,4 +1,6 @@
 import {formatBusinessDate,formatUsageBytes,daysLeft} from "./businessDisplay";
+import type {ExpiryValue} from "./businessDisplay";
+export {formatExpiryDeadline} from "./businessDisplay";
 export function formatMMK(value: number | null | undefined) {
   if(value == null) return "Unavailable";
   return `${new Intl.NumberFormat("en-US").format(Number(value || 0))} MMK`;
@@ -31,15 +33,15 @@ export function getStatusColor(status: string) {
   }
 }
 
-export function isExpiringSoon(expiryDate?:string|null,days=7) { const left=daysLeft(expiryDate);return left!=null && left>=0 && left<=days; }
+export function isExpiringSoon(expiryDate?:ExpiryValue,days=7) { const left=daysLeft(expiryDate);return left!=null && left>=0 && left<=days; }
 
-export function getDaysLeft(expiryDate?:string|null) { return daysLeft(expiryDate); }
+export function getDaysLeft(expiryDate?:ExpiryValue) { return daysLeft(expiryDate); }
 
-export function formatDaysLeft(expiryDate?: string | null) {
+export function formatDaysLeft(expiryDate?: ExpiryValue) {
   const days = getDaysLeft(expiryDate);
   if (days === null) return "-";
   if (days < 0) return "Expired";
-  if (days === 0) return "Today";
+  if (days === 0) return "Less than 1 day left";
   if (days === 1) return "1 day left";
   return `${days} days left`;
 }

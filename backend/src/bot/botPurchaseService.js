@@ -1,20 +1,13 @@
 /**
  * botPurchaseService.js
  *
- * DB helpers for the bot purchase flow. Mirrors the logic in
- * resellerMiniappRoutes.js POST /:slug/buy — kept separate so bot handlers
- * never import from route files and changes to one flow can't silently break
- * the other.
+ * Shared bot read helpers and the Telegram purchase compatibility adapter.
+ * Purchase writes are owned by services/purchaseService.js, not by channel code.
  */
 
 import crypto from "node:crypto";
 import { supabase } from "../lib/supabase.js";
-import {
-  getPackageCommissionPercent,
-  activatePendingReviewPurchase,
-} from "../services/orderLifecycleService.js";
-import { createOrderPayment } from "../services/paymentLedgerService.js";
-import { isQueuedPurchaseConflict } from "../services/queuedPurchasePolicy.js";
+import { submitPurchase } from "../services/purchaseService.js";
 import { getPurchaseBlockReason } from "../services/purchaseQueuePolicy.js";
 
 // ── Plans ──────────────────────────────────────────────────────────────────────
@@ -89,109 +82,21 @@ export async function uploadScreenshot(bot, fileId, resellerId) {
  * @param {{ resellerId, customerId, planId, screenshotPath }} params
  * @returns {{ order, activation }} — order row, activation result (includes expiry_date)
  */
-export async function createBotPurchaseOrder({ resellerId, customerId, planId, screenshotPath }) {
-  // 1. Fetch reseller (for commission_percent)
-  const reseller = await getResellerRow(resellerId);
-
-  // 2. Fetch plan
-  const { data: plan, error: planErr } = await supabase
-    .from("vpn_plans")
-    .select("id, name, price_mmk, data_limit_gb, duration_days, max_devices")
-    .eq("id", planId)
-    .eq("is_active", true)
-    .eq("is_trial", false)
-    .maybeSingle();
-
-  if (planErr || !plan) throw new Error("Plan not found or no longer available");
-
-  // 3. Check existing active purchase and queued purchase.
-  const { data: existingActive, error: activeError } = await supabase
-    .from("vpn_orders")
-    .select("id, review_status")
-    .eq("customer_id", customerId)
-    .eq("reseller_id", resellerId)
-    .eq("status", "active")
-    .eq("order_type", "purchase")
-    .limit(1)
-    .maybeSingle();
-
-  const { data: existingScheduled, error: scheduledError } = await supabase
-    .from("vpn_orders")
-    .select("id")
-    .eq("customer_id", customerId)
-    .eq("reseller_id", resellerId)
-    .eq("status", "scheduled")
-    .limit(1)
-    .maybeSingle();
-
-  if (activeError || scheduledError) {
-    throw new Error(activeError?.message || scheduledError?.message);
-  }
-  const blockReason = getPurchaseBlockReason(existingActive, existingScheduled);
-  if (blockReason) {
-    const err = new Error(blockReason === "PURCHASE_UNDER_REVIEW"
-      ? "Current purchase is awaiting payment review"
-      : "Customer already has a queued order");
-    err.code = blockReason === "QUEUED_PACKAGE_EXISTS" ? "CUSTOMER_ALREADY_QUEUED" : blockReason;
-    throw err;
-  }
-
-  const isQueued = Boolean(existingActive);
-
-  // 4. Commission
-  const commissionPercent = getPackageCommissionPercent({ reseller, plan });
-  const commissionAmountMmk = Math.round(plan.price_mmk * commissionPercent / 100);
-
-  // 5. Create order row
-  const { data: order, error: orderErr } = await supabase
-    .from("vpn_orders")
-    .insert({
-      customer_id: customerId,
-      reseller_id: resellerId,
-      plan_id: plan.id,
-      status: isQueued ? "scheduled" : "pending",
-      price_mmk: plan.price_mmk,
-      commission_percent: commissionPercent,
-      commission_amount_mmk: commissionAmountMmk,
-      payment_status: "unpaid",
-      total_paid_mmk: 0,
-      order_type: "purchase",
-      review_status: "pending_review",
-      source: "bot",
-      payment_screenshot_url: screenshotPath || null,
-    })
-    .select("id, customer_id, reseller_id, plan_id, status, price_mmk, commission_percent, payment_status, review_status, order_type, source, start_date, expiry_date, payment_screenshot_url")
-    .single();
-
-  if (isQueuedPurchaseConflict(orderErr)) {
-    const error = new Error("Customer already has a queued package");
-    error.code = "CUSTOMER_ALREADY_QUEUED";
+export async function createBotPurchaseOrder({ resellerId, customerId, planId, screenshotPath, protocol, requestKey }) {
+  try {
+    return await submitPurchase({
+      actor: { role: "customer", resellerId },
+      channel: "bot",
+      customerId,
+      planId,
+      screenshotPath,
+      protocol,
+      requestKey,
+    });
+  } catch (error) {
+    if (error.code === "QUEUED_PACKAGE_EXISTS") error.code = "CUSTOMER_ALREADY_QUEUED";
     throw error;
   }
-  if (orderErr || !order) throw new Error(`Failed to create order: ${orderErr?.message}`);
-
-  // 6. Payment ledger row
-  await createOrderPayment({
-    order: { ...order, reseller_id: resellerId, customer_id: customerId },
-    amountMmk: plan.price_mmk,
-    reviewStatus: "pending_review",
-    paymentType: isQueued ? "extend" : "initial",
-    source: "bot",
-    paymentScreenshotUrl: screenshotPath || null,
-  });
-
-  if (isQueued) {
-    return { order, isQueued: true, activation: null, plan, reseller };
-  }
-
-  // 7. Provision key immediately (pending-review instant access for initial orders)
-  const activation = await activatePendingReviewPurchase({
-    order: { ...order, customer: { id: customerId } },
-    reseller,
-    plan,
-  });
-
-  return { order, isQueued: false, activation, plan, reseller };
 }
 
 // ── Payment info ───────────────────────────────────────────────────────────────
@@ -244,11 +149,13 @@ export async function getOrderCustomerTelegramId(orderId) {
  * @param {string} customerId
  * @param {"shadowsocks"|"vless"} protocol
  */
-export async function setCustomerProtocolPreference(customerId, protocol) {
+export async function setCustomerProtocolPreference(customerId, protocol, resellerId) {
+  if (!resellerId) throw new Error("Reseller ID is required for protocol update");
   const { error } = await supabase
     .from("vpn_customers")
     .update({ protocol_preference: protocol })
-    .eq("id", customerId);
+    .eq("id", customerId)
+    .eq("reseller_id", resellerId);
   if (error) {
     console.warn(`[botPurchaseService] setCustomerProtocolPreference failed (non-fatal):`, error.message);
   }

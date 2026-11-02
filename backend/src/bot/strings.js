@@ -1,3 +1,4 @@
+import { formatOrderExpiry } from '../utils/businessTime.js';
 const escapeHtml = (value) => String(value).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
 /**
  * strings.js — All Burmese UI text for the NovaNet MM bot.
@@ -52,17 +53,11 @@ export const MENU_HELP_TEXT = "<b>အကူအညီနှင့် လမ်း
 /** Inline button labels on /start */
 export const START_BTN_ADMIN        = "👤 Admin / Support";
 export const START_BTN_TRIAL_KEY    = BTN_TRIAL;
-export const START_BTN_GET_KEY      = BTN.KEY;
 export const START_BTN_BUY_PACKAGE  = "🛒 ပက်ကေ့ဂျ် ဝယ်ယူမည်";
 
 /** Callback data for the /start inline buttons. */
 export const START_CB_GET_KEY   = "start:get_key";
 export const START_CB_GET_TRIAL = "start:get_trial";
-
-export function appOpenText(brandName) {
-  const name = brandName || "VPN";
-  return `📱 <b>${name} Mini App</b> တွင် ဆာဗာများ၊ ပက်ကေ့ဂျ်များနှင့် အကောင့်အချက်အလက်များကို စီမံခန့်ခွဲနိုင်ပါသည် 👇`;
-}
 
 export const APP_BTN_OPEN = "📱 Mini App ဖွင့်ရန်";
 export const APP_UNAVAILABLE = "⚠️ Mini App ကို ယခု ဖွင့်၍ မရသေးပါ။ ခဏအကြာတွင် ထပ်မံကြိုးစားပါ။";
@@ -167,7 +162,7 @@ export function balanceText({
       "ℹ️ <i>လက်ရှိပက်ကေ့ဂျ် ကုန်ဆုံးပြီးမှ အလိုအလျောက် စတင်ပါမည်။</i>";
   }
 
-  const expiryLine = expiryDate ? `\n📅 သက်တမ်းကုန်ဆုံးမည့်ရက်: ${formatBurmeseDate(expiryDate)}` : "";
+  const expiryLine = expiryDate ? `\n📅 သက်တမ်းကုန်ဆုံးမည့်ရက်: ${formatBurmeseDate(expiryDate)}\nသုံးစွဲခွင့်ကုန်ဆုံးချိန်: ${formatOrderExpiry(expiryDate, 'my-MM') || '—'}` : "";
 
   return (
     "📊 <b>သင်၏ VPN ဒေတာနှင့် သက်တမ်း အခြေအနေ:</b>\n\n" +
@@ -201,8 +196,6 @@ export function balanceQueuedOnlyText({ queuedPlan }) {
 export const BALANCE_BTN_OPEN = "📱 Mini App ဖွင့်ရန်";
 
 // ── Change Server (🌐) handler ─────────────────────────────────────────────────
-
-export const SERVER_BTN_OPEN = "🌐 Change Server";
 
 /** Shown when the customer has never done /start. */
 export const SERVER_NO_ACCOUNT =
@@ -298,7 +291,7 @@ export const DL_CB = {
 
 /** Level 1 — protocol picker */
 export const DOWNLOAD_PICKER_TEXT =
-  "<b>App ဒေါင်းလုဒ်</b>\n\nဘယ် App ကို သုံးမလဲ?";
+  "<b>App ဒေါင်းလုဒ်</b>\n\nသုံးမည့် device ကို ရွေးချယ်ပါ။";
 
 export const DL_PROTO_BTNS = {
   SS:    "📱 Outline",
@@ -461,27 +454,6 @@ export function buyPaymentInstructions(plan, paymentMethods) {
 export const BUY_PROCESSING =
   "⏳ ပြေစာကို လက်ခံရရှိပြီး ဆောင်ရွက်နေပါသည်... ခဏစောင့်ဆိုင်းပေးပါ 🙏";
 
-/**
- * Success message sent to the customer after the key is provisioned.
- * @param {string} planName
- * @param {string} dynamicUrl   subscription URL for the key
- * @param {string} expiryDate   YYYY-MM-DD
- */
-export function buySuccessText(planName, dynamicUrl, expiryDate, formatBurmeseDate) {
-  return [
-    `✅ <b>${planName}</b> ပက်ကေ့ဂျ် စတင်ပါပြီ!`,
-    "",
-    "🔑 သင်၏ VPN Key (Subscription URL):",
-    `<pre>${dynamicUrl}</pre>`,
-    "",
-    "အထက်ပါ URL ကို copy ကူး၍ <b>Hiddify</b> app တွင် ထည့်သွင်းပါ။",
-    "",
-    `📅 သက်တမ်းကုန်ရက်: ${expiryDate ? formatBurmeseDate(expiryDate) : "—"}`,
-    "",
-    "⚠️ ငွေပေးချေမှုကို Reseller မှ စစ်ဆေးနေပါသည်။ မမှန်ကန်ပါက ဝန်ဆောင်မှု ရပ်နားမည်ဖြစ်သည်။",
-  ].join("\n");
-}
-
 /** Shown when the customer already has an active purchase order and a queued order. */
 export const BUY_ALREADY_QUEUED =
   "ℹ️ လက်ရှိပက်ကေ့ဂျ်အပြင် ကြိုတင်ဝယ်ယူထားသော နောက်ပက်ကေ့ဂျ်တစ်ခု ရှိပြီးဖြစ်ပါသည်။\n\n" +
@@ -554,18 +526,6 @@ export const NOTIFY_REJECT_BTN  = "❌ ပြေစာ ငြင်းပယ်�
 /** Caption suffix appended when the reseller takes action. */
 export const NOTIFY_CONFIRMED = "\n\n✅ <b>ငွေပေးချေမှု အတည်ပြုပြီး</b>";
 export const NOTIFY_REJECTED  = "\n\n❌ <b>ငြင်းပယ်ပြီး — ဝန်ဆောင်မှု ရပ်နားသွားမည်</b>";
-
-/** DM sent to the customer after the reseller confirms. */
-export const CUSTOMER_PAYMENT_CONFIRMED =
-  "✅ <b>ငွေပေးချေမှု အတည်ပြုပြီးပါပြီ</b>\n\n" +
-  "လက်ရှိ Key ကို ကြည့်ရန် /start ကို နှိပ်ပြီး ကျွန်ုပ်၏ VPN ကို ဖွင့်ပါ။ " +
-  "ကြိုတင်ဝယ်ယူထားသော ပက်ကေ့ဂျ်ဖြစ်ပါက လက်ရှိပက်ကေ့ဂျ် ကုန်ဆုံးပြီးမှ စတင်ပါမည်။";
-
-/** DM sent to the customer after the reseller rejects. */
-export const CUSTOMER_PAYMENT_REJECTED =
-  "⚠️ <b>ငွေပေးချေမှု အတည်မပြုနိုင်ပါ</b>\n\n" +
-  "ပေးပို့ထားသော ငွေလွှဲပြေစာကို အတည်မပြုနိုင်သဖြင့် ဤဝယ်ယူမှု၏ အသုံးပြုခွင့်ကို ရပ်နားထားပါသည်။\n\n" +
-  "အသေးစိတ် သိရှိလိုပါက သင့်ရောင်းချသူထံ ဆက်သွယ်ပါ။";
 
 // ── Trial Key (🎁) flow ───────────────────────────────────────────────────────
 

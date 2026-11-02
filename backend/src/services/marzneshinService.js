@@ -19,7 +19,7 @@
  */
 
 import axios from "axios";
-import { businessDateOnly, parseBusinessDay } from "../utils/businessTime.js";
+import { orderExpiryAt } from "../utils/businessTime.js";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -222,12 +222,11 @@ function buildUsername(name) {
 }
 
 export function panelExpireDateForOrder(expiryDate) {
-  const day = parseBusinessDay(expiryDate);
-  if (!day || businessDateOnly(new Date(Date.parse(day.endIso) - 1)) !== expiryDate) {
+  const cutoff = orderExpiryAt(expiryDate);
+  if (!cutoff) {
     throw new Error("A valid order expiry_date is required for Marzneshin access");
   }
-  // Orders remain active through their expiry_date in Asia/Bangkok.
-  return day.endIso;
+  return cutoff;
 }
 
 // ---------------------------------------------------------------------------
@@ -507,6 +506,42 @@ export async function updateMarzneshinUserDataLimit({
     throw normalizeError(
       error,
       `Failed to update data limit for Marzneshin user ${outlineKeyId}`
+    );
+  }
+}
+
+/**
+ * Move an existing user between Marzneshin services without changing its
+ * username, subscription key, quota, usage, expiry, or enabled state.
+ */
+export async function updateMarzneshinUserServices({
+  server,
+  outlineKeyId,
+  serviceIds,
+}) {
+  const normalizedServiceIds = [...new Set(
+    (Array.isArray(serviceIds) ? serviceIds : [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+  )];
+
+  if (normalizedServiceIds.length === 0) {
+    throw new Error("At least one valid Marzneshin service ID is required");
+  }
+
+  try {
+    const updated = await patchMarzneshinUser(server, outlineKeyId, {
+      service_ids: normalizedServiceIds,
+    });
+
+    return {
+      success: true,
+      service_ids: updated?.service_ids || normalizedServiceIds,
+    };
+  } catch (error) {
+    throw normalizeError(
+      error,
+      `Failed to update services for Marzneshin user ${outlineKeyId}`
     );
   }
 }

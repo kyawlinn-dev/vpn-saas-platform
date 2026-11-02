@@ -5,6 +5,8 @@ import express from "express";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import {supabase} from "../../lib/supabase.js";
+import { submitPurchase, PurchaseError } from "../../services/purchaseService.js";
+import { notifyPurchaseSubmitted } from "../../services/adminPurchaseNotificationService.js";
 import {
   createKey,
   deleteKey,
@@ -19,15 +21,12 @@ import {
   setServerError,
   clearServerError,
 } from "../../services/serverService.js";
-import { getRegionLocation } from "../../constants/doRegions.js";
-import {
-  activatePendingReviewPurchase,
-  OrderLifecycleError,
-} from "../../services/orderLifecycleService.js";
-import { createOrderPayment } from "../../services/paymentLedgerService.js";
-import { isQueuedPurchaseConflict } from "../../services/queuedPurchasePolicy.js";
-import { getPurchaseBlockReason } from "../../services/purchaseQueuePolicy.js";
-import { isCurrentMiniAppServer } from "../../services/miniAppServerState.js";
+import { serverDisplay } from "../../services/serverDisplay.js";
+import { OrderLifecycleError } from "../../services/orderLifecycleService.js";
+import { isCurrentMiniAppServer, getMiniAppServerAccessState } from "../../services/miniAppServerState.js";
+import { annotateServerMaintenance } from "../../services/serverMaintenanceService.js";
+import { resolveServerAccessContext } from "../../services/serverAccessContext.js";
+import { withCustomerInfrastructureMutation } from "../../services/infrastructure/customerMutationGuard.js";
 import { createTrialOrder, provisionTrialKey } from "../../services/trialService.js";
 import {
   buildDynamicAccessUrl,
@@ -43,12 +42,7 @@ import {
   trackAppEvent,
 } from "../../services/appEventService.js";
 import { verifyTelegramInitData } from "../../utils/telegramInitData.js";
-import { businessDateOnly } from "../../utils/businessTime.js";
-import {
-  resellerNotifyCaption,
-  NOTIFY_CONFIRM_BTN,
-  NOTIFY_REJECT_BTN,
-} from "../../bot/strings.js";
+import { accessDateOnly } from "../../utils/businessTime.js";
 
 const router = express.Router();
 
@@ -283,17 +277,18 @@ function buildMiniAppKeyName({ customer, server, order, plan }) {
 
 function mapServerForMiniApp(server, isCurrent = false) {
   if (!server) return null;
-  const loc = getRegionLocation(server.region);
+  const display = serverDisplay(server);
   const serverTier = normalizeMiniAppServerTier(server.server_tier);
-  const flag = server.flag_emoji || loc?.flag || "🌐";
+  const flag = display.flag;
 
   return {
     id: server.id,
-    name: server.name,
+    name: display.name,
     region: server.region,
     region_code: server.region_code || null,
-    country: server.display_country || loc?.country || server.region,
-    city: server.display_city || loc?.city || server.name,
+    country: display.country || server.region,
+    city: display.city,
+    server_number: display.number,
     flag,
     flag_emoji: flag,
     server_tier: serverTier,
@@ -377,7 +372,7 @@ async function ensureTelegramCustomerType(customer) {
 }
 
 async function getBestActiveOrder({ customerId, resellerId }) {
-  const today = businessDateOnly();
+  const today = accessDateOnly();
 
   const { data: orders, error } = await supabase
     .from("vpn_orders")
@@ -440,67 +435,6 @@ function getOrderServerTier(order) {
 
 function normalizeMiniAppServerTier(serverTier) {
   return String(serverTier || "").trim().toLowerCase() === "trial" ? "trial" : "premium";
-}
-
-// Access rule (2026-08): trial customers are still confined to trial-tier
-// servers, but paid/premium customers may now connect to ANY active server
-// — trial-tier included, any region — ignoring the plan's allowed_regions.
-// This is deliberate: trial servers are lightly used and premium customers
-// occasionally need an emergency alternate server when their usual region
-// has issues. Trial customers stay restricted so they don't crowd out the
-// premium server pool they haven't paid for.
-function getMiniAppServerAccessState({ activeOrder, server, allowedRegions = [] }) {
-  if (!activeOrder) {
-    return {
-      canAccess: false,
-      reason: "NO_ACTIVE_PACKAGE",
-      requiredTier: null,
-    };
-  }
-
-  const requiredTier = getOrderServerTier(activeOrder);
-  const serverTier = normalizeMiniAppServerTier(server?.server_tier);
-
-  // Paid customers: no tier or region restriction — any active server.
-  if (requiredTier === "premium") {
-    return {
-      canAccess: true,
-      reason: null,
-      requiredTier,
-    };
-  }
-
-  // Trial customers: unchanged — trial-tier only, no region restriction
-  // (trial plans don't carry allowed_regions in practice, but the check
-  // stays here for parity with premium's original behavior).
-  if (serverTier !== requiredTier) {
-    return {
-      canAccess: false,
-      reason: "TRIAL_CANNOT_USE_PREMIUM",
-      requiredTier,
-    };
-  }
-
-  const normalizedAllowedRegions = (allowedRegions || [])
-    .map((r) => String(r || "").toLowerCase().trim())
-    .filter(Boolean);
-
-  if (
-    normalizedAllowedRegions.length > 0 &&
-    !normalizedAllowedRegions.includes(String(server?.region || "").toLowerCase().trim())
-  ) {
-    return {
-      canAccess: false,
-      reason: "REGION_NOT_ALLOWED",
-      requiredTier,
-    };
-  }
-
-  return {
-    canAccess: true,
-    reason: null,
-    requiredTier,
-  };
 }
 
 router.get("/:slug/config", async (req, res) => {
@@ -792,6 +726,7 @@ router.post("/:slug/auth", authLimiter, async (req, res) => {
       .from("vpn_customers")
       .select("protocol_preference")
       .eq("id", customer.id)
+      .eq("reseller_id", miniapp.reseller_id)
       .single();
     const protocolPreference = custPref?.protocol_preference || "shadowsocks";
 
@@ -1247,9 +1182,17 @@ async function handleMiniAppServers(
       }
     }
 
+    const accessContext = await resolveServerAccessContext();
+    let displayProtocol = currentKey?.protocol || "shadowsocks";
+    if (accessContext.publicAccessEnabled && customerId && !currentKey) {
+      const { data: preference, error } = await supabase.from("vpn_customers").select("protocol_preference")
+        .eq("id", customerId).eq("reseller_id", miniapp.reseller_id).maybeSingle();
+      if (error) throw error;
+      displayProtocol = preference?.protocol_preference || "shadowsocks";
+    }
     const { data: servers, error: serversError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, region_code, display_country, display_city, flag_emoji, status, is_default, server_tier, marzneshin_vless_service_ids")
+      .select(accessContext.publicAccessEnabled ? "*,server_health_status(outline_api_status)" : "id, name, region, region_code, display_country, display_city, flag_emoji, status, is_default, server_tier, marzneshin_vless_service_ids")
       .eq("status", "active")
       .order("created_at", { ascending: true });
 
@@ -1261,11 +1204,15 @@ async function handleMiniAppServers(
       });
     }
 
-    const mappedServers = (servers || []).map((server) => {
+    const mappedServers = (await annotateServerMaintenance(servers || [])).filter(server => !accessContext.publicAccessEnabled ||
+      (server.environment === accessContext.environment && server.access_pool_id === accessContext.poolId && server.supported_protocols?.includes(displayProtocol))).map((server) => {
       const access = getMiniAppServerAccessState({
         activeOrder,
         server,
         allowedRegions,
+        protocol: displayProtocol,
+        purpose: displayProtocol === "vless" ? "display" : "switch",
+        accessContext,
       });
 
       const isCurrent = isCurrentMiniAppServer({
@@ -1273,13 +1220,16 @@ async function handleMiniAppServers(
         order: activeOrder,
         server,
         canAccess: access.canAccess,
+        accessContext,
       });
 
       return {
         ...mapServerForMiniApp(server, isCurrent),
         can_access: access.canAccess,
         access_reason: access.reason,
+        under_maintenance: server.under_maintenance === true,
         required_server_tier: access.requiredTier,
+        ...(accessContext.publicAccessEnabled ? { access_pool: "public", supported_protocols: server.supported_protocols } : {}),
       };
     });
 
@@ -1463,6 +1413,21 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
   let createdServer = null;
   let insertedVpnKeyId = null;
   let incrementedNewServer = false;
+  let linkResellerId = null;
+  const coordinated = process.env.SERVER_LIFECYCLE_COORDINATION_ENABLED === "true";
+  async function cleanupCreatedAccess() {
+    if (incrementedNewServer && createdServer?.id) {
+      await decrementServerUsage(createdServer.id).catch(() => {});
+    }
+    if (insertedVpnKeyId) {
+      try {
+        await supabase.from("vpn_keys").update({ status: "deleted", deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", insertedVpnKeyId).eq("reseller_id", linkResellerId);
+      } catch {}
+    }
+    if (createdOutlineKeyId && createdServer) {
+      await deleteKey({ server: createdServer, keyId: createdOutlineKeyId }).catch(() => {});
+    }
+  }
 
   try {
     const { slug, serverId } = req.params;
@@ -1580,6 +1545,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
       });
     }
 
+    linkResellerId = miniapp.reseller_id;
     const customerSsconfToken = await ensureCustomerSsconfToken(customer.id);
     const label = [miniapp.brand_name, customer.full_name].filter(Boolean).join("-");
 
@@ -1631,9 +1597,10 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     const allowedRegions = plan?.allowed_regions || [];
     const requiredServerTier = getOrderServerTier(activeOrder);
 
+    const accessContext = await resolveServerAccessContext();
     const { data: server, error: serverError } = await supabase
       .from("vpn_servers")
-      .select("id, name, region, region_code, display_country, display_city, flag_emoji, panel_type, outline_api_url, outline_cert_sha256, panel_url, panel_public_url, panel_username, panel_password_encrypted, marzneshin_service_ids, marzneshin_vless_service_ids, marzneshin_vless_trial_service_ids, status, is_default, server_tier")
+      .select(accessContext.publicAccessEnabled ? "*,server_health_status(outline_api_status)" : "id, name, region, region_code, display_country, display_city, flag_emoji, panel_type, outline_api_url, outline_cert_sha256, panel_url, panel_public_url, panel_username, panel_password_encrypted, marzneshin_service_ids, marzneshin_vless_service_ids, marzneshin_vless_trial_service_ids, status, is_default, server_tier")
       .eq("id", serverId)
       .maybeSingle();
 
@@ -1653,11 +1620,21 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     }
 
     // vpnProviderService handles panel password decryption automatically.
+    Object.assign(server, (await annotateServerMaintenance([server]))[0]);
 
-    // Single choke point for tier/region rules — see
-    // getMiniAppServerAccessState() for the current policy (paid customers:
-    // any active server; trial customers: trial-tier only).
-    const access = getMiniAppServerAccessState({ activeOrder, server, allowedRegions });
+    // Use the live key protocol rather than a preference for future keys.
+    let selectedProtocol = protocolPreference;
+    let hasExistingPublicVlessKey = false;
+    if (accessContext.publicAccessEnabled) {
+      const { data: activeKey, error } = await supabase.from("vpn_keys").select("protocol")
+        .eq("customer_id", customer.id).eq("reseller_id", miniapp.reseller_id).eq("order_id", activeOrder.id)
+        .eq("status", "active").is("deleted_at", null).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (error) throw error;
+      selectedProtocol = activeKey?.protocol || protocolPreference;
+      hasExistingPublicVlessKey = activeKey?.protocol === "vless";
+    }
+    const access = getMiniAppServerAccessState({ activeOrder, server, allowedRegions,
+      protocol: selectedProtocol, purpose: hasExistingPublicVlessKey ? "display" : "switch", accessContext });
     if (!access.canAccess) {
       trackMiniAppEvent(req, {
         event_name: "server_select_blocked",
@@ -1738,6 +1715,27 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     const activeKeys = existingActiveKeys || [];
     const activeOrderProtocol = activeKeys[0]?.protocol || protocolPreference;
 
+    return await withCustomerInfrastructureMutation({ resellerId: miniapp.reseller_id,
+      orderIds: [activeOrder.id], serverIds: [...new Set([server.id, ...activeKeys.map(key => key.server_id).filter(Boolean)])] }, async () => {
+    try {
+
+    // Initial trial creation must share the same fencing as bot provisioning.
+    // Otherwise a Mini App fallback could duplicate an uncertain panel request.
+    if (activeOrder.order_type === "trial" && !activeKeys.length) {
+      await provisionTrialKey({ customerId: customer.id, resellerId: miniapp.reseller_id,
+        orderId: activeOrder.id, plan, customerFullName: customer.full_name,
+        keyName: label, protocol: activeOrderProtocol, preferredServerId: server.id, accessContext });
+      const { data: trialKey, error: trialKeyError } = await supabase.from("vpn_keys")
+        .select("*,vpn_servers(*)").eq("customer_id", customer.id).eq("reseller_id", miniapp.reseller_id)
+        .eq("order_id", activeOrder.id).eq("status", "active").is("deleted_at", null).limit(1).maybeSingle();
+      if (trialKeyError || !trialKey) return res.status(409).json({ success: false, code: "TRIAL_RECOVERY_REQUIRED", message: "Trial access needs admin review." });
+      const trialQuota = await getOrderQuotaSnapshot(activeOrder.id);
+      const publicKey = toPublicVpnKey(req, { ssconfToken: customerSsconfToken, key: trialKey, label, protocol: trialKey.protocol, quota: trialQuota });
+      return res.json({ success: true, message: "Server linked successfully", data: {
+        current_server: mapServerForMiniApp(trialKey.vpn_servers || server, true), vpn_key: publicKey, outline_key: publicKey,
+      } });
+    }
+
     if (server.panel_type === "outline" && activeOrderProtocol !== "shadowsocks") {
       return res.status(403).json({
         success: false,
@@ -1799,11 +1797,13 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
           name: buildMiniAppKeyName({ customer, server, order: activeOrder, plan }),
           dataLimitBytes: remainingBytes,
           protocol: activeOrderProtocol,
-          serviceIds: serviceIdsForOrder({ server, protocol: activeOrderProtocol, orderType: activeOrder.order_type }),
+          serviceIds: serviceIdsForOrder({ server, protocol: activeOrderProtocol, orderType: activeOrder.order_type, accessContext }),
           expiryDate: activeOrder.expiry_date,
+          accessContext,
         });
       } catch (err) {
         console.error("VLESS key create error:", err);
+        if (coordinated) throw Object.assign(err, { status: 502 });
         return res.status(502).json({
           success: false,
           message: "Could not create VPN key. Please try again or contact support.",
@@ -1835,6 +1835,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
         console.error("VLESS key store error:", vlessInsertErr);
         // Clean up the panel user
         try { await deleteKey({ server, keyId: vlessKey.outline_key_id }); } catch {}
+        if (coordinated) throw Object.assign(new Error("Failed to store VPN key"), { status: 500 });
         return res.status(500).json({ success: false, message: "Failed to store VPN key" });
       }
 
@@ -1988,6 +1989,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
           dataLimitBytes: remainingBytes,
           protocol: activeOrderProtocol,
           expiryDate: activeOrder.expiry_date,
+          accessContext,
         });
       } catch (outlineErr) {
         console.error("Outline key create error:", outlineErr);
@@ -2034,6 +2036,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
           .select("id, outline_key_id, server_id, access_url, data_limit_bytes, used_bytes")
           .eq("order_id", activeOrder.id)
           .eq("server_id", server.id)
+          .eq("reseller_id", miniapp.reseller_id)
           .eq("status", "active")
           .is("deleted_at", null)
           .maybeSingle();
@@ -2046,6 +2049,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
             createdOutlineKeyId = null;
           } catch (cleanupErr) {
             console.warn("[link] Failed to clean up raced VPN key:", cleanupErr.message);
+            if (coordinated) throw cleanupErr;
           }
         }
       }
@@ -2142,7 +2146,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
     const OLD_KEY_GRACE_MS = 30_000;
     const oldKeysToClean = activeKeys.filter((k) => k.id !== insertedKey.id);
     if (oldKeysToClean.length > 0) {
-      Promise.allSettled(
+      const cleanup = Promise.allSettled(
         oldKeysToClean.map(async (oldKey) => {
           await new Promise((resolve) => setTimeout(resolve, OLD_KEY_GRACE_MS));
 
@@ -2156,6 +2160,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
             .from("vpn_keys")
             .select("id, status, deleted_at")
             .eq("id", oldKey.id)
+            .eq("reseller_id", miniapp.reseller_id)
             .maybeSingle();
           if (!freshOld || freshOld.status !== "active" || freshOld.deleted_at) return;
 
@@ -2163,6 +2168,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
             .from("vpn_keys")
             .select("id")
             .eq("order_id", activeOrder.id)
+            .eq("reseller_id", miniapp.reseller_id)
             .eq("status", "active")
             .is("deleted_at", null)
             .order("created_at", { ascending: false })
@@ -2184,7 +2190,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
                 await supabase
                   .from("vpn_keys")
                   .update({ used_bytes: liveBytes })
-                  .eq("id", oldKey.id);
+                  .eq("id", oldKey.id).eq("reseller_id", miniapp.reseller_id);
               }
             }
 
@@ -2195,6 +2201,7 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
               if (oldKey.server_id) {
                 await setServerError(oldKey.server_id, err.message).catch(() => {});
               }
+              if (coordinated) throw err;
               return;
             }
           } else {
@@ -2205,47 +2212,33 @@ router.post("/:slug/servers/:serverId/link", serverLinkLimiter, async (req, res)
             await decrementServerUsage(oldKey.server_id).catch(() => {});
           }
 
-          await supabase
+          const { error: retireError } = await supabase
             .from("vpn_keys")
             .update({
               status: "deleted",
               deleted_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
-            .eq("id", oldKey.id);
+            .eq("id", oldKey.id).eq("reseller_id", miniapp.reseller_id);
+          if (coordinated && retireError) throw retireError;
         })
       ).catch((err) => console.error("[link] Background old key cleanup error:", err));
+      if (coordinated) {
+        const results = await cleanup;
+        const failed = results?.find(result => result.status === "rejected");
+        if (failed) throw failed.reason;
+      }
     }
+    } catch (err) {
+      if (!res.headersSent) await cleanupCreatedAccess();
+      throw err;
+    }
+    });
   } catch (err) {
     console.error("Mini App link server exception:", err);
 
     // Guard: only send an error response if the success response hasn't been sent yet.
     if (res.headersSent) return;
-
-    if (incrementedNewServer && createdServer?.id) {
-      try {
-        await decrementServerUsage(createdServer.id);
-      } catch {}
-    }
-
-    if (insertedVpnKeyId) {
-      try {
-        await supabase
-          .from("vpn_keys")
-          .update({
-            status: "deleted",
-            deleted_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", insertedVpnKeyId);
-      } catch {}
-    }
-
-    if (createdOutlineKeyId && createdServer) {
-      try {
-        await deleteKey({ server: createdServer, keyId: createdOutlineKeyId });
-      } catch {}
-    }
 
     const status = Number.isInteger(err.status) ? err.status : 500;
     const message =
@@ -2395,294 +2388,41 @@ router.post("/:slug/orders", orderLimiter, async (req, res) => {
     const customerSsconfToken = await ensureCustomerSsconfToken(customer.id);
     const label = [miniapp.brand_name, customer.full_name].filter(Boolean).join("-");
 
-    const { data: plan, error: planError } = await supabase
-      .from("vpn_plans")
-      .select(`
-        id,
-        name,
-        price_mmk,
-        data_limit_gb,
-        duration_days,
-        max_devices,
-        allowed_regions,
-        is_active,
-        is_trial
-      `)
-      .eq("id", plan_id)
-      .eq("is_active", true)
-      .maybeSingle();
-
-    if (planError) {
-      console.error("Plan order lookup error:", planError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to load plan",
+    let purchase;
+    try {
+      purchase = await submitPurchase({
+        actor: { role: "customer", resellerId: miniapp.reseller_id },
+        channel: "miniapp",
+        customerId: customer.id,
+        planId: plan_id,
+        protocol: reqProtocol || customer.protocol_preference,
+        screenshotPath: payment_screenshot_url,
+        paymentNote: payment_note,
+        requestKey: req.get("Idempotency-Key") || undefined,
       });
-    }
-
-    if (!plan) {
-      return res.status(404).json({
-        success: false,
-        message: "Plan not found",
-      });
-    }
-
-    if (plan.is_trial || Number(plan.price_mmk) <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Trial plan cannot be purchased",
-      });
-    }
-
-    const { data: activePurchaseOrder, error: activePurchaseError } = await supabase
-      .from("vpn_orders")
-      .select(`
-        *,
-        vpn_plans (
-          id,
-          name,
-          price_mmk,
-          data_limit_gb,
-          duration_days,
-          max_devices
-        )
-      `)
-      .eq("customer_id", customer.id)
-      .eq("reseller_id", miniapp.reseller_id)
-      .eq("status", "active")
-      .eq("order_type", "purchase")
-      .limit(1)
-      .maybeSingle();
-
-    if (activePurchaseError) {
-      console.error("Active purchase check error:", activePurchaseError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to check active package",
-      });
-    }
-
-    const { data: queuedOrder, error: queuedOrderError } = await supabase
-      .from("vpn_orders")
-      .select("id")
-      .eq("customer_id", customer.id)
-      .eq("reseller_id", miniapp.reseller_id)
-      .eq("status", "scheduled")
-      .limit(1)
-      .maybeSingle();
-
-    if (queuedOrderError) {
-      console.error("Queued order check error:", queuedOrderError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to check queued package",
-      });
-    }
-
-    const purchaseBlockReason = getPurchaseBlockReason(activePurchaseOrder, queuedOrder);
-    if (purchaseBlockReason) {
-      return res.status(409).json({
-        success: false,
-        message: purchaseBlockReason === "PURCHASE_UNDER_REVIEW"
-          ? "Your current payment is under review. Please wait before buying another package."
-          : "You already have a queued package waiting.",
-        code: purchaseBlockReason,
-      });
-    }
-
-    const isQueuedOrder = Boolean(activePurchaseOrder);
-
-    // Protocol preference:
-    // If extending an active purchase (isQueuedOrder), preserve their active protocol preference (do not overwrite).
-    // If this is a first-time purchase or converting from trial, save their selected protocol.
-    const VALID_PROTOCOLS = ["shadowsocks", "vless", "hysteria2"];
-    let protocolPreference = customer.protocol_preference || (VALID_PROTOCOLS.includes(reqProtocol) ? reqProtocol : "shadowsocks");
-
-    if (!isQueuedOrder && reqProtocol && VALID_PROTOCOLS.includes(reqProtocol)) {
-      protocolPreference = reqProtocol;
-      await supabase
-        .from("vpn_customers")
-        .update({ protocol_preference: reqProtocol })
-        .eq("id", customer.id);
-    }
-
-    const { data: reseller, error: resellerError } = await supabase
-      .from("resellers")
-      .select("id, commission_percent")
-      .eq("id", miniapp.reseller_id)
-      .maybeSingle();
-
-    if (resellerError) {
-      console.error("Reseller lookup error:", resellerError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to load reseller",
-      });
-    }
-
-    const commissionPercent = Number(reseller?.commission_percent || 0);
-    const priceMmk = Number(plan.price_mmk || 0);
-    const commissionAmountMmk = Math.floor(
-      (priceMmk * commissionPercent) / 100
-    );
-
-    const { data: createdOrder, error: orderError } = await supabase
-      .from("vpn_orders")
-      .insert({
-        customer_id: customer.id,
-        reseller_id: miniapp.reseller_id,
-        plan_id: plan.id,
-
-        status: isQueuedOrder ? "scheduled" : "pending",
-        price_mmk: priceMmk,
-        commission_percent: commissionPercent,
-        commission_amount_mmk: commissionAmountMmk,
-
-        payment_status: "unpaid",
-        total_paid_mmk: 0,
-
-        order_type: "purchase",
-        review_status: "pending_review",
-        source: "miniapp",
-
-        payment_screenshot_url: payment_screenshot_url || null,
-        payment_note: payment_note || null,
-      })
-      .select(`
-        id,
-        customer_id,
-        reseller_id,
-        plan_id,
-        status,
-        price_mmk,
-        payment_status,
-        review_status,
-        order_type,
-        source,
-        start_date,
-        expiry_date,
-        payment_screenshot_url,
-        payment_note,
-        created_at,
-        vpn_plans (
-          id,
-          name,
-          price_mmk,
-          data_limit_gb,
-          duration_days,
-          max_devices
-        )
-      `)
-      .single();
-
-    if (orderError || !createdOrder) {
-      if (isQueuedPurchaseConflict(orderError)) {
-        return res.status(409).json({
+    } catch (error) {
+      if (error instanceof PurchaseError) {
+        return res.status(error.code === "INVALID_PLAN" ? 404 : error.status).json({
           success: false,
-          code: "QUEUED_PACKAGE_EXISTS",
-          message: "You already have a queued package waiting.",
+          code: error.code,
+          message: error.code === "PURCHASE_UNDER_REVIEW"
+            ? "Your current payment is under review. Please wait before buying another package."
+            : error.code === "QUEUED_PACKAGE_EXISTS"
+              ? "You already have a queued package waiting."
+              : error.message,
         });
       }
-      console.error("Mini App order create error:", orderError);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to create order",
-      });
+      throw error;
     }
+    const { plan, reseller, payment } = purchase;
+    const createdOrder = purchase.order;
+    const activatedOrder = purchase.order;
+    const isQueuedOrder = purchase.isQueued;
+    const priceMmk = Number(plan.price_mmk || 0);
+    const protocolPreference = purchase.customer.protocol_preference || "shadowsocks";
 
-    const payment = await createOrderPayment({
-      order: {
-        ...createdOrder,
-        commission_percent: commissionPercent,
-        reseller_id: miniapp.reseller_id,
-        customer_id: customer.id,
-      },
-      amountMmk: priceMmk,
-      reviewStatus: "pending_review",
-      paymentType: isQueuedOrder ? "extend" : "initial",
-      source: "miniapp",
-      paymentNote: payment_note,
-      paymentScreenshotUrl: payment_screenshot_url || null,
-    });
-
-    let activatedOrder = createdOrder;
-    if (!isQueuedOrder) {
-      const activation = await activatePendingReviewPurchase({
-        order: { ...createdOrder, customer },
-        reseller,
-        plan,
-      });
-
-      activatedOrder = activation.order || {
-        ...createdOrder,
-        status: "active",
-        expiry_date: activation.expiry_date,
-      };
-    }
-
-    // Notify reseller via Telegram (non-fatal — mirrors bot purchase flow)
-    if (miniapp.admin_telegram_user_id && miniapp.bot_token_encrypted) {
-      (async () => {
-        try {
-          const botToken = decrypt(miniapp.bot_token_encrypted);
-          const tgBase = `https://api.telegram.org/bot${botToken}`;
-          const orderId = activatedOrder.id || createdOrder.id;
-          const caption = resellerNotifyCaption({
-            customerName: customer.full_name || customer.telegram_username || `User ${telegramUserId}`,
-            planName: plan.name,
-            priceMmk: Number(plan.price_mmk),
-            durationDays: plan.duration_days,
-            dataLimitGb: plan.data_limit_gb,
-            orderId,
-            isExtend: isQueuedOrder,
-          });
-          const replyMarkup = JSON.stringify({
-            inline_keyboard: [[
-              { text: NOTIFY_CONFIRM_BTN, callback_data: `pay_ok:${orderId}` },
-              { text: NOTIFY_REJECT_BTN,  callback_data: `pay_no:${orderId}` },
-            ]],
-          });
-          const chatId = String(miniapp.admin_telegram_user_id);
-
-          // Screenshot is stored as a private-bucket path → generate a signed URL
-          // so Telegram can fetch it. Fall back to text-only if signing fails.
-          let photoUrl = null;
-          if (payment_screenshot_url) {
-            const { data: signed } = await supabase.storage
-              .from("payment-screenshots")
-              .createSignedUrl(payment_screenshot_url, 60 * 60 * 24 * 7); // 7 days
-            photoUrl = signed?.signedUrl || null;
-          }
-
-          if (photoUrl) {
-            await fetch(`${tgBase}/sendPhoto`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: chatId,
-                photo: photoUrl,
-                caption,
-                parse_mode: "HTML",
-                reply_markup: replyMarkup,
-              }),
-            });
-          } else {
-            await fetch(`${tgBase}/sendMessage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: chatId,
-                text: caption,
-                parse_mode: "HTML",
-                reply_markup: replyMarkup,
-              }),
-            });
-          }
-        } catch (notifyErr) {
-          console.warn(`[miniapp:${miniapp.miniapp_slug}] reseller notify failed (non-fatal):`, notifyErr.message);
-        }
-      })();
-    }
+    await notifyPurchaseSubmitted({ resellerId: miniapp.reseller_id, orderId: activatedOrder.id || createdOrder.id,
+      receipt: payment_screenshot_url ? { kind: "storage", path: payment_screenshot_url } : null });
 
     if (isQueuedOrder) {
       trackMiniAppEvent(req, {

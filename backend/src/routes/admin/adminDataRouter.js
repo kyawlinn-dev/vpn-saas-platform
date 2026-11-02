@@ -1,4 +1,4 @@
-import { businessDateOnly } from "../../utils/businessTime.js";
+import { accessDateOnly } from "../../utils/businessTime.js";
 import { loadUsageFreshness } from "../../services/usageFreshnessService.js";
 import { readAllRows } from "../../utils/readAllRows.js";
 import { legacyOrderMoney } from "../../services/paymentSummaryService.js";
@@ -351,7 +351,7 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
     gross_confirmed_mmk: grossConfirmedMmk,
     has_confirmed_paid_data: grossConfirmedMmk > 0 || confirmedPaidPayments.length > 0,
     warnings: [
-      activeKeys.length > 0 ? `${activeKeys.length} active VPN key(s) will be deleted from Outline before database cleanup.` : null,
+      activeKeys.length > 0 ? `${activeKeys.length} active VPN key(s) will be revoked through the VPN provider before database cleanup.` : null,
       orphanActiveKeys.length > 0 ? `${orphanActiveKeys.length} active VPN key(s) are not attached to a selected order. Cleanup is blocked until those keys are handled manually.` : null,
       grossConfirmedMmk > 0 ? `Selected customers include ${grossConfirmedMmk.toLocaleString()} MMK confirmed paid ledger data.` : null,
     ].filter(Boolean),
@@ -367,11 +367,26 @@ async function fetchCustomerCleanupPreview({ resellerId, customerIds }) {
   };
 }
 
-async function deleteRows(table, column, ids) {
-  if (!ids.length) return 0;
-  const { error } = await supabase.from(table).delete().in(column, ids);
-  if (error) throw new Error(error.message);
-  return ids.length;
+async function cleanupCustomerRows({ resellerId, customerIds, orderIds, confirmation, allowPaidCustomers, dryRun }) {
+  const { data, error } = await supabase.rpc("cleanup_test_customers", {
+    p_reseller_id: resellerId, p_customer_ids: customerIds, p_expected_order_ids: orderIds,
+    p_confirmation: confirmation, p_allow_paid_customers: allowPaidCustomers, p_dry_run: dryRun,
+  });
+  if (error) {
+    if (["PGRST202", "42883"].includes(error.code)) {
+      throw Object.assign(new Error("Apply development migration 0050_atomic_test_customer_cleanup.sql before customer cleanup."), { status: 503 });
+    }
+    const messages = {
+      CUSTOMER_CLEANUP_BUSY: "Selected customers have provisioning or message processing in progress. Wait for it to finish before cleanup.",
+      CUSTOMER_CLEANUP_CHANGED: "Selected orders changed. Refresh the cleanup preview and try again.",
+      CUSTOMER_CLEANUP_SCOPE_MISMATCH: "Selected customers no longer belong to this reseller. Refresh the customer list.",
+      CUSTOMER_CLEANUP_PAID_CONFIRMATION_REQUIRED: "Selected customers have confirmed paid data. Preview again and explicitly allow paid test customer deletion.",
+      CUSTOMER_CLEANUP_ACCESS_NOT_STOPPED: "Selected customers still have active or pending VPN access. Resolve it before cleanup.",
+    };
+    const code = Object.keys(messages).find(key => String(error.message).includes(key));
+    throw Object.assign(new Error(code ? messages[code] : error.message), { status: code ? 409 : 500 });
+  }
+  return data;
 }
 
 // GET /api/admin/overview
@@ -386,7 +401,7 @@ router.get("/overview", async (req, res) => {
       { data: legacyPaidOrders, error: legacyPaidOrdersError },
       { data: recentOrders },
     ] = await Promise.all([
-      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active").gte("expiry_date",businessDateOnly()),
+      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active").gte("expiry_date",accessDateOnly()),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "stopped"),
       supabase.from("vpn_keys").select("*", { count: "exact", head: true }).eq("status", "active"),
@@ -452,7 +467,7 @@ router.get("/analytics", async (req, res) => {
       { data: recentPayments, error: recentPaymentsError },
       { data: recentLegacyOrders, error: recentLegacyOrdersError },
     ] = await Promise.all([
-      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active").gte("expiry_date",businessDateOnly()),
+      supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "active").gte("expiry_date",accessDateOnly()),
       supabase.from("vpn_orders").select("*", { count: "exact", head: true }).eq("status", "pending"),
       supabase.from("vpn_keys").select("*", { count: "exact", head: true }).eq("status", "active"),
       supabase.from("resellers").select("*", { count: "exact", head: true }).eq("status", "active"),
@@ -669,23 +684,13 @@ router.post("/customers/cleanup-delete", async (req, res) => {
       });
     }
 
+    const cleanup = { resellerId, customerIds, orderIds: preview.ids.order_ids, confirmation, allowPaidCustomers };
+    // Check migration availability and busy work before external access revocation.
+    await cleanupCustomerRows({ ...cleanup, dryRun: true });
     for (const orderId of preview.ids.order_ids) {
       await stopOrderAccess(orderId);
     }
-
-    if (preview.ids.token_ids.length > 0) {
-      await deleteRows("token_server_assignments", "token_id", preview.ids.token_ids);
-    }
-
-    const deleted = {
-      commission_ledger: await deleteRows("commission_ledger", "id", preview.ids.commission_ledger_ids),
-      order_payments: await deleteRows("order_payments", "id", preview.ids.payment_ids),
-      vpn_keys: await deleteRows("vpn_keys", "id", preview.ids.key_ids),
-      access_tokens: await deleteRows("access_tokens", "id", preview.ids.token_ids),
-      telegram_links: await deleteRows("telegram_links", "id", preview.ids.telegram_link_ids),
-      vpn_orders: await deleteRows("vpn_orders", "id", preview.ids.order_ids),
-      vpn_customers: await deleteRows("vpn_customers", "id", preview.customer_ids),
-    };
+    const deleted = await cleanupCustomerRows({ ...cleanup, dryRun: false });
 
     return res.json({
       success: true,
@@ -716,7 +721,7 @@ router.get("/customers", async (req, res) => {
     }
 
     const customerType = req.query.customer_type;
-    if (customerType === "normal" || customerType === "telegram") {
+    if (["normal", "telegram"].includes(customerType)) {
       query = query.eq("customer_type", customerType);
     }
 
@@ -858,9 +863,9 @@ router.get("/orders", async (req, res) => {
       .range(offset, offset + limit - 1);
 
     if (status && status !== "all") {
-      query = status === "expired" ? query.or(`status.eq.expired,and(status.eq.active,expiry_date.lt.${businessDateOnly()})`) : query.eq("status", status);
+      query = status === "expired" ? query.or(`status.eq.expired,and(status.eq.active,expiry_date.lt.${accessDateOnly()})`) : query.eq("status", status);
     }
-    if (status === "active") query = query.gte("expiry_date",businessDateOnly());
+    if (status === "active") query = query.gte("expiry_date",accessDateOnly());
     if (resellerId && resellerId !== "all") {
       query = query.eq("reseller_id", resellerId);
     }

@@ -1,5 +1,152 @@
 # NovaNet MM — Database Schema Reference
 
+## Telegram-only production candidate (0060/0061/0063, not applied)
+
+The reviewed package in `backend/supabase/releases/2026-11-core/` adds
+`purchase_operations`, `notification_deliveries` and `customer_trial_claims`
+without deferred-channel tables. New tables use RLS and service-role-only access;
+new mutating RPCs deny PUBLIC, anon and authenticated execution. Existing grants
+and deployed 0039 payment-split behavior are preserved. Zero staff commission
+remains zero; customer callers are bot/miniapp, staff callers dashboard, and
+notification delivery is Telegram-only. NULL caller/source values are rejected.
+Existing consumed trial history backfills only the new claims table; it does not
+reset entitlement or rewrite orders. Cleanup 0061 retains explicit confirmation,
+tenant/key/payment guards and atomic selected-customer deletion, without deferred
+tables. Applying its definition alone deletes nothing.
+
+The manifest order is 0060, 0040–0049, 0051–0055, 0057, 0058, 0061, 0062, 0063.
+Historical mixed 0050/0056 are superseded only in this production package, not
+rewritten or reapplied. See its README for exact hashes, rehearsal and recovery.
+This candidate schema has not been applied to DEV or production.
+
+0063 replaces only `adopt_existing_node` to admit LightNode protected access
+registration, rejecting LightNode lifecycle registration and NULL providers.
+Hash/CAS/scope/busy/receipt guards and service-role-only grants remain. Applying
+the function definition alone adopts nothing and changes no server/customer data.
+For protected access only, collision checks tolerate decommissioned inactive
+Outline rows that have no scope/ownership or active/pending/unknown-status keys.
+Historical rows are retained; active/scoped resources and registry conflicts
+remain blocking. NULL/unknown history is not treated as verified retired history.
+
+## LightNode Infrastructure Provider (0062, DEV Applied)
+
+Migration `0062_lightnode_infrastructure.sql` expands existing provider CHECKs on
+`server_infrastructure_resources` (empty panel provider, digitalocean, vultr,
+lightnode) and `server_provider_create_intents` (three cloud providers). No new
+table, ownership adoption, customer change or counter write. Existing fenced
+intent/registration RPCs remain authoritative. `adopt_existing_node` remains
+DO/Vultr-only; protected LightNode access mirrors are not lifecycle-owned.
+
+The existing DEV runtime binding may add a backend operator-attested LightNode
+connection UUID to `provider_accounts`, preserving existing account entries.
+Encrypted operation state retains temporary bootstrap credentials, host pin and
+asynchronous create/delete receipts. These are backend-only and never public DTOs.
+Automatic regional discovery needs no further DDL. Existing quote JSON retains
+the price object with `recurringAmount:null` and explicit `provider_pricing`
+billing evidence; this differs from a null price for a no-purchase operation.
+The unchanged independent provider receipt additionally records exact
+`lightnodeReceipt` task/instance/package/disk/IP identities. Global VLESS and
+per-node SS service membership rules are unchanged. Production application is
+not authorized by the DEV implementation.
+
+Applied directly to DEV project huqmzvlzfcexycdrsxpn on 2026-11-01 after eight
+PostgreSQL-engine checks and independent review. Scoped LightNode account binding
+was added without replacing DO/Vultr accounts; complete DEV server-row fingerprint
+was unchanged. No production migration or protected-mirror adoption occurred.
+
+## Telegram Bot Content (0058, DEV Applied)
+
+The current Bot Links API and runtime allow only two optional guide overrides:
+`guides.shadowsocks.url`, `guides.vless.url`. Downloads use code-owned app URLs;
+historical download-post rows are ignored and cannot be edited.
+Historical text/command overrides remain stored but are ignored by runtime
+snapshots and rejected by editing endpoints. Approved wording is code-owned.
+This links-only update reuses 0058 and requires no additional migration.
+
+`public.reseller_bot_content` stores presentation overrides only. Its composite
+primary key is `(reseller_id, content_key)`; `reseller_id` references
+`resellers(id) ON DELETE CASCADE`. Columns: `content_key text NOT NULL` (1-160
+characters, code-key syntax), `custom_text text NOT NULL` (at most 3000
+characters), `updated_at timestamptz NOT NULL DEFAULT now()`.
+RLS is enabled; PUBLIC/anon/authenticated have no table privileges; service_role
+alone has CRUD grants. Every backend operation supplies authenticated
+`reseller_id`. Code owns recognized keys, placeholder schemas, HTTPS and Telegram
+markup/length validation. No row means use the current code default; DELETE of
+one scoped row resets only that content entry. Notifications retain their
+existing table. Applying 0058 creates no overrides and changes no users,
+credentials, orders, counters, panel resources or existing content. Production
+migration/deployment is not authorized by this implementation.
+Owner confirmed DEV application on 2026-10-29; scoped read-back confirmed the
+table is readable for the shadow-vpn workspace and initially has no overrides.
+
+## Panel Resource Incarnations (0057, DEV Applied)
+
+`server_infrastructure_resources` gains nullable `retired_at` and
+`deletion_operation_id`. A retired panel receipt remains readable for recovery;
+it is not permission to mutate a replacement with the same numeric ID.
+`server_panel_resource_archive` is a private, append-only exact-receipt audit
+table containing original scope/operation/creation time and the fenced deleting
+operation, owner, fence and archive time. No frontend table access is granted.
+
+`archive_server_panel_resource(scope, operation_id, owner, fence, kind,
+resource_id, expected_body)` requires a current lease, exact receipt and either
+own candidate authority or confirmed locked source ancestry. Only node, inbound,
+host and non-global service receipts can be archived, after caller-confirmed
+remote absence. Protected/shared/adopted resources remain excluded. No migration
+backfill retires historical receipts automatically.
+
+Numeric-ID replacement requires explicit archive evidence and terminal deletion
+completion/cancellation; unfinished provider cleanup retains the old receipt.
+Node uniqueness is retained for current server rows, excluding only inactive,
+decommissioned history. Registration still requires new operation-owned provider
+and panel receipts. Historical server rows and audit receipts remain intact.
+Owner confirmed 0057 and the bounded DEV historical reconciliation applied on
+2026-10-28. Scoped read-back verified the archive RPC exists, the abandoned Add
+is cancelled with 18 archived receipts, its lease/locks are released and no
+nonterminal DEV operations remain. Fresh live acceptance is still owner-run.
+Production application/deployment is not authorized by this update.
+
+## Derived Selection Maintenance (No DDL)
+
+`under_maintenance` is computed by the backend, not stored on `vpn_servers`.
+It joins scoped `server_operation_locks.operation_id` to `server_operations` and
+matches `resource_key = 'server:' || payload.source_server_id` for nonterminal
+replace/move_retire work. No schema change, counter write or panel mutation is
+needed. Existing coordination guards serialize lifecycle acceptance against
+customer mutations; source maintenance is visible even before the draining stage.
+
+## Expiration-Safe Relocation And Myanmar Cutoff (0055-0056)
+
+Migration 0055 replaces `move_server_operation_key` in place. It retains tenant,
+scope, lease, lock, active-record, immutable-snapshot, destination and trigger-owned
+capacity checks, but relocation no longer fails solely because time has passed
+the order's expiry. It changes only the server anchor, not expiry/status/quota,
+credentials, links or usage. Applying the function migration moves no rows.
+DEV application is pending owner confirmation; production is not authorized.
+
+The customer entitlement deadline for `expiry_date = D` is D+1 at 04:00
+Asia/Yangon (D 21:30 UTC). `expiry_date` remains an inclusive date label, not a
+timestamp. Accounting dates stay Asia/Bangkok. The calculated API fields
+`business_summary.expiry_cutoff_at` and `expiry_timezone` are not stored columns.
+Trial recovery SQL alignment is delivered separately in migration 0056; apply
+in order after 0055. Existing panel user deadlines and token timestamps are not
+backfilled merely by applying these function definitions.
+
+
+## Development Naming RPC (0053)
+
+`assign_server_operation_display(environment, pool_id, database_identity,
+panel_identity, operation_id, owner, fence, server_id, city, country,
+country_code, flag)` assigns operation-owned candidates a stable `City #N` name.
+It reuses existing `vpn_servers.name`, `display_city`, `display_country`,
+`region_code` (ISO country code) and `flag_emoji`; no columns or tables are added.
+The service-role-only RPC requires a current lease, candidate ownership and the
+server lock. A city/pool advisory transaction lock serializes allocation, includes
+retired and unscoped legacy names, and preserves the assigned name on retry.
+No customer, quota, counter, credential or membership writes. DEV application
+confirmed by read-only rejection of a nonexistent operation on 2026-10-27.
+Production application remains a separate deployment step.
+
 ## Scope and verification
 
 Verified read-only on 2026-10-15 using service-role PostgREST OpenAPI, separately for production and development.
@@ -310,6 +457,14 @@ Production reseller-scoped Telegram/customer linkage and trial history.
 
 Legacy internal token-to-server links still used by provisioning; do not drop based on public-route retirement.
 
+The deployed database enforces uniqueness of `(token_id, server_id)`, including
+inactive historical rows. Migration `0054_assignment_repair_conflicts.sql`
+replaces the fenced repair RPC to reuse an existing destination row only when
+it is empty, already references the moved key, or references a deleted key for
+the same reseller/customer. The source row is then deactivated, not deleted.
+Active/pending or foreign keys block repair. Normal moves without a destination
+row retain their original row ID. No counters, credentials or key quotas change.
+
 | Column | PostgreSQL type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
 | `id` | uuid | yes | "gen_random_uuid()" | PK |
@@ -452,7 +607,180 @@ Marzneshin service/node capacity and historical provider rows.
 | `marzneshin_vless_service_ids` | integer[] | no | — | Global VLESS service IDs (all nodes' VLESS inbounds — same value on every server row) |
 | `marzneshin_vless_trial_service_ids` | integer[] | no | — | Trial-only VLESS service IDs — references a Marzneshin service containing ONLY this trial server's VLESS inbound. Set on trial servers only; empty on premium servers. |
 
+## Local Lifecycle Additions: 0040 (Not Applied)
+
+`backend/supabase/migrations/0040_public_server_access.sql` is local implementation
+for the approved public-access design. It has not been applied to development or
+production; static contract tests do not prove live SQL execution. The opt-in
+`backend/src/__tests__/database/serverAccess.integration.mjs` requires an empty,
+owner-started localhost database named `novanet_lifecycle_test` (or that prefix
+followed by an underscore suffix), and rolls all fixtures and DDL back.
+
+Proposed additions to `vpn_servers`:
+
+| Column | Type | Required / Default | Meaning |
+| --- | --- | --- | --- |
+| `supported_protocols` | text[] | nullable | Exactly VLESS-only or the SS/VLESS pair; array ordering does not change capability. |
+| `environment` | text | nullable | Explicit development/production ownership, not inferred from NODE_ENV. |
+| `access_pool_id` | uuid | nullable | Composite FK with environment to server_access_pools. |
+| `panel_node_id` | integer | nullable | Positive, registered node identity; unique per pool. |
+| `provider_resource_id` | text | nullable | Verified cloud identity as text; ownership provenance must match if supplied. |
+| `ownership_provenance` | jsonb | nullable | Backend registration: method, environment, pool/node/panel identity, verified_at, SS service IDs and optional cloud resource ID. |
+| `lifecycle_protected` | boolean | NOT NULL / true | Protection from infrastructure retirement; access adoption is not deletion approval. |
+
+Legacy rows retain null registration/capability fields and remain protected. The
+new scope is all-or-none, with explicit ownership validation. Dual-protocol nodes
+require one matching positive SS service ID; VLESS-only nodes cannot retain an SS
+service assignment. Existing server tiers, trial-service columns, historical rows
+and database-owned counters are unchanged.
+
+New backend-only table `server_access_pools`:
+
+| Column | Type | Required / Default | Meaning |
+| --- | --- | --- | --- |
+| `id` | uuid | NOT NULL / gen_random_uuid() | PK, also unique with environment for scoped FK. |
+| `environment` | text | NOT NULL | development or production. |
+| `name` | text | NOT NULL | Public-pool display name. |
+| `panel_identity` | text | NOT NULL | Verified panel identifier, not a credential. |
+| `vless_service_id` | integer | NOT NULL | Positive public VLESS service ID for this environment. |
+| `created_at` | timestamptz | NOT NULL / now() | Creation time. |
+
+One public pool per `(environment, panel_identity)` plus unique `(pool,node)`
+registration provides unique node registration per environment/panel. Pool
+environment/panel/service identity is immutable while nodes reference it. Future
+VIP pools require a separately designed migration, not a new value in this release.
+
+RLS and revoked public/anon/authenticated privileges protect pool configuration.
+An invoker trigger rejects ownership-field changes by roles not trusted as
+service_role members, while allowing unchanged legacy metadata. These database
+guards do not replace live panel/provider ownership checks or resource provenance.
+
+## Local Lifecycle Coordination: 0041-0042 (Not Applied)
+
+These migrations are local source only; actual SQL/concurrency validation and
+owner-approved database setup remain rollout gates. No live resources are seeded.
+
+| Private Relation | Fields / Responsibility |
+| --- | --- |
+| `server_operations` | UUID id, environment/pool/database/panel binding, kind (`add`, `replace`, `move_retire`), unique scoped idempotency key, canonical payload hash, bounded private payload/checkpoint JSON, status/stage, lease owner/deadline, increasing fence, timestamps. Payload holds source/destination references, quote and confirmed deletion scope. |
+| `server_operation_items` | Operation/item-key primary key, immutable expected snapshot, private checkpoint, item status, last claiming fence, updated timestamp. |
+| `server_operation_locks` | Environment/pool/resource-key primary key, owning operation, timestamp. Source/destination server and current order locks outlive expired worker leases; only fenced terminal release removes them. |
+| `server_operation_runtime_bindings` | Explicit owner-installed environment/pool -> database/panel identity binding. Backend read-only; not inferred or automatically seeded. |
+| `server_customer_mutation_guards` | Random guard UUID, environment/pool, sorted order/server resource keys, lease deadline, running/uncertain state. Expired/uncertain external work continues blocking retirement pending reconciliation. |
+
+All relations enable RLS and deny frontend access. Backend uses scoped definer
+RPCs rather than directly writing operation rows. RPCs: `create_server_operation`,
+`claim_server_operation`, `renew_server_operation_lease`,
+`checkpoint_server_operation`, `claim_server_operation_item`,
+`finish_server_operation_item`, `release_server_operation`, `read_server_operation`,
+`acquire_server_customer_mutation`, `finish_server_customer_mutation`. Helpers
+are not callable by the service role. Operation mutation RPCs validate environment,
+pool, explicit runtime binding, owner, deadline and fence. Triggers protect key,
+order and server writes from active drains, including original reserve/activate
+RPCs, without replacing their tenant checks or database-owned counters.
+
+`SERVER_LIFECYCLE_COORDINATION_ENABLED` defaults off. Do not enable infrastructure
+execution until every customer boundary, trigger and fenced worker write path has
+passed disposable SQL tests and the separately approved DEV canary. The finite
+`serverOperations.integration.mjs` harness requires an owner-started localhost
+`novanet_lifecycle_test*` database with Supabase roles; it owns/removes only a
+random fixture schema and uses two connections to exercise contention/takeover.
+
+### Local Access-Move RPCs: 0043 (Not Applied)
+
+`0043_server_operation_access_moves.sql` adds guarded writes through an operation's
+own drain locks. Only fenced definer RPCs establish the transaction-local operation
+identity; triggers still reject other or expired fences. RPCs:
+`lock_server_operation_server`, `read_server_operation_access`,
+`read_server_operation_item`, `drain_server_operation_source`,
+`move_server_operation_key`, `repair_server_operation_assignments`,
+`verify_server_operation_assignments`. Read/move/assignment operations require
+matching key, order, customer and reseller identities. Moves compare quota, expiry,
+protocol and account identity, changing only the key's server anchor. The existing
+0021 trigger remains the sole counter owner: it recomputes affected server counts
+atomically and enforces capacity. 0043 requires that trigger to be enabled and
+does not add an increment/decrement trigger or replace reserve/activate RPCs.
+Stable key IDs and access URLs remain unchanged; traffic is not reset or copied
+from a stale snapshot. Business expiry checks use `Asia/Bangkok` consistently.
+Private per-item checkpoints retain original panel state for crash reconciliation.
+This SQL is unexecuted locally and must pass the disposable integration harness
+before any worker or lifecycle coordination is enabled.
+
+### Local Command Storage: 0044 (Not Applied)
+
+`server_operation_quotes`: UUID, environment/pool, bounded private quote body,
+expiry, used-operation reference and creation timestamp. Frontend access is denied.
+`server_operations.quote_id` is unique, preventing two purchases from one quote;
+`control_requested` is nullable or `cancel`. Scoped quote RPCs store/read quotes,
+find idempotent requests and create quoted operations with atomic single-use
+validation. Creation compares stored source/destination, price/deletion scope and
+required confirmations. List/summary RPCs aggregate private item counts; runnable
+listing includes the current worker's lease as well as expired/unclaimed work.
+Control requests only mark cancellation or resume blocked/paused/partial work;
+resume invalidates old fences without discarding migration checkpoints.
+This migration is source-only, unexecuted and not a completed SQL safety test.
+
+The mock-tested admin UI/API does not establish that these relations/RPCs exist
+in any database. Live runtime composition is absent and execution remains
+disabled. The explicit local test and acceptance checklist is
+`docs/testing/server-access-lifecycle-local.md`.
+
 ## Production canonical views
+
+### Connected Runtime Storage: 0045 (Development Migration, Not Applied)
+
+`server_operation_runtime_bindings.provider_accounts` stores independently
+verified provider account identities, not API tokens. Existing bindings receive
+an empty object and cannot authorize purchases until explicitly configured.
+
+Private relations: `server_infrastructure_resources` contains immutable scoped
+ownership receipts; `server_provider_create_intents` persists one nonce-bound
+purchase intent per operation/provider; `server_infrastructure_state` contains
+AES-GCM encrypted operation state with compare-and-set versions;
+`server_service_operation_locks` serializes owned service membership changes.
+All four enable RLS and deny direct frontend and service-role writes. Scoped,
+fenced definer RPCs provide reads, intent claims, immutable registration, state
+CAS and lock acquire/release. A conflicting ownership receipt never overwrites
+another environment or pool. Private state envelopes also bind ciphertext to
+environment/database/panel/pool/operation/key in application code.
+
+0045 is source-only: no migration was applied to development or production by
+the agent. The owner uses the existing development Supabase and applies the
+reviewed migration chain as part of manual acceptance; a new empty database is
+not a prerequisite for completing connected implementation.
+
+### Candidate/Customer Recovery: 0046-0048 (Development, Not Applied)
+
+0046 adds fenced definer RPCs `ensure_server_operation_candidate`,
+`publish_server_operation_candidate` and `retire_server_operation_resource`.
+Candidate creation binds actual provider/node receipts to the operation and creates
+an unpublished `vpn_servers` row. Publication requires a fresh probe timestamp;
+retirement preserves historical server rows, refuses active/pending keys and active
+assignments, and sets `status=decommissioned`. SQL initializes new counters to zero;
+the existing 0021 trigger remains the only ongoing counter writer.
+
+0047 adds `register_server_customer_user`: register an actually created panel user
+only while its scoped customer mutation guard owns the server. Store only a hash
+of the subscription key, never its plaintext. Unknown/foreign receipts cannot be
+overwritten; missing/expired guards fail closed. No existing customers are adopted.
+
+0048 adds fenced `next_server_operation_item` and
+`cleanup_server_operation_assignment`. The latter deactivates only a snapshotted
+assignment linked to an already deleted key on the operation's source; it marks
+the durable cleanup item verified. Full migration inputs and node secrets use
+encrypted operation state, while public API responses remain allowlisted.
+
+0049 replaces terminal operation release to clear only that operation's scoped
+service locks after positively reconciled `completed`/`cancelled` outcomes.
+Uncertain/failed work retains service locks. Endpoint-removal intents are encrypted
+and reconciled before deriving visible endpoint deltas, including a partially
+removed host filter with unchanged inbound membership. Customer user reads and
+inventory verify the receipt's subscription-key hash before migration snapshots.
+
+All these RPCs are service-role only. None of 0040-0049 was applied to Supabase by
+the agent. PostgreSQL WASM execution covers synthetic-schema behavior, not live
+schema drift or cross-connection lock guarantees. Owner manual acceptance uses
+the existing development Supabase project.
 
 These are service-layer read helpers; frontends still use authenticated Express routes. They do not mean every existing route already reads exclusively from a view.
 
@@ -833,11 +1161,10 @@ rejecting customer-initiated checkout for inactive identities.
 - FINAL_DATA_MODEL.md: historical target design with partial implementation status; not permission to drop current fields.
 - docs/DOCUMENTATION.md: document authority and stage index.
 
-## Production schema addition 0037 (released 2026-10-16)
+## Pending implementation migration 0037 (not deployed)
 
-Owner approved on 2026-10-15 and reported applying 0037–0039 on 2026-10-16.
-The table/four RPCs are now exposed and production joined reads pass; the
-2026-10-15 inventory above remains a dated baseline snapshot. 0037 depends on existing core
+Owner-approved on 2026-10-15. The production OpenAPI snapshot above remains
+unchanged until separately authorized deployment. 0037 depends on existing core
 0022/0026 effects and does not depend on the development 0027–0036 chain.
 
 ### dashboard_purchase_operations
@@ -886,22 +1213,59 @@ Operation ownership FKs cascade only when the owning order/customer is explicitl
 deleted through existing authorized cleanup; no independent purge is introduced.
 Keep operation rows for as long as the purchase exists to preserve replay identity.
 
-### Follow-up 0038: dashboard quota arithmetic (released 2026-10-16)
+### Follow-up 0038: dashboard quota arithmetic (development patch pending)
 
 The live development catalogue exposes vpn_plans.data_limit_gb as integer, while
 vpn_orders.quota_limit_bytes is bigint. Migration 0038 replaces only
 prepare_dashboard_purchase: cast GB to numeric before multiplying by 1073741824,
 then cast the result to bigint. A cast after integer multiplication is too late.
 There are no table/column/API changes, backfills, payment changes or activations.
-Applied after 0037 as part of the owner-reported production migration sequence.
+Apply after 0037 and reload the PostgREST schema cache. Production remains unchanged.
 
-### Follow-up 0039: receipt money CHECK compatibility (released 2026-10-16)
+## Development Follow-up 0050: Atomic Test-Customer Cleanup
 
-Replaces only prepare_dashboard_purchase after 0038. Before inserting a paid
-receipt, compute floor(price * clamped commission percent / 100) and the remaining
-platform due, so the core order_payments_money_check holds on insertion.
-The unchanged apply_confirmed_payment RPC then confirms/applies once. No table,
-column, API, historical payment, activation or settlement change. SQL validation
-now enforces the core CHECK and verifies zero and positive commission. Apply
-0037 → 0038 → 0039 in sequence. Production backend and clients were deployed
-on 2026-10-16; genuine-sale acceptance remains owner-controlled.
+`0050_atomic_test_customer_cleanup.sql` adds only the service-role RPC
+`cleanup_test_customers(uuid, uuid[], uuid[], text, boolean, boolean)` returning
+JSON deletion counts. Arguments are reseller ID, selected customer IDs, expected
+order IDs, explicit confirmation, paid-data acknowledgement, and dry-run mode.
+It depends on the existing development purchase/channel/lifecycle tables through
+0049; no table, column, foreign-key or normal trial-claim behavior is changed.
+
+The RPC scopes deletion to the exact reseller/customers, locks selected records,
+checks order-set changes and in-flight processing, requires VPN keys to have
+been revoked before final deletion, and removes trial claims, purchase records,
+channel links/events and existing financial/access dependencies atomically.
+Normal deletes still retain the restrictive trial-history FK. Only this explicit
+test reset removes consumed claims so selected accounts can register afresh.
+The preflight does not delete anything. Panel revocation remains outside the
+database transaction. Public, anon and authenticated execution is revoked.
+
+Source and synthetic SQL tests do not mean this migration has been applied to
+development or production. Apply to the development project only for acceptance.
+
+## Existing-Node Adoption (0051, Pending Application)
+
+`existing_node_adoptions` is a private approval/replay ledger with `manifest_hash`
+(64-hex primary key), `server_id` (FK to vpn_servers), `document`, `result`,
+`server_token` and `created_at`. RLS is enabled with no direct public, anon,
+authenticated or service-role table access. Service-role-only security-definer RPCs
+`inspect_existing_node_adoption`, `read_existing_node_adoption_approval` and
+`adopt_existing_node` enforce the existing environment/pool/DB/panel scope.
+
+Inspection returns a bounded DB snapshot for hashing. Application verifies that
+snapshot and resource collisions under locks, then registers the reviewed server
+and infrastructure receipts atomically. It does not reset trials, alter customer
+keys/quotas/expiry or purchase a provider resource. Access-only adoption remains
+protected; lifecycle adoption requires the separate verified ownership evidence.
+Applying the migration itself performs no adoption. DEV and production application
+remain separate owner actions; synthetic SQL tests do not imply either was applied.
+
+## Runnable Worker Pagination (0052, Pending Application)
+
+`list_runnable_server_operations(text, uuid, text, text, integer, uuid,
+timestamptz, uuid)` is a service-role-only scoped RPC. The optional timestamp/UUID
+cursor is exclusive and ordered descending by `created_at, id`; timestamps retain
+Postgres microsecond precision. It filters terminal states, active foreign leases
+and future retry backoff. The partial `server_operations_runnable_cursor` index
+covers queued/running rows. Existing operator summary-list contracts are unchanged.
+Apply 0052 before starting the updated worker. It mutates no operations or VPSs.

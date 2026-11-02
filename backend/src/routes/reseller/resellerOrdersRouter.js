@@ -8,14 +8,9 @@ import {
   normalizeNullableString,
   normalizeRequiredString,
 } from "../../utils/validators.js";
-import {
-  calculatePaymentAmounts,
-  createOrderPayment,
-  syncOrderPaymentSummary,
-} from "../../services/paymentLedgerService.js";
-import { deriveManualOrderPolicy } from "../../services/manualOrderPolicy.js";
+import { submitPurchase, PurchaseError } from "../../services/purchaseService.js";
 import { parsePagination, sanitizeSearchTerm } from "../../utils/pagination.js";
-import { addDaysToDateOnly, businessDateOnly } from "../../utils/businessTime.js";
+import { addDaysToDateOnly, accessDateOnly } from "../../utils/businessTime.js";
 import { enrichOrderAccess } from "../../services/customerOrderEnrichmentService.js";
 import { requireMiniapp } from "../../middleware/requireMiniapp.js";
 
@@ -153,7 +148,7 @@ router.get("/", gateTelegramScope, async (req, res) => {
     // customer_type isn't a column on vpn_orders — resolve matching customer
     // ids first (same base-table-only pattern as search below, and cheap:
     // one reseller's customer list, not a system-wide scan).
-    if (customer_type === "normal" || customer_type === "telegram") {
+    if (["normal", "telegram"].includes(customer_type)) {
       const { data: typedCustomers, error: typeError } = await readAllRows(() => supabase
         .from("vpn_customers")
         .select("id")
@@ -176,14 +171,14 @@ router.get("/", gateTelegramScope, async (req, res) => {
     // expiry falls within the next 7 days, same window used by
     // /reseller/stats/overview's expiring_soon count.
     if (status === "expiring") {
-      const today = businessDateOnly();
+      const today = accessDateOnly();
       const horizon = addDaysToDateOnly(today, 7);
       query = query
         .eq("status", "active")
         .gte("expiry_date", today)
         .lte("expiry_date", horizon);
     } else if (status === "expired") {
-      query = query.or(`status.eq.expired,and(status.eq.active,expiry_date.lt.${businessDateOnly()})`);
+      query = query.or(`status.eq.expired,and(status.eq.active,expiry_date.lt.${accessDateOnly()})`);
     } else if (status) {
       query = query.eq("status", String(status).trim());
     }
@@ -225,14 +220,14 @@ router.get("/", gateTelegramScope, async (req, res) => {
     // for an already Telegram-typed customer; that edge case is rare enough
     // to not be worth the id-list scale risk (see search below) of resolving
     // it via a precomputed customer_id list instead.
-    if (scope === "telegram_purchases") {
+    if (scope === "telegram_purchases" || scope === "self_service_purchases") {
       // gateTelegramScope (route-level middleware) already verified miniapp
       // access before this handler ran — nothing to re-check here.
       query = query.eq("order_type", "purchase");
       if (source && source !== "all") {
         query = query.eq("source", String(source).trim());
       } else {
-        query = query.in("source", ["miniapp", "bot"]);
+        query = query.in("source", scope === "self_service_purchases" ? ["miniapp", "bot"] : ["miniapp", "bot"]);
       }
     } else {
       if (order_type) {
@@ -281,7 +276,7 @@ router.get("/", gateTelegramScope, async (req, res) => {
       query = query.or(orParts.join(","));
     }
 
-    if (status === "active") query = query.gte("expiry_date", businessDateOnly());
+    if (status === "active") query = query.gte("expiry_date", accessDateOnly());
 
     // Sort by creation: each row is an immutable sale/subscription period. A
     // renew inserts a NEW row (which sorts to the top by its own created_at)
@@ -312,7 +307,7 @@ router.get("/", gateTelegramScope, async (req, res) => {
         .from("vpn_orders")
         .select("customer_id")
         .eq("reseller_id", reseller.id)
-        .eq("status", "active").gte("expiry_date", businessDateOnly())
+        .eq("status", "active").gte("expiry_date", accessDateOnly())
         .eq("order_type", "purchase")
         .in("customer_id", customerIds).order("id"));
       activeCustomerIds = new Set((activeRows ?? []).map((r) => r.customer_id));
@@ -354,7 +349,7 @@ router.get("/counts", async (req, res) => {
     }
 
     const rows = data ?? [];
-    const today = businessDateOnly();
+    const today = accessDateOnly();
     const horizon = addDaysToDateOnly(today, 7);
     const isExpiringRow = (row) =>
       row.status === "active" &&
@@ -374,7 +369,7 @@ router.get("/counts", async (req, res) => {
     };
 
     const telegramRows = rows.filter(
-      (row) => row.order_type === "purchase" && (row.source === "miniapp" || row.source === "bot")
+      (row) => row.order_type === "purchase" && ["miniapp", "bot"].includes(row.source)
     );
     const telegram_review = {
       total: telegramRows.length,
@@ -428,12 +423,6 @@ router.post("/", async (req, res) => {
     if (planError || !plan) {
       return res.status(400).json({ error: "Invalid or inactive plan" });
     }
-
-    const policy = deriveManualOrderPolicy({ plan, requestedPaymentStatus });
-    const source = policy.source;
-    const order_type = policy.orderType;
-    const payment_status = policy.paymentStatus;
-    const review_status = policy.reviewStatus;
 
     let customer = null;
 
@@ -504,113 +493,32 @@ router.post("/", async (req, res) => {
       }
     }
 
-    if (order_type === "purchase") {
-      const { data: existingActivePurchase, error: activePurchaseError } = await supabase
-        .from("vpn_orders")
-        .select("id")
-        .eq("customer_id", customer.id)
-        .eq("reseller_id", reseller.id)
-        .eq("status", "active")
-        .eq("order_type", "purchase")
-        .maybeSingle();
+    const result = await submitPurchase({
+      actor: { role: "reseller", resellerId: reseller.id },
+      channel: "dashboard",
+      customerId: customer.id,
+      planId: plan.id,
+      protocol: protocol_preference,
+      paymentStatus: requestedPaymentStatus,
+      screenshotPath: payment_screenshot_url,
+      paymentNote: payment_note,
+      requestKey: req.get("Idempotency-Key") || undefined,
+    });
 
-      if (activePurchaseError) {
-        console.error("Active purchase check error:", activePurchaseError);
-        return res.status(500).json({ error: "Failed to check active package" });
-      }
-
-      if (existingActivePurchase) {
+    return res.status(201).json(result.order);
+  } catch (err) {
+    if (err instanceof PurchaseError) {
+      if (err.code === "ACTIVE_PACKAGE_EXISTS") {
         return res.status(409).json({
           error:
             "This customer already has an active package. Renewing or adding a top-up isn't supported yet.",
           code: "ACTIVE_PACKAGE_EXISTS",
         });
       }
+
+      return res.status(err.status || 400).json({ error: err.message, code: err.code });
     }
 
-    const priceMmk = Number(plan.price_mmk || 0);
-    const commissionPercent = Number(reseller.commission_percent ?? 20);
-    const initialPaymentReviewStatus =
-      payment_status === "paid" ? review_status : "pending_review";
-    const initialPaymentAmounts = calculatePaymentAmounts({
-      amountMmk:
-        order_type === "purchase" && payment_status === "paid" && review_status === "confirmed"
-          ? priceMmk
-          : 0,
-      commissionPercent,
-    });
-
-    const { data: order, error: orderError } = await supabase
-      .from("vpn_orders")
-      .insert({
-        reseller_id: reseller.id,
-        customer_id: customer.id,
-        plan_id: plan.id,
-        status: "pending",
-        payment_status,
-        payment_note: payment_note ?? "",
-        payment_screenshot_url,
-        source,
-        order_type,
-        review_status,
-        price_mmk: priceMmk,
-        total_paid_mmk: initialPaymentAmounts.amount_mmk,
-        commission_percent: commissionPercent,
-        commission_amount_mmk: initialPaymentAmounts.commission_amount_mmk,
-      })
-      .select(`
-        *,
-        customer:vpn_customers!vpn_orders_customer_id_fkey (
-          id,
-          full_name,
-          telegram_username,
-          phone,
-          customer_type,
-          ssconf_token
-        ),
-        plan:vpn_plans (
-          id,
-          name,
-          price_mmk,
-          duration_days,
-          data_limit_gb,
-          max_devices,
-          allowed_regions,
-          is_trial
-        )
-      `)
-      .single();
-
-    if (orderError || !order) {
-      console.error("Create order error:", orderError);
-      return res.status(500).json({ error: "Failed to create order" });
-    }
-
-    let responseOrder = order;
-
-    if (order_type === "purchase" && payment_status === "paid") {
-      await createOrderPayment({
-        order,
-        amountMmk: priceMmk,
-        reviewStatus: initialPaymentReviewStatus,
-        source,
-        paymentNote: payment_note,
-        paymentScreenshotUrl: payment_screenshot_url,
-      });
-
-      if (initialPaymentReviewStatus === "confirmed") {
-        const synced = await syncOrderPaymentSummary(order.id);
-        responseOrder = {
-          ...order,
-          ...synced.order,
-          customer: order.customer,
-          plan: order.plan,
-        };
-      }
-    }
-
-    return res.status(201).json(responseOrder);
-  } catch (err) {
     console.error("POST /api/reseller/orders crash:", err);
     return res.status(err.status || 500).json({ error:err.status ? err.message : "Internal server error",code:err.code });
   }

@@ -1,6 +1,6 @@
 import {getPackagePaymentLabel} from '../../lib/paymentStatus';
 import {useLanguage} from '../../i18n/language';
-import {quotaDisplay,formatBusinessDate} from '../../lib/businessDisplay';
+import {quotaDisplay,formatBusinessDate,expiryCutoffAt,formatExpiryDeadline} from '../../lib/businessDisplay';
 export function PackageSummary({subscription,mode='current'}) {
  const {t}=useLanguage();const summary=subscription?.business_summary;
  const q=quotaDisplay(summary?.quota ?? subscription?.quota);const fresh=summary?.usage_freshness;
@@ -12,7 +12,7 @@ export function PackageSummary({subscription,mode='current'}) {
  <p className="text-[15px] font-semibold">{subscription.plan_name || t('common.premiumPlan')}</p>
  {mode!=='queued'&&<><p className="text-xs">{q.kind==='unknown'?t('business.unavailable'):q.used+' / '+(q.kind==='unlimited'?t('business.unlimited'):q.total)}</p>
  {q.percent!=null&&<p className="text-xs">{Math.round(q.percent)}% · {t('business.remaining')}: {q.remaining}</p>}
- {subscription.expiry_date&&<p className="text-xs text-muted-foreground">{t('access.validUntil',{date:formatBusinessDate(subscription.expiry_date,{dateOnly:true})})}</p>}
+ {expiryCutoffAt(subscription)&&<p className="text-xs text-muted-foreground">{t('access.expiryDeadline',{date:formatExpiryDeadline(subscription,{timeZoneLabel:t('access.myanmarTime')})})}</p>}
  {mode==='current'&&<p className="text-[10px] text-muted-foreground">{fresh?.last_synced_at?t('business.synced')+': '+formatBusinessDate(fresh.last_synced_at)+(fresh.state==='stale'?' · '+t('business.stale'):''):t('business.syncUnknown')}</p>}</>}
  {mode==='queued'&&review==='confirmed'&&<p className="text-xs text-muted-foreground">{t('business.confirmedQueue')}</p>}
  </section>;

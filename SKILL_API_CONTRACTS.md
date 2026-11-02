@@ -1,12 +1,311 @@
 # SKILL_API_CONTRACTS.md
 
+## Telegram-only Release Candidate (2026-11-02)
+
+This isolated candidate excludes Messenger and Announcements. Checkout customer
+channels are `bot` and `miniapp`; reseller staff uses `dashboard`. Trial creation
+accepts `bot`/`miniapp` only. Deferred channels fail before storage. Customer
+notification delivery/recovery uses Telegram only while preserving payment IDs,
+tenant scope, immediate review replies, durable retries and cutoff metadata.
+Dashboard customer types/filters/counts expose `normal` and `telegram` only;
+customer counts no longer contain the development-only `messenger` field.
+No Messenger webhook/worker or Announcements route/navigation is present.
+
+This is candidate source behavior, not deployed production behavior. Required
+shared purchase/trial/delivery SQL is pinned in the reviewed core release package. Historical
+mixed SQL exists only as byte-preserved test fixtures excluded by backend deploy;
+it is not part of the production migration manifest.
+
+### Protected existing LightNode access (0063, candidate only)
+
+The backend-only adoption CLI accepts LightNode `mode: access` with the same fresh
+preview/hash/atomic-apply contract. Token-fingerprint/anchor attestation, running
+non-pending instance state, exact provider/panel/DB binding and reinspection remain
+required. Provider zone contributes to the approval hash. It emits only a protected
+server receipt, no provider/node/customer destruction authority. LightNode
+`mode: lifecycle` is denied by both service and SQL. Existing dual nodes use their
+exact DB SS mapping when a DEV service shares the inbound; foreign services are
+neither changed nor claimed. Lifecycle shared-service denial remains. No new HTTP API.
+Inherited host ports resolve from the current inbound config without modifying
+the host; effective ports and raw config contribute to fresh preview checks.
+Production runtime accepts protected nodes only with matching production adoption
+receipts and global-service registration. DEV receipts remain invalid there.
+
+## LightNode Server Operations (DEV Source, 0062)
+
+Existing admin server-operation routes and authenticated runner forwarding accept
+provider `lightnode` alongside `digitalocean` and `vultr`. No new customer or
+reseller mutation API. Catalogues remain normalized region/plan snapshots.
+LightNode monetary values are null, never a fabricated free price. All provider
+regions are exposed; compatible packages and a root Ubuntu image are selected
+automatically in one deterministic zone per region. Technical incompatibility
+has explicit reason codes. Old region/plan/budget/price policies are ignored.
+
+LightNode catalogue `plan.price.billing` and public quote `price.trafficTerms.billing`
+carry `{kind:'provider_pricing',source:'https://doc.lightnode.com/Instance/Billingdescription.html'}`.
+Catalogue price is `{monthly:null,hourly:null,currency:'USD',billing}`; quote price
+retains `recurringAmount:null,currency:'USD'`. The UI displays provider pricing
+and requires the existing `confirm_cost` confirmation as Approve provider billing.
+Historical `operator_verified_hourly` evidence remains renderable for history.
+Traffic allowances use actual GB values or null if absent; never infer unlimited.
+Plans expose optional `bandwidth_mbps`; quote traffic terms expose optional
+`billing_mode` (`PayByTraffic` or `PayByBandwidth`) and `bandwidth_mbps`.
+The private provider quote retains its full region/zone/image/specification proof
+for revalidation and hashing. Public responses never include account-token
+fingerprints, anchors, passwords, host private keys, operator config or task
+checkpoint secrets. DO/Vultr DTO behavior remains compatible.
+
+Provider readiness is independent per provider. LightNode token/anchor changes
+fail account verification while history stays readable. Async allocation waits
+use existing worker progress and Resume; uncertain submission cannot authorize
+a second POST. Safe failures distinguish provider create/delete/checkpoint,
+SSH-hardening and attachment-inventory failures without raw vendor messages.
+Protected shared DEV access mirrors do not gain destructive lifecycle authority.
+
+Completion may include the allowlisted optional
+`billing_assurance:{scope:'instance-package',external_attachments_verified:false}`.
+The dashboard explains that detached resources and other account charges were
+not checked. This preserves bounded billing evidence without inventing charges.
+Cancelled fresh candidates may retain API-only ownership receipts without an SSH
+pin; that authority is restricted to fenced pre-publication cleanup, never normal
+node configuration or publication.
+
+## Telegram Bot Links (DEV Source, Migration 0058)
+
+Reseller `/api/reseller/bot-content` routes require trusted origin, session auth,
+active reseller and Mini App workspace. Tenant identity comes from
+`req.reseller.id`, never the URL/body. The endpoint path is retained for compatibility.
+
+Only two optional guide URL keys are editable and loaded into runtime snapshots:
+`guides.shadowsocks.url`, `guides.vless.url`. Download-post URL keys are rejected
+and ignored if historically stored; app downloads remain code-owned.
+All message, label, command and individual app keys return 400
+`BOT_CONTENT_UNKNOWN_KEY` on save/reset/preview. Historical rows remain stored
+but are ignored. Approved wording is code-owned; Notifications APIs are unchanged.
+
+- GET `/`: `{items: BotContentItem[]}` with two entries.
+- PATCH `/:key`: exact `{text: string}`; returns `{item, command_sync}`.
+- DELETE `/:key`: clears that URL override; returns `{item, command_sync}`.
+- POST `/:key/preview`: compatibility validator, exact `{text: string}`;
+  returns `{text, kind}` without writes, network fetches or message sending.
+
+`BotContentItem` retains `{key,label,group,kind,default_text,text,is_custom,
+placeholders,max_length,updated_at}`. Both have kind `url` and blank defaults.
+URLs require public HTTPS without credentials; blank is accepted for built-in
+fallbacks. `command_sync.status` is `not_applicable` for these URL mutations.
+Validation returns 400 `BOT_CONTENT_INVALID`; unavailable storage returns safe
+503 `BOT_CONTENT_STORAGE_UNAVAILABLE`.
+
+Device menus always offer built-in app download links, including Outline. Guides always offer both protocol choices;
+a filled guide URL opens its post, otherwise the code-owned in-chat guide appears.
+No account/protocol query is required for these menus. Legacy callbacks remain
+usable. Per-update, per-reseller snapshots apply saves/clears on the next
+interaction; existing messages are not rewritten. Runtime storage outages use
+code defaults. Migration 0058 is reused with no new schema migration.
+Dashboard `/app/bot-links` is canonical; `/app/bot-content` redirects.
+
+## Fixed-IP DEV Infrastructure Runner
+
+`SERVER_OPERATIONS_EXECUTION_MODE=remote` routes the existing active-admin server
+operation endpoints through a host-key-pinned SSH connection to a loopback-only
+DEV runner. Local public-access and lifecycle-coordination flags must both remain
+true, so customer mutations participate in the runner's existing database locks.
+Remote mode never constructs local provider/SSH adapters or starts a local worker;
+connection/configuration failures never fall back to local execution.
+
+Existing request/response DTOs, quote confirmations and Idempotency-Key are
+unchanged. Backend-only configuration is loaded from SERVER_RUNNER_CONFIG_PATH;
+runner credentials and browser cookies are not exchanged. Private requests carry
+the dedicated runner token and exact scope hash. Only the existing operation,
+catalogue, quote, submit and resume/cancel surface is forwarded. Responses use
+bounded JSON and safe error codes, including RUNNER_UNAVAILABLE,
+RUNNER_CONNECTION_FAILED, RUNNER_HOST_KEY_MISMATCH, RUNNER_REQUEST_UNCERTAIN,
+RUNNER_RESPONSE_INVALID and RUNNER_SCOPE_MISMATCH. A lost mutation response is
+not automatically replayed; existing dashboard idempotency recovery is retained.
+
+The standalone runner pins DEV database/pool/panel scope and binds only
+127.0.0.1:4317. It does not expose the main backend's customer/bot endpoints.
+No SQL schema changes are introduced by the runner transport.
+
+## Panel ID Reuse Recovery (0057, Local Source)
+
+Operation responses may expose `OWNERSHIP_REGISTRATION_CONFLICT` as a safe
+`error_code`, rather than hiding this known condition behind
+`OPERATION_STEP_UNCERTAIN`. Raw SQL, provider responses and credentials remain
+private. No request payload changes.
+
+Panel deletion persists an encrypted subtree manifest before mutations, checks
+exact incarnation receipts, confirms remote absence and archives each receipt.
+Temporary VLESS service cleanup uses the same exact-receipt check before any
+write. Lost DELETE responses are reconciled by GET; archive failure is retryable.
+Global VLESS and existing shared services are never archived by these paths.
+The database migration 0057 is required; offline tests do not prove live
+provisioning acceptance, which remains owner-run.
+
+## Add Server Recovery Fixes (2026-10-28, Local Only)
+
+No HTTP payload or database schema changes. Provider firewall readiness now
+requires public IPv4 ingress on TCP 443 and, for dual protocol, TCP/UDP 8388;
+management TCP 22/62050 remains limited to configured management sources.
+Candidate-local tunnel success is not evidence of external customer ingress.
+
+Cancelling an unpublished Add/Replace can reconcile an existing durable provider
+intent without issuing another create request. Pending resources wait for a stable
+identity before ownership registration/deletion. Missing ambiguous purchases remain
+blocked, and cancellation completes only after absence and billing reconciliation.
+This grants no authority over an existing shared node or another operation's VPS.
+
+Dashboard recovery preserves uncertain request identity across authorization loss,
+reloads the catalogue after definitive quote rejection, and ignores stale control
+responses superseded by newer status reads. Owner-run DEV acceptance remains
+required; these source fixes do not constitute production deployment.
+
+## Selection Maintenance (2026-10-28)
+
+With lifecycle coordination enabled, server responses derive optional boolean
+`under_maintenance` from same-environment/pool operation locks. A source of an
+accepted replace/move_retire operation is unavailable immediately, including while
+queued, paused or blocked. Destination/candidate locks are not maintenance labels.
+This is not a persisted status or an instruction to disable the panel listener.
+Admin list/detail and Mini App server rows expose the flag; reseller switch results
+also expose it on the current server. Assignment and bot switch choices exclude
+the source. Mini App keeps it visible but disables selection, returning access reason
+`SERVER_UNDER_MAINTENANCE`; stale reseller switch targets return 409 with that code.
+Existing database mutation guards protect requests racing operation acceptance.
+Maintenance lookup failures fail closed. Reconciled terminal lock release removes
+the label; persisted inactive/decommissioned flags still control availability.
+No new database migration is required. Cached Happ lists are unchanged until the
+normal verified endpoint cutover, so this does not prevent direct cached-IP use.
+
+## Myanmar Expiry Deadline (2026-10-28)
+
+Business summaries add nullable `expiry_cutoff_at` (UTC ISO timestamp) and
+`expiry_timezone: "Asia/Yangon"`. An `expiry_date` of 2026-10-28 maps to
+`2026-10-28T21:30:00.000Z`, meaning 29 October at 04:00 Myanmar. Stored date labels,
+money/reporting dates and quota semantics do not change. Access eligibility and
+server switching continue through the grace period; time-based expiration and
+queued activation must wait until this cutoff. Existing `expires_at` timestamps
+are not reinterpreted as raw date labels. New activation tokens use the canonical
+deadline. Migration 0055 is required for expiration-safe infrastructure moves;
+0056 aligns trial recovery predicates. Production rollout and existing panel
+deadline reconciliation require separate owner approval.
+
+
+## VLESS-Only Retirement (2026-10-27)
+
+`POST /api/admin/server-operations/quotes` accepts
+`{kind:"move_retire", source_server_id, retire_only:true}` only for a lifecycle-owned
+VLESS-only source. Omit `destination_server_id` and all provisioning selectors.
+The backend chooses an owned or explicitly adopted compatible active/healthy node
+in the same environment/pool, with capacity for the source anchors: eligible
+default first, otherwise least utilized, then stable ID. No fallback returns
+409 `RETIREMENT_FALLBACK_UNAVAILABLE`; no provider pricing is requested.
+
+The quote and operation response include optional `retire_only:true` and the
+server-resolved `destination_server_id`. The destination is fixed in the stored
+quote, revalidated before enqueue and again by the existing fenced worker.
+Deletion consent remains mandatory. Dual nodes keep explicit destination choice.
+The persisted operation kind remains `move_retire`; no new SQL migration is needed.
+The marker is preserved in private quote choice/operation payload for recovery.
+
+
+## Infrastructure Bootstrap Readiness (2026-10-27)
+
+Fresh-candidate SSH unavailability and running/not-started cloud-init are bounded
+waiting states, not failed mutation attempts. Configuration polls structured
+cloud-init status across leased worker steps, waiting at most 20 minutes.
+`NODE_BOOTSTRAP_FAILED` identifies an invalid/failed bootstrap report;
+`NODE_BOOTSTRAP_TIMEOUT` identifies readiness that exceeded that window. Actual
+cloud-init stage errors still block setup; recoverable provider warnings do not
+skip subsequent package, image, syntax, firewall, TLS or tunnel verification.
+No endpoint or database shape changes.
+
+## Server Display Metadata (2026-10-27)
+
+Admin server responses additionally expose `display_city`, `display_country`,
+`flag_emoji`, `panel_node_id` and `provider_resource_id`. The last two are technical
+admin details only. Customer `name` preserves the public ordinal (`Singapore #4`)
+instead of replacing it with city-only metadata; Mini App server objects also
+include nullable `server_number`. Existing IDs and field shapes remain compatible.
+Telegram/Messenger/server switching use the same backend formatter. Vultr region
+aliases resolve real locations; newly provisioned nodes persist provider metadata.
+
+Before deploying updated infrastructure registration, apply migration 0053. Its
+fenced naming RPC allocates a stable public name before readable panel labels are
+finalized; temporary creation nonces cease to be identity checks after ID binding.
+No customer credentials or subscription URLs change. Cosmetic shared-host updates
+require explicit operator authorization, independently of DEV database access.
+
+## Infrastructure Service Topology (2026-10-27)
+
+No HTTP request/response shape changes. Public-pool node publication keeps only
+the existing global VLESS service plus per-node SS services. Private candidate
+VLESS services are temporary verification resources and are removed after global
+membership readback, before database readiness. Cleanup failure blocks publication
+with `SERVICE_MEMBERSHIP_CHANGED`; stale candidate checkpoints can re-probe through
+the verified global service. Replacement/retirement support global-only VLESS
+nodes without requiring a dedicated VLESS service. No new SQL migration is needed.
+
 ## Scope and source
+
+## Local Server Operations (Owner-Enabled)
+
+The admin dashboard consumes these routes with aborted/bounded polling,
+same-idempotency-key uncertain retries, quote review and explicit cost/deletion
+approval. Missing runtime returns disabled metadata; buttons cannot execute real
+VPS work. Connected adapters and worker composition are implemented, with startup
+identity/ownership checks. SQL 0040-0049 and real VPS acceptance are owner-run,
+using the existing development Supabase. See
+`docs/testing/server-access-lifecycle-local.md` for setup. Only backend-approved
+`allowed_actions` are offered for recovery.
+
+Not deployed or enabled. These routes use the existing trusted-origin, admin
+session and active-admin guards. Missing validated runtime returns disabled status
+without querying unapplied operation tables. An environment flag alone does not
+create a runtime or permit real execution.
+
+- `GET /api/admin/server-operations`: `{ enabled, reason, public_access_enabled,
+  options, operations }`. Options expose only provider/region/plan IDs and labels.
+- `POST /api/admin/server-operations/quotes`: strict body `{ kind,
+  source_server_id?, destination_server_id?, provider?, region?, plan_id?,
+  supported_protocols? }`. Kinds: `add`, `replace`, `move_retire`. Add/Replace use
+  provider/region/plan and exactly `["vless"]` or `["shadowsocks","vless"]`.
+  Move-Retire uses only existing source/destination references. Quote response:
+  `{ quote: { id, kind, source_server_id, destination_server_id,
+  supported_protocols, price, temporary_billing_overlap, expiresAt } }`.
+  Price contains provider, region, planId, currency, recurringAmount and explicit
+  trafficTerms; unknown overage price remains null, never assumed zero.
+- `POST /api/admin/server-operations`: `Idempotency-Key` required. Strict body
+  `{ quote_id, confirm_cost?, confirm_temporary_billing?, confirm_delete_source? }`.
+  Add requires cost confirmation; Replace additionally requires temporary overlap
+  and source deletion confirmation; Move-Retire requires source deletion.
+  Returns HTTP 202 `{ operation }`, including on identical replay. Quote IDs are
+  single-use, source identities and prices are refreshed, and stored confirmations
+  bind to the exact deletion scope. No HTTP handler executes provisioning loops.
+- `GET /api/admin/server-operations/:operationId`: `{ operation }`.
+- `POST /api/admin/server-operations/:operationId/resume` or `/cancel`: returns
+  `{ operation }`. Resume preserves checkpoints and invalidates stale fences;
+  cancel is a request handled by the worker, not immediate cloud destruction.
+
+Safe operation DTO: `id`, `kind`, `status`, `phase`, source/destination IDs,
+`counts: { total, verified }`, price summary, timestamps, allowlisted `error_code`,
+structured `ongoing_charges`, and `allowed_actions`. Never expose raw checkpoints,
+provider errors, panel credentials, subscription URLs or private keys.
+
+Errors: 400 invalid input/confirmation/currency/protocol; 403 protected or foreign
+scope; 404 unknown operation; 409 idempotency conflict, changed/expired/used quote,
+migration conflict or invalid control transition; 503 unavailable/disabled runtime.
+Legacy `/api/admin/servers/provision` and decommission routes remain 410.
+Public policy disables legacy tier PATCH with 409 `PUBLIC_ACCESS_POLICY_ENABLED`.
+Server DTOs add capabilities, environment, pool, publication and protection state.
+
+## Baseline Scope
 
 Reviewed 2026-10-15. This file owns detailed API contracts. `API_REFERENCE.md`
 is the route index. The Production sections describe the existing baseline;
 the following development section describes uncommitted local changes and is
-not a production availability claim. Business-display summaries and dashboard setup recovery below were deployed
-on 2026-10-16; the separate development channel additions remain excluded.
+not a production availability claim. Business-display summaries in the October
+14 spec/plan are proposed API additions, not implemented response fields.
 
 ## Development only: Messenger, shared purchases and channel delivery
 
@@ -168,6 +467,17 @@ Returns active purchasable plans.
 
 ### `GET /api/miniapp/:slug/servers`
 
+Public-access rollout (local implementation, disabled by default): when
+`PUBLIC_SERVER_ACCESS_ENABLED=true`, the backend resolves its environment,
+database identity, panel identity and public pool from server configuration.
+Only nodes bound to that environment/pool and supporting the live key protocol
+are listed. Rows additionally include `access_pool: "public"` and
+`supported_protocols: ["vless"]` or `["shadowsocks", "vless"]`. Trial and paid
+orders use the same policy; `required_server_tier` is null. Ownership, readiness,
+health and assignment capacity determine access. Existing VLESS endpoints use
+display eligibility, not anchor-assignment capacity. No panel credentials or
+ownership proofs are returned. The legacy contract below remains flag-off behavior.
+
 Returns all active servers. Use `telegram_user_id` and Telegram init data when
 requesting customer-specific access state. Servers are not hidden by package
 tier; each row includes access flags so the client can display every available
@@ -203,6 +513,17 @@ Access reasons: `NO_ACTIVE_PACKAGE` (no active order at all), or, for a trial
 order only, `TRIAL_CANNOT_USE_PREMIUM`/`REGION_NOT_ALLOWED`.
 `PREMIUM_CANNOT_USE_TRIAL` no longer exists — paid orders are never blocked.
 A missing `access_reason` means the authenticated customer can connect.
+
+In public mode, access reasons can also include `RESOURCE_SCOPE_MISMATCH`,
+`PROTOCOL_UNSUPPORTED`, `SERVER_UNAVAILABLE`, `SERVER_CAPACITY_INVALID` and
+`SERVER_FULL`. Server-selection commands revalidate the destination rather than
+trusting a previous list or inline button.
+
+Enriched customer order responses add optional `can_switch_server` only in
+public mode. It is a UI hint for active, unexpired SS access with quota remaining,
+including trials. It is not authorization. Reseller eligible-server/switch routes
+continue scoping both orders and keys by `reseller_id`, reject single-node VLESS
+switching, and revalidate ownership, capabilities, health and capacity on POST.
 
 ### `POST /api/miniapp/:slug/events`
 
@@ -743,6 +1064,23 @@ Before deleting database rows, the backend stops selected order access through
 the normal order lifecycle so active panel keys and token assignments are
 removed first.
 
+Development migration `0050_atomic_test_customer_cleanup.sql` is required before
+using the updated delete route. A read-only `cleanup_test_customers` preflight
+checks migration availability and in-flight work before access revocation. The
+final call rechecks the selected tenant/customers, paid-data acknowledgement,
+expected order IDs and inactive keys, then deletes database dependencies in one
+transaction. A failure rolls back database deletion; external provider calls
+already performed cannot be rolled back by PostgreSQL.
+
+The `deleted` object retains its existing counters and additionally reports
+`customer_trial_claims`, `purchase_operations`, `dashboard_purchase_operations`,
+`messenger_links`, `messenger_events`, `notification_deliveries`,
+`notifications_sent` and `token_server_assignments`. Explicit test-customer
+deletion resets selected trial history; ordinary trial/order handling still
+preserves consumed history. A missing RPC returns 503 with migration guidance;
+busy work, changed selection or unrevoked access returns 409. No request fields
+or endpoint paths change. Only the admin route can invoke this service-role RPC.
+
 ### Admin Order Actions
 
 `POST /api/admin/order-actions/:orderId/confirm-payment` confirms pending
@@ -933,7 +1271,7 @@ Responses:
 - `403`: invalid webhook secret
 - `404`: reseller bot not running
 
-## Business display summaries (production release 2026-10-16)
+## Business display summaries (implementation branch; pending production release)
 
 Staff order GET payloads add business_summary (access_status, payment_review_status,
 application_status, pending_review_count, has_active_key, is_expiring_soon, quota,
@@ -955,7 +1293,7 @@ Usage freshness is fresh within two hours of the oldest relevant successful serv
 sync, stale beyond it, unknown with missing evidence. Missing monitoring metadata
 does not fabricate a successful sync. Package dates use Asia/Bangkok.
 
-### Dashboard start/queue and setup recovery (production; migrations 0037–0039)
+### Dashboard start/queue and setup recovery (implementation branch; migration 0037 required)
 
 POST /api/reseller/orders accepts a UUID idempotency_key for non-trial dashboard
 purchases. The key must stay the same across retries of one normalized payload;
@@ -996,3 +1334,74 @@ labelled catalogue/unavailable rather than reconstructed as a historical fact.
 Telegram queue promotion also provisions from a single confirmed/applied matching
 payment snapshot where available, preserving recorded duration/quota after catalogue
 edits. Missing/ambiguous historical snapshots retain catalogue fallback.
+
+### Server Infrastructure Catalogue And Readiness
+
+`GET /api/admin/server-operations` adds `provider_readiness` entries with `id`,
+`ready`, safe `reason` and supported `profiles` (`dual`, `vless_only`). `enabled`
+means at least one provider can provision; history remains readable with none.
+`recovery_enabled` separately permits existing-resource recovery and non-purchase
+Move-and-Retire admission when bootstrap purchase prerequisites are unavailable.
+Legacy `options` remains additive-compatible but live runtimes use empty regions.
+
+`GET /api/admin/server-operations/catalog?provider=digitalocean|vultr` returns
+`provider`, `regions: [{id,label,available}]`, `observed_at`, `stale`. Add `region`
+for `plans` containing `id`, `label`, `cpu`, `memory_mb`, `disk_gb`,
+`transfer: {included,unit}`, `price: {monthly,hourly,currency}`, `available`,
+`compatible`, `reason`, `architecture` and `family`. Optional `refresh=true`
+bypasses TTL caching. These read-only admin routes never buy infrastructure.
+
+Stale cache may support display only, never admission. Quotes/creation revalidate
+provider/profile readiness, current catalogue selection, operator policy, image,
+SSH keys and firewall configuration. Plan IDs may contain decimal dots. Readiness
+errors return safe codes, not raw provider responses or credentials. Frontends
+must retain the same idempotency key across uncertain submission retries.
+Credentialed dashboard CORS preflight explicitly allows `Idempotency-Key`; without
+it the browser blocks operation submission before the API receives the POST.
+`NODE_MANAGEMENT_TLS_UNVERIFIED` is a safe configuration-phase diagnostic. TLS
+verification checks required client certificates, trusted server identity and
+unauthenticated rejection; it does not rely on OpenSSL error-message text.
+`NODE_FIREWALL_POLICY_UNVERIFIED` identifies a rejected host firewall policy during
+configuration. Owned-node installation restricts management access before removing
+the known inherited broad `ufw allow 22/tcp` rule; it never resets all firewall rules.
+# Move and Retire Review
+
+For `kind: move_retire`, the existing `/api/admin/server-operations/quotes`
+endpoint is an expiring migration-approval snapshot, not a provider price quote.
+It accepts only source/destination IDs and returns `price: null`. The dashboard
+labels this action **Review Migration**, omits purchase-cost/overlap controls,
+and still requires explicit approval to delete the source after verification.
+
+An explicitly adopted, protected shared DEV access server may be a destination,
+never a source eligible for deletion. This grants no ownership of the provider,
+node, inbounds or hosts. Move-and-retire checks the existing node's health and
+scoped service/inbound/host bindings through GET requests, followed by permanent
+link verification after migration. It creates no temporary VPN users, opens no
+SSH connection and requires no separate runner. Add Server and provision-new
+replacement retain their tunnel-verification requirements.
+`SHARED_DESTINATION_UNVERIFIED` reports failed shared endpoint checks. Review
+errors also expose destination readiness, capacity and scope codes.
+
+Legacy host overrides may be null; verification resolves inherited inbound
+ports/Reality settings without rewriting hosts. Permanent SS link checks use
+the verified destination port (for example legacy port 1080), not a new-node
+8388 assumption. Existing scoped RPCs, locks and database-owned counters remain
+unchanged; no schema migration is needed for this change.
+
+### Assignment Repair Follow-Up
+
+The returning-to-a-previous-server case additionally requires migration
+`0054_assignment_repair_conflicts.sql`. It updates the existing fenced SQL RPC,
+not its request/response shape. A historical token/server row must be reused
+rather than collided with by a blind server-ID update. Reuse is tenant-scoped,
+rejects any other non-deleted key, and deactivates the source assignment in the
+same transaction. Both source and destination server locks remain mandatory.
+The worker exposes the sanitized `ASSIGNMENT_STATE_CHANGED` code for unsafe
+conflicts instead of hiding them under `OPERATION_STEP_UNCERTAIN`. Apply in DEV
+before resuming the existing operation; this does not authorize production SQL.
+
+Blocked retirement responses may additionally contain allowlisted
+`retirement_check` and `retirement_cause` fields. These identify the failing gate
+without exposing arbitrary adapter errors, credentials or checkpoints. They are
+removed after successful phase advancement. The admin progress view displays
+them below `RETIREMENT_BLOCKED`; no guard is bypassed by these diagnostics.

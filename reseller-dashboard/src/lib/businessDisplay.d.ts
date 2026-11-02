@@ -3,6 +3,9 @@ export function formatUsageBytes(bytes:number|null|undefined,locale?:string):str
 export function formatBusinessDate(value?:string|null,options?:{locale?:string,dateOnly?:boolean}):string;
 export function businessMonth(now?:Date):string;
 export function businessDay(now?:Date):string;
-export function daysLeft(value?:string|null,now?:Date):number|null;
+export type ExpiryValue = string | {expiry_date?:string|null;business_summary?:{expiry_cutoff_at?:string|null;expiry_timezone?:'Asia/Yangon'}} | null;
+export function expiryCutoffAt(value?:ExpiryValue):string|null;
+export function formatExpiryDeadline(value?:ExpiryValue,options?:{locale?:string;timeZoneLabel?:string}):string;
+export function daysLeft(value?:ExpiryValue,now?:Date):number|null;
 export function quotaDisplay(quota?:OrderQuota|null):{kind:'finite'|'unlimited'|'unknown',used:string,total:string,remaining:string,percent:number|null};
 export function statusLabels(summary?:Partial<BusinessSummary>|null):{access:string,review:string,application:string};

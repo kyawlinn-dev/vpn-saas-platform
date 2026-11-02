@@ -2,7 +2,7 @@ import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { resolveShadowsocksConfig } from "../../services/shadowsocksConfigService.js";
 import { getOrderQuotaSnapshot } from "../../services/subscriptionProvisionService.js";
-import { businessDateOnly } from "../../utils/businessTime.js";
+import { accessDateOnly } from "../../utils/businessTime.js";
 
 const router = express.Router();
 
@@ -44,7 +44,7 @@ router.get("/:token", async (req, res) => {
     if (!miniapp?.is_enabled) return res.status(403).json({ error: "Service disabled" });
 
     // 3. Find best active order (purchase wins over trial)
-    const today = businessDateOnly();
+    const today = accessDateOnly();
 
     const { data: orders, error: ordersError } = await supabase
       .from("vpn_orders")

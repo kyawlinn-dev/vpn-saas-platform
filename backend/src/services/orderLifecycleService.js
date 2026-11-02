@@ -1,5 +1,6 @@
 import {prepareDashboardPurchase,ensureDashboardPurchaseOperation,runDashboardPurchaseSetup} from "./dashboardPurchaseService.js";
 import crypto from "node:crypto";
+import { withCustomerInfrastructureMutation } from "./infrastructure/customerMutationGuard.js";
 import { supabase } from "../lib/supabase.js";
 import { getActiveServers, ServerAvailabilityError } from "./serverService.js";
 import {
@@ -29,8 +30,10 @@ import {
   buildSsconfHttpUrl,
   buildAccessUrlForProtocol,
 } from "./publicAccessUrlService.js";
-import { businessDateOnly } from "../utils/businessTime.js";
+import { accessDateOnly, orderExpiryAt } from "../utils/businessTime.js";
 import { isQueuedPurchaseConflict } from "./queuedPurchasePolicy.js";
+import { notifyPaymentReviewed } from "./customerNotificationService.js";
+import { resolveServerAccessContext } from "./serverAccessContext.js";
 
 export class OrderLifecycleError extends Error {
   constructor(message, status = 400, code = "ORDER_LIFECYCLE_ERROR") {
@@ -325,6 +328,9 @@ export async function assertNoOtherActivePurchase({ customerId, resellerId, excl
 }
 
 export async function stopOrderAccess(orderId) {
+  return withCustomerInfrastructureMutation({ orderIds: [orderId] }, () => stopOrderAccessUnchecked(orderId));
+}
+async function stopOrderAccessUnchecked(orderId) {
   const token = await getTokenByOrderId(orderId);
 
   if (token?.id) {
@@ -366,13 +372,24 @@ export async function stopActiveTrialsForCustomer({ customerId, resellerId, excl
   }
 }
 
-export async function provisionOrderAccess({ order, reseller, plan, mode = "activate" }) {
+export async function provisionOrderAccess(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.order?.id], resellerId: input.order?.reseller_id }, () => provisionOrderAccessUnchecked(input));
+}
+async function provisionOrderAccessUnchecked({ order, reseller, plan, mode = "activate", accessContext }) {
+  const context = await resolveServerAccessContext(accessContext);
   const now = new Date();
   const expiryAt = calcExpiryDate(now, plan.duration_days);
-  const regions = getPlanRegions(plan);
+  const regions = context.publicAccessEnabled ? [] : getPlanRegions(plan);
   const serverTier = getPackageServerTier({ order, plan });
+  let customerProtocol = "shadowsocks";
+  if (context.publicAccessEnabled && order.customer_id) {
+    const { data: preference, error } = await supabase.from("vpn_customers").select("protocol_preference")
+      .eq("id", order.customer_id).eq("reseller_id", order.reseller_id).maybeSingle();
+    if (error || !preference) throw new OrderLifecycleError("Customer protocol unavailable", 409, "INVALID_CUSTOMER");
+    customerProtocol = preference.protocol_preference || "shadowsocks";
+  }
 
-  if (["activate", "renew"].includes(mode)) {
+  if (!context.publicAccessEnabled && ["activate", "renew"].includes(mode)) {
     // Retry safety: if a previous activation attempt created partial access
     // before the order status changed, remove it before provisioning again.
     await stopOrderAccess(order.id);
@@ -386,6 +403,7 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
     limit: serverLimit,
     serverTier,
     resellerId: reseller.id,
+    ...(context.publicAccessEnabled ? { protocol: customerProtocol, orderType: order.order_type, accessContext: context } : {}),
   });
 
   if (!selectedServers.length) {
@@ -410,20 +428,21 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
     );
   }
 
+  if (context.publicAccessEnabled && ["activate", "renew"].includes(mode)) await stopOrderAccess(order.id);
+
   const token = await ensureOrderToken({
     customerId: order.customer_id,
     resellerId: order.reseller_id,
     orderId: order.id,
-    expiresAt: expiryAt.toISOString(),
+    expiresAt: orderExpiryAt(toDateOnly(expiryAt)),
   });
 
   if (mode === "renew") {
-    await activateToken(token.id, expiryAt.toISOString());
+    await activateToken(token.id, orderExpiryAt(toDateOnly(expiryAt)));
   }
 
   // Fetch the customer's protocol preference for service ID selection
-  let customerProtocol = "shadowsocks";
-  if (order.customer_id) {
+  if (!context.publicAccessEnabled && order.customer_id) {
     const { data: custRow } = await supabase
       .from("vpn_customers")
       .select("protocol_preference")
@@ -443,11 +462,12 @@ export async function provisionOrderAccess({ order, reseller, plan, mode = "acti
     servers: selectedServers,
     protocol: customerProtocol,
     expiryDate: toDateOnly(expiryAt),
+    accessContext: context,
   });
   const accessLinks = await buildOrderAccessLinks({ order, reseller });
 
   return {
-    expires_at: expiryAt.toISOString(),
+    expires_at: orderExpiryAt(toDateOnly(expiryAt)),
     expiry_date: toDateOnly(expiryAt),
     server_count: configs.length,
     servers: configs,
@@ -610,7 +630,7 @@ async function applyPendingPackagePayments({ order }) {
       const token = await getTokenByOrderId(workingOrder.id);
 
       if (token?.id) {
-        await activateToken(token.id, expiryAt.toISOString());
+        await activateToken(token.id, orderExpiryAt(toDateOnly(expiryAt)));
       }
 
       await updateProvisionedKeyLimitsForOrder({
@@ -640,7 +660,10 @@ async function applyPendingPackagePayments({ order }) {
   }
 }
 
-export async function activatePendingReviewPurchase({ order, reseller, plan }) {
+export async function activatePendingReviewPurchase(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.order?.id], resellerId: input.order?.reseller_id }, () => activatePendingReviewPurchaseUnchecked(input));
+}
+async function activatePendingReviewPurchaseUnchecked({ order, reseller, plan }) {
   if (!order?.id) {
     throw new OrderLifecycleError("Invalid order", 400, "INVALID_ORDER");
   }
@@ -754,7 +777,10 @@ async function createStaffFollowupPurchase({order,plan,source,idempotencyKey,pay
  return {...result,queued:result.purchase_outcome === "queued"};
  } catch(err) { if(err.status)throw new OrderLifecycleError(err.message,err.status,err.code);throw err; }
 }
-export async function activateOrder({orderId,reseller}) {
+export async function activateOrder(input) {
+ return withCustomerInfrastructureMutation({ orderIds: [input.orderId], resellerId: input.reseller?.id }, () => activateOrderUnchecked(input));
+}
+async function activateOrderUnchecked({orderId,reseller}) {
  const order=await getResellerScopedOrder(orderId,reseller.id);
  if(["dashboard","admin"].includes(order.source) && order.order_type === "purchase") return startOrQueueDashboardPurchase({orderId,resellerId:reseller.id});
  return activateOrderDirect({orderId,reseller});
@@ -860,7 +886,10 @@ async function activateOrderDirect({ orderId, reseller, planSnapshot = null }) {
 // when the current plan ends — by time OR data, whichever comes first. Nothing
 // about the current plan changes and no usage/data carries over. Only one
 // queued purchase is allowed per customer.
-export async function extendOrder({ orderId, resellerId, planId, idempotencyKey = null, source = "dashboard" }) {
+export async function extendOrder(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.orderId], resellerId: input.resellerId }, () => extendOrderUnchecked(input));
+}
+async function extendOrderUnchecked({ orderId, resellerId, planId, idempotencyKey = null, source = "dashboard" }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
 
   if (order.status !== "active") {
@@ -998,6 +1027,9 @@ export function resolvePurchasedPlanSnapshot(order, catalogue, payments) {
   return {...catalogue,duration_days:Number(recorded[0].package_duration_days),data_limit_gb:recorded[0].package_data_limit_gb,price_mmk:order.price_mmk ?? catalogue.price_mmk};
 }
 export async function activateScheduledOrder(scheduledOrder) {
+  return withCustomerInfrastructureMutation({ orderIds: [scheduledOrder.id], resellerId: scheduledOrder.reseller_id }, () => activateScheduledOrderUnchecked(scheduledOrder));
+}
+async function activateScheduledOrderUnchecked(scheduledOrder) {
   if(["dashboard","admin"].includes(scheduledOrder.source)) return startOrQueueDashboardPurchase({orderId:scheduledOrder.id,resellerId:scheduledOrder.reseller_id});
   if (scheduledOrder.review_status !== "confirmed" || scheduledOrder.payment_status !== "paid") {
     throw new OrderLifecycleError("Queued payment must be confirmed before activation", 409, "PAYMENT_UNDER_REVIEW");
@@ -1081,6 +1113,9 @@ async function activateConfirmedQueueWithoutActiveOrder(order) {
 // End a spent active order (time or data exhausted) and promote the customer's
 // next queued plan, if any.
 async function endOrderAndPromoteNext(order) {
+  return withCustomerInfrastructureMutation({ orderIds: [order.id], resellerId: order.reseller_id }, () => endOrderAndPromoteNextUnchecked(order));
+}
+async function endOrderAndPromoteNextUnchecked(order) {
   await stopOrderAccess(order.id);
   await supabase
     .from("vpn_orders")
@@ -1095,7 +1130,7 @@ async function endOrderAndPromoteNext(order) {
 // of time OR data, and promote the next queued plan for each. Returns a summary
 // of what changed. Errors on one order don't abort the sweep.
 export async function processExpiredOrdersAndQueue() {
-  const today = businessDateOnly();
+  const today = accessDateOnly();
 
   const { data: activeOrders, error } = await supabase
     .from("vpn_orders")
@@ -1170,7 +1205,10 @@ export async function processExpiredOrdersAndQueue() {
 // (its own created_at, so it sorts to the top) and leaves the old order frozen
 // in place with its final status. It does not mutate the old row. The customer
 // ends up with one active order (the newest) plus a history of expired ones.
-export async function renewOrder({ orderId, reseller, planId, idempotencyKey = null, source = "dashboard" }) {
+export async function renewOrder(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.orderId], resellerId: input.reseller?.id }, () => renewOrderUnchecked(input));
+}
+async function renewOrderUnchecked({ orderId, reseller, planId, idempotencyKey = null, source = "dashboard" }) {
   const oldOrder = await getResellerScopedOrder(orderId, reseller.id);
 
   if (!["stopped", "expired"].includes(oldOrder.status)) {
@@ -1327,7 +1365,10 @@ export async function renewOrder({ orderId, reseller, planId, idempotencyKey = n
   }
 }
 
-export async function stopOrder({ orderId, resellerId }) {
+export async function stopOrder(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.orderId], resellerId: input.resellerId }, () => stopOrderUnchecked(input));
+}
+async function stopOrderUnchecked({ orderId, resellerId }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
 
   if (order.status === "stopped") {
@@ -1388,7 +1429,10 @@ export async function cancelScheduledOrder({ orderId, resellerId }) {
   };
 }
 
-export async function confirmPayment({ orderId, resellerId, reviewerAdminId = null }) {
+export async function confirmPayment(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.orderId], resellerId: input.resellerId }, () => confirmPaymentUnchecked(input));
+}
+async function confirmPaymentUnchecked({ orderId, resellerId, reviewerAdminId = null }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
   const payments = await loadOrderPayments(order.id);
   const pendingPayments = payments.filter((row) => row.review_status === "pending_review");
@@ -1435,6 +1479,8 @@ export async function confirmPayment({ orderId, resellerId, reviewerAdminId = nu
   if(["dashboard","admin"].includes(updated.source)) return startOrQueueDashboardPurchase({orderId:updated.id,resellerId});
   await activateConfirmedQueueWithoutActiveOrder(updated);
 
+  await notifyPaymentReviewed({ resellerId: updated.reseller_id, orderId: updated.id, reviewStatus: "confirmed" });
+
   return {
     success: true,
     message: "Payment confirmed",
@@ -1444,7 +1490,10 @@ export async function confirmPayment({ orderId, resellerId, reviewerAdminId = nu
   };
 }
 
-export async function rejectPayment({ orderId, resellerId, reviewerAdminId = null }) {
+export async function rejectPayment(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.orderId], resellerId: input.resellerId }, () => rejectPaymentUnchecked(input));
+}
+async function rejectPaymentUnchecked({ orderId, resellerId, reviewerAdminId = null }) {
   const order = await getResellerScopedOrder(orderId, resellerId);
   const payments = await loadOrderPayments(order.id);
   const pendingPayments = payments.filter((row) => row.review_status === "pending_review");
@@ -1484,6 +1533,7 @@ export async function rejectPayment({ orderId, resellerId, reviewerAdminId = nul
   });
 
   if (isTopUpOnlyRejection) {
+    await notifyPaymentReviewed({ resellerId: order.reseller_id, orderId: order.id, reviewStatus: "rejected" });
     return {
       success: true,
       message: "Top-up payment rejected",
@@ -1505,6 +1555,7 @@ export async function rejectPayment({ orderId, resellerId, reviewerAdminId = nul
   // Older queued purchases can still exist when the original payment is rejected.
   // Only a confirmed, paid queue may take over access.
   await promoteNextScheduledPlan(order.customer_id, order.reseller_id);
+  await notifyPaymentReviewed({ resellerId: order.reseller_id, orderId: order.id, reviewStatus: "rejected" });
 
   return {
     success: true,

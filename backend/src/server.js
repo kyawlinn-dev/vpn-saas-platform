@@ -15,7 +15,12 @@ import { requireActiveReseller } from "./middleware/requireActiveReseller.js";
 import { requireReseller } from "./middleware/requireReseller.js";
 import { requireMiniapp } from "./middleware/requireMiniapp.js";
 import { requireTrustedOrigin } from "./middleware/requireTrustedOrigin.js";
+import { createCorsMiddleware } from './middleware/cors.js';
 import { startAutoStopJob } from "./jobs/autoStopJob.js";
+import { startServerOperationsJob } from "./jobs/serverOperationsJob.js";
+import { createLiveInfrastructureRuntime } from './services/infrastructure/liveRuntime.js';
+import { initializeServerOperations, shouldStartLocalOperationsWorker } from './services/infrastructure/serverOperationsStartup.js';
+import { createRemoteRunnerClient } from './services/infrastructure/remoteRunnerClient.js';
 import { startSyncUsageJob } from "./jobs/syncUsageJob.js";
 import { startServerHealthJob } from "./jobs/serverHealthJob.js";
 import { startCleanupScreenshotsJob } from "./jobs/cleanupScreenshotsJob.js";
@@ -28,6 +33,7 @@ import resellerSessionRouter from "./routes/auth/resellerSessionRouter.js";
 import adminSessionRouter from "./routes/admin/adminSessionRouter.js";
 import adminMeRouter from "./routes/admin/adminMeRouter.js";
 import adminServersRouter from "./routes/admin/adminServersRouter.js";
+import adminServerOperationsRouter from "./routes/admin/adminServerOperationsRouter.js";
 import adminResellersRouter from "./routes/admin/adminResellersRouter.js";
 import adminPlatformSettingsRouter from "./routes/admin/adminPlatformSettingsRouter.js";
 import adminPlansRouter from "./routes/admin/adminPlansRouter.js";
@@ -39,6 +45,7 @@ import adminMonitoringRouter from "./routes/admin/adminMonitoringRouter.js";
 import resellerMeRouter from "./routes/reseller/resellerMeRouter.js";
 import resellerWorkspaceRouter from "./routes/reseller/resellerWorkspaceRouter.js";
 import resellerNotificationTemplatesRouter from "./routes/reseller/resellerNotificationTemplatesRouter.js";
+import resellerBotContentRouter from "./routes/reseller/resellerBotContentRouter.js";
 import resellerLaunchReadinessRouter from "./routes/reseller/launchReadinessRouter.js";
 
 import resellerOrdersRouter from "./routes/reseller/resellerOrdersRouter.js";
@@ -60,6 +67,18 @@ validateEncryptionKey(); // fails loudly at boot if key is absent or wrong lengt
 const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === "production";
+app.locals.serverOperationsExecutionMode=process.env.SERVER_OPERATIONS_EXECUTION_MODE || 'local';
+try {
+  const infrastructure=await initializeServerOperations({createLocalRuntime:createLiveInfrastructureRuntime,createRemoteClient:createRemoteRunnerClient});
+  app.locals.serverOperationsRuntime=infrastructure.runtime;
+  app.locals.serverOperationsRemoteClient=infrastructure.remoteClient;
+} catch (error) {
+  app.locals.serverOperationsStartupError=['INFRASTRUCTURE_CONFIGURATION_REQUIRED','INFRASTRUCTURE_SSH_KEY_UNAVAILABLE','RESOURCE_SCOPE_MISMATCH'].includes(error.code)
+    ?error.code:'INFRASTRUCTURE_STARTUP_UNAVAILABLE';
+  // Provider/panel responses and secrets must not appear in startup diagnostics.
+  logger.warn({ code: ['INFRASTRUCTURE_CONFIGURATION_REQUIRED','INFRASTRUCTURE_SSH_KEY_UNAVAILABLE','RESOURCE_SCOPE_MISMATCH'].includes(error.code) ? error.code : 'INFRASTRUCTURE_STARTUP_UNAVAILABLE' },
+    'Server operations disabled; check development infrastructure configuration');
+}
 
 // Disable automatic ETag generation so API GET responses are never served as
 // 304 Not Modified. All API routes return fresh JSON on every request.
@@ -91,7 +110,8 @@ app.use(
     // Trim the noisy default serializers — we only want method/url/status/duration.
     serializers: {
       req(req) {
-        return { id: req.id, method: req.method, url: req.url };
+        const url = req.url?.split("?")[0];
+        return { id: req.id, method: req.method, url };
       },
       res(res) {
         return { statusCode: res.statusCode };
@@ -215,30 +235,7 @@ function createDevMiniappProxy() {
  * CORS must run before helmet, rate limiters, JSON parser, and routes so
  * preflight requests get a response before protected middleware runs.
  */
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-
-  res.setHeader("Vary", "Origin");
-
-  if (origin && isAllowedOrigin(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-  }
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Telegram-Init-Data, x-novanet-session-id, ngrok-skip-browser-warning"
-  );
-
-  if (req.method === "OPTIONS") {
-    return res.status(204).end();
-  }
-
-  return next();
-});
+app.use(createCorsMiddleware({ isAllowedOrigin }));
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -358,6 +355,15 @@ app.use(
 );
 
 app.use(
+  "/api/reseller/bot-content",
+  requireTrustedOrigin,
+  requireAuth,
+  requireActiveReseller,
+  requireMiniapp,
+  resellerBotContentRouter
+);
+
+app.use(
   "/api/reseller/launch-readiness",
   requireTrustedOrigin,
   requireAuth,
@@ -449,6 +455,8 @@ app.use(
   adminServersRouter
 );
 
+app.use("/api/admin/server-operations", requireTrustedOrigin, requireAdminAuth, requireAdmin, adminServerOperationsRouter);
+
 // /api/admin/resellers must be mounted before /api/admin so Express matches
 // the more specific path first (GET, POST, PATCH all go to adminResellersRouter).
 app.use(
@@ -536,6 +544,14 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
+  if (app.locals.serverOperationsExecutionMode==='local' && shouldStartLocalOperationsWorker(process.env)) {
+    try {
+      startServerOperationsJob({ runtime: app.locals.serverOperationsRuntime,
+        onError: () => logger.error("Server operations job unavailable") });
+    } catch {
+      logger.warn("Server operations execution disabled: validated runtime unavailable");
+    }
+  }
   logger.info({ port: PORT }, `server listening on http://localhost:${PORT}`);
   startAutoStopJob();
   startSyncUsageJob();

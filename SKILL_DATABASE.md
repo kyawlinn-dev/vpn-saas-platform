@@ -10,6 +10,21 @@ Designing or changing the Supabase schema, writing migration SQL, seeding data, 
 
 ## Required Context
 
+Public access/lifecycle additions are local proposals, not applied schema. Migration
+0040 adds nullable scope/capabilities and protected-by-default ownership; it must
+not seed production IDs or adopt existing rows. Pool configuration is backend-only.
+Access adoption is a separate explicit, hashed-manifest operation with independent
+database/panel/provider ownership checks. DEV rows borrowing live IDs are blocked,
+not relabelled. The older generic migration adapters cannot apply live changes;
+the separate existing-node CLI has explicit inspection/hash-approved atomic RPCs.
+Candidate 0063 extends protected access-only adoption to LightNode. Trial service migration
+updates authorized memberships in place and preserves trial history/counters.
+Owner clarification (2026-10-23): implementation and manual acceptance use the
+existing development Supabase; a new empty local database is not required.
+Synthetic in-memory PostgreSQL tests verify DDL/RPC behavior without shared-state
+mutation. Optional multi-connection tests remain extra evidence, not a prerequisite
+for delivering source. Do not imply that static/mock tests prove concurrency.
+
 Read before making schema decisions:
 
 - `SCHEMA.md` — authoritative production column/RPC/view snapshot and separately
@@ -174,6 +189,16 @@ Every record that belongs to a reseller carries `reseller_id`. All queries in ba
 `primary_color`, `trial_data_limit_gb`, and `trial_duration_days` are NOT NULL with DB defaults. Passing explicit `null` overrides the default and causes a NOT NULL violation. Always supply values — never `null`.
 
 ## Migration Conventions
+
+Public access/lifecycle migrations 0040-0049 are source in the isolated feature
+branch, not observed production schema. The owner applies them to the existing
+development Supabase for manual acceptance after reviewing the synthetic SQL
+checks and configuration guide. Optional disposable-local concurrency harnesses
+remain available. Mocked Vitest tests do not prove PostgreSQL concurrency; neither
+do single-connection WASM tests. Execution still requires explicit DEV ownership,
+runtime bindings and owner-started canary configuration. Stable key moves use
+fenced RPCs and the original database-owned counter trigger; never update counters
+from application code or recreate customers to migrate access.
 
 - Files go in `backend/supabase/migrations/`.
 - Name format: `NNNN_description.sql` (e.g. `0002_add_monthly_settlements.sql`).

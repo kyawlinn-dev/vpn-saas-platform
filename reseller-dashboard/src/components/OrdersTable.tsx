@@ -29,7 +29,7 @@ import { FlagIcon } from "@/lib/flag";
 import { api } from "../lib/api";
 import { usePaginatedTable } from "../hooks/usePaginatedTable";
 import {
-  formatDate, formatDaysLeft, formatMMK, formatUsageGb, isExpiringSoon,
+  formatDate, formatExpiryDeadline, formatDaysLeft, formatMMK, formatUsageGb, isExpiringSoon,
 } from "../lib/format";
 import type { Order, Plan, VpnKey } from "../types/api";
 
@@ -151,7 +151,8 @@ function ProtocolBadge({ protocol, className }: { protocol?: string | null; clas
 
 function isTelegramManagedOrder(order: Order) {
   const source = String(order.source || "").toLowerCase();
-  return source === "miniapp" || source === "bot";
+  return ["miniapp", "bot"].includes(source) ||
+    order.customer?.customer_type === "telegram";
 }
 
 function getPreferredAccessUrl(key?: VpnKey | null) {
@@ -534,10 +535,6 @@ export function OrdersTable({
       await refreshAll();
 
       const data = res?.data;
-      if (data?.purchase_outcome === "setup_failed" || data?.purchase_outcome === "setup_in_progress") {
-        setMessage(data.message || "Payment recorded. Check setup on the new order; do not pay again.");
-        return;
-      }
       const accessUrl: string = getPreferredAccessUrlFromPayload(data);
       const customerName = order.customer?.full_name || "Customer";
 
@@ -802,18 +799,15 @@ export function OrdersTable({
       }
     }
 
-    // Server switching is a reseller-initiated emergency action, independent
-    // of whether the order is self-service (miniapp/bot) or manually
-    // managed — only paid, currently-active orders are eligible. Trial
-    // customers stay on trial-tier servers via the normal miniapp flow.
-    // Backend enforces this too; the button is just hidden here to avoid a
-    // guaranteed-to-fail click.
-    if (order.status === "active" && order.order_type !== "trial" && !order.plan?.is_trial) {
+    const legacySwitchEligible = order.status === "active" && order.order_type !== "trial" && !order.plan?.is_trial;
+    if (order.can_switch_server ?? legacySwitchEligible) {
       actions.push({
         label: "Switch Server",
         icon: <ServerIcon size={14} />,
         onSelect: () => setServerSwitchDialog({ open: true, order }),
       });
+    }
+    if (legacySwitchEligible) {
       actions.push({
         label: "Switch Protocol",
         icon: <Shuffle size={14} />,
@@ -1076,7 +1070,7 @@ export function OrdersTable({
               </div>
             ) : (
               pagedOrders.map((order) => {
-                const expirySoon = isExpiringSoon(order.expiry_date, 7) && order.status === "active";
+                const expirySoon = isExpiringSoon(order, 7) && order.status === "active";
                 return (
                   <div key={order.id} className="rounded-lg border border-border bg-card p-4">
                     <div className="flex items-start justify-between gap-2">
@@ -1106,7 +1100,7 @@ export function OrdersTable({
                           Expiry
                         </div>
                         <div className={`text-sm font-medium${expirySoon ? " text-destructive" : ""}`}>
-                          {formatDaysLeft(order.expiry_date) || "-"}
+                          {`${formatExpiryDeadline(order)} (${formatDaysLeft(order)})`}
                         </div>
                       </div>
                       <div>
@@ -1151,7 +1145,7 @@ export function OrdersTable({
               ) : (
                 pagedOrders.map((order) => {
                   const key = getActiveKeyForOrder(order);
-                  const expirySoon = isExpiringSoon(order.expiry_date, 7) && order.status === "active";
+                  const expirySoon = isExpiringSoon(order, 7) && order.status === "active";
                   return (
                     <TableRow key={order.id}>
                       <TableCell className="px-2 py-2 text-xs">
@@ -1173,9 +1167,9 @@ export function OrdersTable({
                         <PaymentReviewStatus summary={order.business_summary} />
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
-                        <div className="text-xs">{formatDate(order.expiry_date)}</div>
+                        <div className="text-xs">{formatExpiryDeadline(order)}</div>
                         <div className={`text-[11px]${expirySoon ? " text-destructive" : " text-muted-foreground"}`}>
-                          {formatDaysLeft(order.expiry_date)}
+                          {formatDaysLeft(order)}
                         </div>
                       </TableCell>
                       <TableCell className="px-2 py-2 text-xs">
@@ -1429,7 +1423,7 @@ export function OrdersTable({
         onClose={() => setServerSwitchDialog({ open: false, order: null })}
         onSwitched={(order, server) => {
           setMessage(
-            `Switched ${order.customer?.full_name || "customer"} to ${server.display_city || server.name}.`
+            `Switched ${order.customer?.full_name || "customer"} to ${server.name || server.display_city}.`
           );
           void refreshAll();
         }}
@@ -1566,7 +1560,7 @@ export function OrdersTable({
                     <DetailItem label="Paid" value={formatMMK(liveDetailsOrder.money_summary?.recognized_gross_mmk)} />
                     <DetailItem label="Commission" value={formatMMK(liveDetailsOrder.money_summary?.commission_mmk)} />
                     <DetailItem label="Platform due" value={formatMMK(liveDetailsOrder.money_summary?.platform_due_mmk)} />
-                    <DetailItem label="Expiry" value={formatDate(liveDetailsOrder.expiry_date)} />
+                    <DetailItem label="Expiry" value={formatExpiryDeadline(liveDetailsOrder)} />
                     <DetailItem label={liveDetailsOrder.business_summary?.snapshot_basis.duration === "catalogue" ? "Duration (current catalogue)" : "Purchased duration"} value={liveDetailsOrder.business_summary?.duration_days == null ? "Unavailable" : `${liveDetailsOrder.business_summary.duration_days} days`} />
                     <DetailItem
                       label="Server"
@@ -1590,7 +1584,7 @@ export function OrdersTable({
                             <span className="inline-flex items-center gap-1.5">
                               <FlagIcon flagEmoji={server.flag_emoji} size={16} />
                               <span className="truncate">
-                                {server.display_city || server.display_country || server.name}
+                                {server.name || server.display_city || server.display_country}
                               </span>
                             </span>
                           );
@@ -1601,7 +1595,7 @@ export function OrdersTable({
                     <div className="col-span-2">
                       <DetailItem
                         label="Remaining"
-                        value={formatDaysLeft(liveDetailsOrder.expiry_date)}
+                        value={formatDaysLeft(liveDetailsOrder)}
                       />
                     </div>
                   </div>
@@ -1622,9 +1616,9 @@ export function OrdersTable({
               </div>
 
               <div className="mt-2 flex items-center justify-end gap-2">
-                {liveDetailsOrder.status === "active" &&
+                {(liveDetailsOrder.can_switch_server ?? (liveDetailsOrder.status === "active" &&
                 liveDetailsOrder.order_type !== "trial" &&
-                !liveDetailsOrder.plan?.is_trial ? (
+                !liveDetailsOrder.plan?.is_trial)) ? (
                   <Button
                     variant="outline"
                     size="sm"

@@ -439,6 +439,17 @@ export interface Plan {
 }
 
 export interface Server {
+  display_city?: string | null;
+  display_country?: string | null;
+  flag_emoji?: string | null;
+  provider_resource_id?: string | null;
+  panel_node_id?: number | null;
+  supported_protocols?: string[] | null;
+  access_pool_id?: string | null;
+  environment?: string | null;
+  is_active?: boolean;
+  lifecycle_protected?: boolean;
+  under_maintenance?: boolean;
   id: string;
   name: string;
   provider: string | null;
@@ -565,6 +576,7 @@ export interface MonthlySettlement {
 }
 
 export interface BusinessSummary {
+ expiry_cutoff_at?:string|null; expiry_timezone?:'Asia/Yangon';
  access_status: string; payment_review_status:string; application_status:string;
  pending_review_count:number; has_active_key:boolean; is_expiring_soon:boolean;
  quota:OrderQuota|null;

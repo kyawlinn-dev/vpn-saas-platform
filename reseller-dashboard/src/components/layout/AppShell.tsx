@@ -8,6 +8,7 @@ import {
   Send,
   Tags,
   Bell,
+  Bot,
   Settings,
   Clock,
 } from "lucide-react";
@@ -25,9 +26,10 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Orders",          to: "/app/orders",           Icon: ReceiptText },
   { label: "Customers",       to: "/app/customers",        Icon: Users },
   { label: "Accounting",      to: "/app/accounting",       Icon: Calculator },
-  { label: "Telegram Orders", to: "/app/telegram-orders",  Icon: Send },
+  { label: "Payment Reviews", to: "/app/telegram-orders",  Icon: Send },
   { label: "Plans",           to: "/app/plans",            Icon: Tags },
   { label: "Notifications",   to: "/app/notifications",    Icon: Bell },
+  { label: "Bot Links",       to: "/app/bot-links",        Icon: Bot },
   { label: "Settings",        to: "/app/settings",         Icon: Settings },
 ];
 
@@ -83,12 +85,12 @@ export function AppShell() {
 
   const sidebarWidth = collapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH;
 
-  // Miniapp-only tabs (Telegram Orders / Notifications / Settings) are hidden
+  // Miniapp-only tabs (Notifications / Settings) are hidden
   // for dashboard-only resellers — they only make sense with a connected bot.
   // Default to hidden until the profile confirms access; miniapp resellers see
   // the tabs appear after the first /me response (~200 ms), which is fine.
   const hasMiniapp = profileLoading ? false : Boolean(profile?.has_miniapp);
-  const MINIAPP_ONLY = new Set(["/app/telegram-orders", "/app/notifications", "/app/settings"]);
+  const MINIAPP_ONLY = new Set(["/app/notifications", "/app/bot-links", "/app/settings"]);
   const navItems = hasMiniapp ? NAV_ITEMS : NAV_ITEMS.filter((item) => !MINIAPP_ONLY.has(item.to));
 
   const sharedSidebarProps = {

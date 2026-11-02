@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {runWithBotContent} from '../bot/contentBindings.js';
 
 const mocks = vi.hoisted(() => ({
   ensureCustomerAndLink: vi.fn(),
@@ -95,6 +96,115 @@ beforeEach(() => {
 });
 
 describe("inline-first bot navigation", () => {
+  it('always shows both guides without looking up customer protocol or orders',async()=>{
+    const handlers=makeBot(),ctx=makeContext();
+    mocks.resolveCustomerByTelegram.mockRejectedValue(new Error('No lookup expected'));
+    await handlers.actions['menu:howto'](ctx);
+    expect(inlineButtons(ctx).map(x=>x.callback_data)).toEqual(expect.arrayContaining(['howto:ss','howto:vless']));
+    expect(mocks.resolveCustomerByTelegram).not.toHaveBeenCalled();expect(mocks.getBestActiveOrder).not.toHaveBeenCalled();
+    await handlers.actions['howto:ss'](ctx);
+    expect(ctx.editMessageText.mock.calls.at(-1)[0]).toContain('Outline');
+    expect(ctx.editMessageText.mock.calls.at(-1)[1].reply_markup.inline_keyboard.flat().map(x=>x.callback_data)).toContain('howto:vless');
+  });
+  it('ignores historical device posts for all download entry points',async()=>{
+    const handlers=makeBot(),links=Object.fromEntries(['android','ios','macos','windows'].map((device,i)=>[`downloads.${device}.url`,`https://t.me/example/${i+1}`]));
+    for(const action of ['menu:download','key:download:ss','key:download:vless']){
+      const ctx=makeContext();await runWithBotContent(links,()=>handlers.actions[action](ctx));
+      const buttons=inlineButtons(ctx);expect(buttons.filter(x=>x.url)).toHaveLength(0);
+      expect(buttons.map(x=>x.callback_data)).toEqual(expect.arrayContaining(['dl:device:android','dl:device:ios','dl:device:macos','dl:device:windows']));
+      expect(buttons.some(x=>['dl:ss','dl:vl'].includes(x.callback_data))).toBe(false);
+    }
+    expect(mocks.resolveActiveKey).not.toHaveBeenCalled();
+  });
+  it('uses all-app built-in download fallbacks for a device with no post link',async()=>{
+    const handlers=makeBot(),ctx=makeContext();await handlers.actions['menu:download'](ctx);
+    expect(inlineButtons(ctx).map(x=>x.callback_data)).toEqual(expect.arrayContaining(['dl:device:android','dl:device:ios','dl:device:macos','dl:device:windows']));
+    await handlers.actions['dl:device:android'](ctx);
+    const buttons=ctx.editMessageText.mock.calls.at(-1)[1].reply_markup.inline_keyboard.flat();
+    expect(buttons.some(x=>x.text.includes('Outline'))).toBe(true);expect(buttons.some(x=>x.text.includes('Happ'))).toBe(true);
+  });
+  it('keeps old download callbacks on built-in app links despite historical post settings',async()=>{
+    const handlers=makeBot(),ctx=makeContext();
+    await runWithBotContent({'downloads.ios.url':'https://t.me/example/5'},()=>handlers.actions['dl:ss:ios'](ctx));
+    const buttons=ctx.editMessageText.mock.calls.at(-1)[1].reply_markup.inline_keyboard.flat();
+    expect(buttons.some(x=>x.url==='https://t.me/example/5')).toBe(false);
+    expect(buttons.some(x=>x.text.includes('Outline'))).toBe(true);
+  });
+  it('keeps fresh-customer start, trial selection, purchase and legacy callbacks available after cleanup',async()=>{
+    const handlers=makeBot(),ctx=makeContext();
+    await handlers.start(ctx);
+    expect(mocks.ensureCustomerAndLink).toHaveBeenCalledWith(123,'test','Test','reseller-1');
+    expect(inlineButtons(ctx).map(button=>button.callback_data)).toEqual(expect.arrayContaining(['start:get_trial','menu:buy','menu:help']));
+    await handlers.actions['start:get_trial'](ctx);
+    expect(inlineButtons(ctx).map(button=>button.callback_data)).toEqual(expect.arrayContaining(['trial:proto:ss','trial:proto:vless','menu:home']));
+    await handlers.actions['trial:proto:ss'](ctx);
+    expect(ctx.editMessageText.mock.calls.at(-1)[1].reply_markup.inline_keyboard.flat().map(button=>button.callback_data)).toContain('trial:confirm:shadowsocks');
+    await handlers.actions['menu:buy'](ctx);
+    expect(inlineButtons(ctx).map(button=>button.callback_data)).toContain('buy:proto:vless');
+    for(const oldCallback of ['start:get_key','trial:cancel','srv:cancel'])expect(typeof handlers.actions[oldCallback]).toBe('function');
+  });
+  it('renders customized key errors using the same HTML mode as their preview',async()=>{
+    const handlers=makeBot(),ctx=makeContext();mocks.resolveCustomerByTelegram.mockRejectedValue(new Error('fixture failure'));
+    await runWithBotContent({KEY_ERROR:'<b>Please retry</b>'},()=>handlers.actions['menu:key'](ctx));
+    expect(ctx.replyWithHTML).toHaveBeenCalledWith('<b>Please retry</b>');
+  });
+  it.each([
+    ['dl:ss:ios','DL_SS_PLATFORMS'],['dl:vl:ios','DL_VLESS_PLATFORMS'],
+  ])('resolves %s download content after setup on each interaction',async(action,root)=>{
+    const handlers=makeBot(),ctx=makeContext();
+    await runWithBotContent({'DL_VLESS_PLATFORMS.ios.text':'Custom download message',[`${root}.ios.apps.0.url`]:'https://example.com/download'},()=>handlers.actions[action](ctx));
+    expect(ctx.editMessageText.mock.calls[0][0]).toBe('Custom download message');
+    expect(ctx.editMessageText.mock.calls[0][1].reply_markup.inline_keyboard.flat()).toEqual(expect.arrayContaining([
+      expect.objectContaining({url:'https://example.com/download'}),
+    ]));
+  });
+  it('splits long customized inactive and queued balances before Telegram message limits',async()=>{
+    const handlers=makeBot(),ctx=makeContext();
+    mocks.getCustomerQueuedOrder.mockResolvedValue({planName:'Queued',durationDays:30,dataLimitGb:50});
+    await runWithBotContent({'extra.inactiveBalance':'a'.repeat(3000),balanceQueuedOnlyText:'b'.repeat(3000)},()=>handlers.actions['menu:balance'](ctx));
+    expect(ctx.replyWithHTML.mock.calls.every(([text])=>text.length<=4096)).toBe(true);
+    expect(ctx.replyWithHTML.mock.calls.map(([text])=>text).join('')).toContain('b'.repeat(3000));
+  });
+  it('delivers long customized key instructions separately rather than exceeding photo caption limits',async()=>{
+    const handlers=makeBot(),ctx=makeContext();ctx.replyWithPhoto=vi.fn().mockResolvedValue(undefined);
+    mocks.getBestActiveOrder.mockResolvedValue({id:'order',review_status:'confirmed'});
+    mocks.resolveActiveKey.mockResolvedValue({protocol:'vless',access_url:'https://panel.example.com/sub/'+ 'a'.repeat(500)});
+    await runWithBotContent({KEY_COPY_INSTRUCTIONS:'x'.repeat(600)},()=>handlers.actions['menu:key'](ctx));
+    expect(ctx.replyWithPhoto).toHaveBeenCalledOnce();
+    expect(ctx.replyWithPhoto.mock.calls[0][1].caption.length).toBeLessThanOrEqual(1024);
+    expect(ctx.replyWithHTML).toHaveBeenCalledWith('x'.repeat(600));
+  });
+  it('bounds the composed Outline key message when dynamic names repeat in valid templates',async()=>{
+    vi.stubEnv('PUBLIC_SUBSCRIPTION_BASE_URL','https://api.example.com');
+    try{
+      const handlers=makeBot(),ctx=makeContext();
+      mocks.resolveCustomerByTelegram.mockResolvedValue({customerId:'customer-1',fullName:'C'.repeat(128),ssconfToken:'example-token'});
+      mocks.getBestActiveOrder.mockResolvedValue({id:'order',review_status:'confirmed'});
+      mocks.resolveActiveKey.mockResolvedValue({protocol:'shadowsocks',vpn_servers:{name:'S'.repeat(128),display_city:'S'.repeat(128),display_country:'Singapore',flag_emoji:'SG'}});
+      await runWithBotContent({keyFoundHeader:'{customer_name}'.repeat(10),keyServerLine:'{server_name}'.repeat(18),KEY_COPY_INSTRUCTIONS_SS:'x'.repeat(600)},()=>handlers.actions['menu:key'](ctx));
+      expect(ctx.replyWithHTML.mock.calls.every(([text])=>text.length<=4096)).toBe(true);
+      expect(ctx.replyWithHTML.mock.calls.some(([text])=>text.includes('ssconf://'))).toBe(true);
+    }finally{vi.unstubAllEnvs();}
+  });
+  it('updates welcome and inline labels without changing actions or legacy triggers',async()=>{
+    const handlers=makeBot(),ctx=makeContext();
+    await runWithBotContent({startWelcome:'Hello {brand_name}',START_BTN_TRIAL_KEY:'Try it',MENU_HELP:'Guides'},()=>handlers.start(ctx));
+    expect(ctx.replyWithHTML.mock.calls[0][0]).toBe('Hello NovaNet MM');
+    expect(inlineButtons(ctx)).toEqual(expect.arrayContaining([
+      expect.objectContaining({text:'Try it',callback_data:'start:get_trial'}),
+      expect.objectContaining({text:'Guides',callback_data:'menu:help'}),
+    ]));
+  });
+  it('uses configured guide links and retains the other guide plus home navigation',async()=>{
+    const handlers=makeBot(),ctx=makeContext();
+    mocks.getBestActiveOrder.mockResolvedValue({id:'order',review_status:'confirmed'});
+    await runWithBotContent({'guides.shadowsocks.url':'https://t.me/example/123','guides.shadowsocks.label':'Read Outline guide'},()=>handlers.actions['menu:howto'](ctx));
+    expect(inlineButtons(ctx)).toEqual(expect.arrayContaining([
+      expect.objectContaining({text:'Read Outline guide',url:'https://t.me/example/123'}),
+      expect.objectContaining({callback_data:'howto:vless'}),
+      expect.objectContaining({callback_data:'menu:home'}),
+    ]));
+  });
   it("registers the shortcuts, repairs the command menu, and removes the old keyboard", async () => {
     const handlers = makeBot();
     const ctx = makeContext();

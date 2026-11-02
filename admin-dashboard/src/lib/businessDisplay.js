@@ -19,11 +19,32 @@ export function businessDay(now=new Date()) {
  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:ZONE,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);
  return ['year','month','day'].map(k=>parts.find(p=>p.type===k).value).join('-');
 }
+export function expiryCutoffAt(value) {
+ const metadata=typeof value==='object' ? value?.business_summary?.expiry_cutoff_at : null;
+ if(typeof metadata==='string' && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(metadata)) {
+  const timestamp=Date.parse(metadata);
+  if(Number.isFinite(timestamp))return new Date(timestamp).toISOString();
+ }
+ const day=typeof value==='object' ? value?.expiry_date : value;
+ if(typeof day!=='string' || !/^\d{4}-\d{2}-\d{2}$/.test(day))return null;
+ const timestamp=Date.parse(day+'T00:00:00Z');
+ if(!Number.isFinite(timestamp)||new Date(timestamp).toISOString().slice(0,10)!==day)return null;
+ // Stored day D ends at D+1 04:00 Myanmar, or D 21:30 UTC.
+ return new Date(timestamp+(21*60+30)*60000).toISOString();
+}
+export function formatExpiryDeadline(value,{locale='en-US',timeZoneLabel='Myanmar'}={}) {
+ const cutoff=expiryCutoffAt(value);
+ if(!cutoff)return 'Unavailable';
+ const date=new Date(cutoff);
+ const day=new Intl.DateTimeFormat(locale,{timeZone:'Asia/Yangon',year:'numeric',month:'short',day:'numeric'}).format(date);
+ const time=new Intl.DateTimeFormat(locale,{timeZone:'Asia/Yangon',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(date);
+ return day+', '+time+' '+timeZoneLabel;
+}
 export function daysLeft(value,now=new Date()) {
- if(!value) return null;
- const day=String(value).slice(0,10), ts=Date.parse(day+'T00:00:00Z');
- if(!Number.isFinite(ts)||new Date(ts).toISOString().slice(0,10)!==day)return null;
- return Math.round((ts-Date.parse(businessDay(now)+'T00:00:00Z'))/86400000);
+ const cutoff=expiryCutoffAt(value);
+ if(!cutoff || !Number.isFinite(now.getTime()))return null;
+ const remaining=Date.parse(cutoff)-now.getTime();
+ return remaining<=0 ? -1 : Math.floor(remaining/86400000);
 }
 export function quotaDisplay(quota) {
  if(!quota || (quota.is_unlimited!==true && (quota.limit_bytes==null || Number(quota.limit_bytes)<=0))) return {kind:'unknown',used:'Usage unavailable',total:'Unavailable',remaining:'Unavailable',percent:null};

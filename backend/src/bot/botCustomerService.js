@@ -11,9 +11,11 @@
 
 import crypto from "node:crypto";
 import { supabase } from "../lib/supabase.js";
-import { businessDateOnly } from "../utils/businessTime.js";
+import { accessDateOnly } from "../utils/businessTime.js";
 import { selectCustomerPackages } from "../services/businessDisplayService.js";
 import { readAllRows } from "../utils/readAllRows.js";
+import { resolveServerAccessContext } from "../services/serverAccessContext.js";
+import { getActiveServers, getServerById } from "../services/serverService.js";
 
 // ── Customer resolution ────────────────────────────────────────────────────────
 
@@ -77,7 +79,7 @@ export async function getCustomerTrialInfo(telegramUserId, resellerId) {
  * @returns {object|null}
  */
 export async function getBestActiveOrder(customerId, resellerId) {
-  const today = businessDateOnly();
+  const today = accessDateOnly();
 
   const { data: orders, error } = await supabase
     .from("vpn_orders")
@@ -149,7 +151,7 @@ export async function resolveActiveKey(customerId, resellerId, orderId) {
  * @returns {object|null}
  */
 export async function getFullActiveOrder(customerId, resellerId) {
-  const today = businessDateOnly();
+  const today = accessDateOnly();
 
   const { data: orders, error } = await supabase
     .from("vpn_orders")
@@ -184,7 +186,9 @@ export async function getFullActiveOrder(customerId, resellerId) {
  *
  * @returns {Array}
  */
-export async function getAllActiveServersForDisplay() {
+export async function getAllActiveServersForDisplay({ protocol = "shadowsocks", orderType = "purchase", accessContext } = {}) {
+  const context = await resolveServerAccessContext(accessContext);
+  if (context.publicAccessEnabled) return getActiveServers({ protocol, orderType, accessContext: context, limit: 0 });
   const { data, error } = await supabase
     .from("vpn_servers")
     .select(
@@ -204,7 +208,9 @@ export async function getAllActiveServersForDisplay() {
  *
  * @returns {object|null}
  */
-export async function getFullServerById(serverId) {
+export async function getFullServerById(serverId, { accessContext } = {}) {
+  const context = await resolveServerAccessContext(accessContext);
+  if (context.publicAccessEnabled) return getServerById(serverId, { accessContext: context });
   const { data, error } = await supabase
     .from("vpn_servers")
     .select(

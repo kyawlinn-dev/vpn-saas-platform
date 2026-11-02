@@ -6,6 +6,7 @@ import {
   DEFAULT_TEMPLATES,
   renderNotification,
   formatBurmeseDate,
+  formatExpiryDeadline,
 } from "../../bot/notificationTemplates.js";
 
 const router = express.Router();
@@ -17,6 +18,7 @@ const SAMPLE_DATA = {
   brand_name: "{brand_name}", // filled in per-request from the reseller's own brand
   plan_name: "Premium 30 Days",
   expiry_date: formatBurmeseDate("2026-09-15"),
+  expiry_deadline: formatExpiryDeadline("2026-09-15"),
   deep_link_url: "https://app.novanetmm.com/?slug=your-shop",
   support_username: "your_support",
   reject_reason: "လွှဲပြောင်းငွေပမာဏ မကိုက်ညီပါ",

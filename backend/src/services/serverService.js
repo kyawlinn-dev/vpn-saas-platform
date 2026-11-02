@@ -1,5 +1,8 @@
 import { supabase } from "../lib/supabase.js";
 import { providerForServer } from "./vpnProviderService.js";
+import { resolveServerAccessContext } from "./serverAccessContext.js";
+import { evaluateServerAccess } from "./serverAccessPolicy.js";
+import { annotateServerMaintenance } from "./serverMaintenanceService.js";
 
 export class ServerAvailabilityError extends Error {
   constructor(message, code = "NO_ACTIVE_SERVER") {
@@ -28,6 +31,7 @@ function normalizeServerTier(serverTier) {
 }
 
 function isServerReady(server) {
+  if (server?.under_maintenance === true) return false;
   if (!server || String(server.status || "").toLowerCase() !== "active") {
     return false;
   }
@@ -108,10 +112,11 @@ function pickRankedServersForRegions(servers, regions) {
   return selected;
 }
 
-export async function getServerById(serverId) {
+export async function getServerById(serverId, { accessContext } = {}) {
+  const context = await resolveServerAccessContext(accessContext);
   const { data, error } = await supabase
     .from("vpn_servers")
-    .select("*")
+    .select(context.publicAccessEnabled ? "*,server_health_status(outline_api_status)" : "*")
     .eq("id", serverId)
     .single();
 
@@ -119,7 +124,7 @@ export async function getServerById(serverId) {
     throw new Error(error?.message || "Server not found");
   }
 
-  return data;
+  return (await annotateServerMaintenance([data]))[0];
 }
 
 export async function listServers() {
@@ -131,10 +136,16 @@ export async function listServers() {
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
-  return data || [];
+  return annotateServerMaintenance(data || []);
 }
 
-export async function getAvailableServer() {
+export async function getAvailableServer({ protocol = "shadowsocks", accessContext } = {}) {
+  const context = await resolveServerAccessContext(accessContext);
+  if (context.publicAccessEnabled) {
+    const [server] = await getActiveServers({ protocol, accessContext: context });
+    if (!server) throw new ServerAvailabilityError("No compatible public server available", "NO_ACTIVE_SERVER");
+    return server;
+  }
   const servers = rankProvisionableServers(await listServers(), {
     provider: providerForNewAccess(),
   });
@@ -150,14 +161,17 @@ export async function getAvailableServer() {
   return server;
 }
 
-export async function getActiveServers({ regions = [], limit = 1, serverTier = "premium", resellerId = null, provider = null } = {}) {
+export async function getActiveServers({ regions = [], limit = 1, serverTier = "premium", resellerId = null, provider = null, protocol = "shadowsocks", orderType = "purchase", accessContext } = {}) {
+  const context = await resolveServerAccessContext(accessContext);
   const normalizedTier = normalizeServerTier(serverTier);
   let query = supabase
     .from("vpn_servers")
-    .select("*")
+    .select(context.publicAccessEnabled ? "*,server_health_status(outline_api_status)" : "*")
     .eq("status", "active")
-    .eq("server_tier", normalizedTier)
     .order("current_active_keys", { ascending: true });
+  if (context.publicAccessEnabled) {
+    query = query.eq("environment", context.environment).eq("access_pool_id", context.poolId).eq("is_active", true);
+  } else query = query.eq("server_tier", normalizedTier);
 
   const normalizedRegions = (regions || [])
     .map((r) => normalizeRegion(r))
@@ -171,8 +185,10 @@ export async function getActiveServers({ regions = [], limit = 1, serverTier = "
   if (error) throw new Error(error.message);
 
   const chosenProvider = provider || providerForNewAccess(resellerId);
-  const eligible = (data || []).filter((server) => {
+  const eligible = (await annotateServerMaintenance(data || [])).filter((server) => {
     if (!isServerReady(server) || !hasCapacity(server)) return false;
+    if (context.publicAccessEnabled && !evaluateServerAccess({ server, protocol, orderType,
+      environment: context.environment, poolId: context.poolId, purpose: "assign" }).allowed) return false;
     return chosenProvider === "any" || providerForServer(server) === chosenProvider;
   });
   const filtered = pickRankedServersForRegions(eligible, normalizedRegions);

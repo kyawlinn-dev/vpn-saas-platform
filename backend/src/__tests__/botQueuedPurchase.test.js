@@ -1,4 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
+const { mockSubmitPurchase } = vi.hoisted(() => ({ mockSubmitPurchase: vi.fn() }));
+vi.mock('../services/purchaseService.js', () => ({ submitPurchase: mockSubmitPurchase }));
 
 const mockMaybeSingle = vi.fn()
 const mockSingle = vi.fn()
@@ -145,50 +147,14 @@ describe('queued purchase index conflict', () => {
 })
 
 describe('createBotPurchaseOrder', () => {
-  it('throws CUSTOMER_ALREADY_QUEUED when customer already has active and scheduled orders', async () => {
-    mockFrom.mockImplementation((table) => {
-      if (table === 'resellers') {
-        return {
-          select: () => ({
-            eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'reseller-1' } }) }),
-          }),
-        }
-      }
-      if (table === 'vpn_plans') {
-        return {
-          select: () => ({
-            eq: () => ({ eq: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'plan-1', price_mmk: 10000 } }) }) }) }),
-          }),
-        }
-      }
-      if (table === 'vpn_orders') {
-        return {
-          select: () => ({
-            eq: () => ({
-              eq: () => ({
-                eq: () => ({
-                  eq: () => ({ limit: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'active-1' } }) }) }),
-                  limit: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'queued-1' } }) }),
-                }),
-              }),
-            }),
-          }),
-        }
-      }
-      return {}
-    })
-
-    await expect(
-      createBotPurchaseOrder({
-        resellerId: 'reseller-1',
-        customerId: 'cust-1',
-        planId: 'plan-1',
-        screenshotPath: 'screen.jpg',
-      })
-    ).rejects.toMatchObject({
-      code: 'CUSTOMER_ALREADY_QUEUED',
-    })
-  })
+  it('delegates trusted Telegram inputs and preserves the legacy queued error', async () => {
+    mockSubmitPurchase.mockRejectedValueOnce(Object.assign(new Error('queued'), { code: 'QUEUED_PACKAGE_EXISTS' }));
+    await expect(createBotPurchaseOrder({ resellerId: 'reseller-1', customerId: 'cust-1', planId: 'plan-1', screenshotPath: 'screen.jpg' })).rejects.toMatchObject({ code: 'CUSTOMER_ALREADY_QUEUED' });
+    expect(mockSubmitPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      actor: { role: 'customer', resellerId: 'reseller-1' }, channel: 'bot',
+      customerId: 'cust-1', planId: 'plan-1', screenshotPath: 'screen.jpg',
+    }));
+  });
 })
 
 describe('getCustomerQueuedOrder', () => {

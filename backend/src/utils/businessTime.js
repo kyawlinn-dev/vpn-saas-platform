@@ -1,4 +1,25 @@
 export const BUSINESS_TIME_ZONE = "Asia/Bangkok";
+export const EXPIRY_TIME_ZONE = "Asia/Yangon";
+const ACCESS_GRACE_MS = 4.5 * 60 * 60 * 1000;
+
+// Accounting keeps Bangkok calendar dates; entitlements roll over at 04:00 Myanmar.
+export function accessDateOnly(now = new Date()) {
+  return businessDateOnly(new Date(now.getTime() - ACCESS_GRACE_MS));
+}
+
+export function orderExpiryAt(expiryDate) {
+  if (typeof expiryDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate)) return null;
+  const day = parseBusinessDay(expiryDate);
+  if (!day || businessDateOnly(new Date(Date.parse(day.endIso) - 1)) !== expiryDate) return null;
+  return new Date(Date.parse(day.endIso) + ACCESS_GRACE_MS).toISOString();
+}
+
+export function formatOrderExpiry(expiryDate, locale = 'en-GB') {
+  const cutoff = orderExpiryAt(expiryDate);
+  if (!cutoff) return null;
+  return new Intl.DateTimeFormat(locale, { timeZone: EXPIRY_TIME_ZONE, year: 'numeric', month: 'short',
+    day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true }).format(new Date(cutoff)) + ' (Myanmar)';
+}
 
 export function expiryBusinessState(expiryDate, now = new Date()) {
   const day = typeof expiryDate === "string" ? expiryDate.slice(0, 10) : null;
@@ -6,7 +27,7 @@ export function expiryBusinessState(expiryDate, now = new Date()) {
   if (!Number.isFinite(parsed) || new Date(parsed).toISOString().slice(0, 10) !== day) {
     return { days_left: null, expired: null, is_expiring_soon: false };
   }
-  const today = Date.parse(`${businessDateOnly(now)}T00:00:00Z`);
+  const today = Date.parse(`${accessDateOnly(now)}T00:00:00Z`);
   const days_left = Math.round((parsed - today) / 86400000);
   return { days_left, expired: days_left < 0, is_expiring_soon: days_left >= 0 && days_left <= 7 };
 }

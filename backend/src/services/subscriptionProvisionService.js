@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase.js";
+import { withCustomerInfrastructureMutation } from "./infrastructure/customerMutationGuard.js";
 import {
   createKey,
   deleteKey,
@@ -18,6 +19,8 @@ import {
 } from "./serverService.js";
 import { trackAppEvent } from "./appEventService.js";
 import { getTokenByOrderId } from "./tokenService.js";
+import { resolveServerAccessContext } from "./serverAccessContext.js";
+import { evaluateServerAccess, selectServiceIds, ServerAccessPolicyError } from "./serverAccessPolicy.js";
 
 function gbToBytes(gb) {
   if (!gb || Number(gb) <= 0) return null;
@@ -343,6 +346,9 @@ export async function deactivateTokenAssignments(tokenId) {
 }
 
 export async function deleteProvisionedKeysForOrder(orderId) {
+  return withCustomerInfrastructureMutation({ orderIds: [orderId] }, () => deleteProvisionedKeysForOrderUnchecked(orderId));
+}
+async function deleteProvisionedKeysForOrderUnchecked(orderId) {
   const { data: keys, error } = await supabase
     .from("vpn_keys")
     .select("*")
@@ -377,6 +383,9 @@ export async function deleteProvisionedKeysForOrder(orderId) {
 }
 
 export async function updateProvisionedKeyLimitsForOrder({ orderId, plan, expiryDate }) {
+  return withCustomerInfrastructureMutation({ orderIds: [orderId] }, () => updateProvisionedKeyLimitsForOrderUnchecked({ orderId, plan, expiryDate }));
+}
+async function updateProvisionedKeyLimitsForOrderUnchecked({ orderId, plan, expiryDate }) {
   const packageLimitBytes = gbToBytes(plan?.data_limit_gb);
 
   const { data: keys, error } = await supabase
@@ -476,7 +485,10 @@ async function failPendingKey({ keyId, resellerId }) {
   if (error) throw new Error(error.message || "Failed to release pending key");
 }
 
-export async function provisionServersForToken({
+export async function provisionServersForToken(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.order?.id], serverIds: input.servers?.map(server => server.id), resellerId: input.reseller?.id }, () => provisionServersForTokenUnchecked(input));
+}
+async function provisionServersForTokenUnchecked({
   token,
   order,
   customer,
@@ -485,9 +497,11 @@ export async function provisionServersForToken({
   servers,
   protocol = "shadowsocks",
   expiryDate = order?.expiry_date,
+  accessContext,
 }) {
   const created = [];
   const dataLimitBytes = gbToBytes(plan?.data_limit_gb);
+  const context = await resolveServerAccessContext(accessContext);
 
   for (const server of servers) {
     let keyId = null;
@@ -496,6 +510,7 @@ export async function provisionServersForToken({
     let assignmentId = null;
 
     try {
+      if (context.publicAccessEnabled) selectServiceIds({ server, protocol, pool: context.pool });
       const existingKeys = await getOrderServerKeys(order.id, server.id);
       const reusableKey = pickReusableVpnKey(existingKeys);
 
@@ -519,6 +534,10 @@ export async function provisionServersForToken({
       }
 
       const keyName = buildKeyName({ customer, server, order, plan, protocol });
+      if (context.publicAccessEnabled) {
+        const decision = evaluateServerAccess({ server, protocol, orderType: order.order_type, environment: context.environment, poolId: context.poolId, purpose: "assign" });
+        if (!decision.allowed) throw new ServerAccessPolicyError(decision.code);
+      }
 
       // ACID step 1 — reserve server capacity AND insert a pending key, atomically.
       keyId = await reservePendingKey({
@@ -538,8 +557,9 @@ export async function provisionServersForToken({
         name: keyName,
         dataLimitBytes,
         protocol,
-        serviceIds: serviceIdsForOrder({ server, protocol, orderType: order.order_type }),
+        serviceIds: serviceIdsForOrder({ server, protocol, orderType: order.order_type, accessContext: context }),
         expiryDate,
+        accessContext: context,
       });
 
       outlineKeyId = createdKey.outline_key_id;
@@ -635,7 +655,13 @@ export async function provisionServersForToken({
 // Migrate a single active order from a decommissioned server to `newServer`.
 // Creates a fresh Outline key, stores it, wires up token/miniapp assignments.
 // The order stays active with its existing expiry — only the key location changes.
-export async function migrateActiveOrderToServer({ order, newServer, oldServerId, protocol = "shadowsocks", quotaSnapshot }) {
+export async function migrateActiveOrderToServer({ order, newServer, oldServerId, protocol = "shadowsocks", quotaSnapshot, accessContext }) {
+  const context = await resolveServerAccessContext(accessContext);
+  if (context.publicAccessEnabled) {
+    newServer = await getServerById(newServer.id, { accessContext: context });
+    const decision = evaluateServerAccess({ server: newServer, protocol, orderType: order.order_type, environment: context.environment, poolId: context.poolId, purpose: "assign" });
+    if (!decision.allowed) throw new ServerAccessPolicyError(decision.code);
+  }
   const quota = quotaSnapshot || await getOrderQuotaSnapshot(order.id);
   const dataLimitBytes = resolveRemainingKeyLimitBytes({
     quota,
@@ -657,8 +683,9 @@ export async function migrateActiveOrderToServer({ order, newServer, oldServerId
       name: keyName,
       dataLimitBytes,
       protocol,
-      serviceIds: serviceIdsForOrder({ server: newServer, protocol, orderType: order.order_type }),
+      serviceIds: serviceIdsForOrder({ server: newServer, protocol, orderType: order.order_type, accessContext: context }),
       expiryDate: order.expiry_date,
+      accessContext: context,
     });
     outlineKeyId = createdKey.outline_key_id;
 
@@ -739,11 +766,15 @@ export async function migrateActiveOrderToServer({ order, newServer, oldServerId
 // Order of operations matters: provision the NEW key first, and only once
 // that succeeds do we tear down the OLD key. If provisioning fails, the
 // customer keeps their working connection — never leave them with nothing.
-export async function switchOrderServer({ order, newServer, oldKey }) {
+export async function switchOrderServer(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.order?.id], serverIds: [input.newServer?.id, input.oldKey?.server_id], resellerId: input.order?.reseller_id }, () => switchOrderServerUnchecked(input));
+}
+async function switchOrderServerUnchecked({ order, newServer, oldKey, accessContext }) {
   const migrated = await migrateActiveOrderToServer({
     order,
     newServer,
     oldServerId: oldKey.server_id,
+    accessContext,
   });
 
   // New key is live — now retire the old one. Best-effort: if any of this
@@ -809,8 +840,13 @@ export async function switchOrderServer({ order, newServer, oldKey }) {
 // URL the customer sees resolves to the right link type (ssconf for SS, the
 // Marzneshin subscription URL for VLESS/Hysteria2 — never an ssconf link for a
 // non-SS protocol).
-export async function switchOrderProtocol({ order, server, oldKey, protocol }) {
+export async function switchOrderProtocol(input) {
+  return withCustomerInfrastructureMutation({ orderIds: [input.order?.id], serverIds: [input.server?.id, input.oldKey?.server_id], resellerId: input.order?.reseller_id }, () => switchOrderProtocolUnchecked(input));
+}
+async function switchOrderProtocolUnchecked({ order, server, oldKey, protocol, accessContext }) {
   providerForServer(server);
+  const context = await resolveServerAccessContext(accessContext);
+  if (context.publicAccessEnabled) selectServiceIds({ server, protocol, pool: context.pool });
   // Before touching anything, snapshot the live Marzneshin usage for the old
   // key. The old Marzneshin user will be deleted after the new key is created,
   // so any unsynced traffic would be silently lost. Writing it now means
@@ -852,6 +888,7 @@ export async function switchOrderProtocol({ order, server, oldKey, protocol }) {
       newServer: server,
       oldServerId: server.id,
       protocol,
+      accessContext: context,
     });
   } catch (err) {
     // Restore the old key row — its Marzneshin user is still alive, so the

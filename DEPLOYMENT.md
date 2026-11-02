@@ -1,5 +1,133 @@
 # NovaNet MM Deployment
 
+## Isolated Core Release Preparation (2026-11-02)
+
+The final preparation and deployment-time gates are recorded in
+`docs/runbooks/2026-11-core-final-preparation.md`. Node22 Windows validation and
+private code/config/static recovery capture are complete; fresh database backup,
+Pages rollback IDs, exact live adoption approvals and configuration installation
+remain later rollout gates. No deployment is authorized by source preparation.
+
+Task2's exact Telegram-only SQL package is prepared and rehearsed at
+`backend/supabase/releases/2026-11-core/README.md`. Its explicit 21-file manifest
+produces one atomic transaction; do not apply the numerically sorted DEV chain.
+Read-only production inspection succeeded. No production migration was applied.
+Production configuration/adoption, recovery backups and final Node22 validation
+remain before a concrete deployment approval package.
+
+Task1 source excludes Messenger, Announcements, website/redesign and laptop LAN
+helpers. The normal development checkout retains deferred features. Backend
+Ansible synchronization excludes `src/__tests__/` so historical migration/DEV
+installer fixtures are not copied to the production application. Backend scripts,
+private environment/configuration and uploads remain excluded/protected.
+
+Offline backend tests use `npx vitest run --config vitest.offline.config.js`.
+Standalone PostgreSQL-engine programs under `src/__tests__/database/` run directly
+with Node and an explicitly installed PGlite runtime (`PGLITE_MODULE_PATH`);
+they are not Vitest test modules. Splitting the runners does not waive the ordered
+production-shaped SQL rehearsal. The current candidate is not deployable until
+the production SQL/configuration/recovery and final verification gates pass.
+
+## LightNode DEV Gate (0062)
+
+0062 and its scoped account binding were applied to DEV huqmzvlzfcexycdrsxpn on
+2026-11-01. Server rows and existing provider bindings were verified unchanged.
+The isolated DEV runner was subsequently activated and authenticated readiness
+verified for DO, Vultr and LightNode. Both LightNode profile quotes passed through
+the real DEV API without submitting a creation operation. The owner paid-canary
+gate still applies; production backend health stayed green.
+
+After offline SQL/adapter/UI checks, apply only
+`0062_lightnode_infrastructure.sql` to the existing DEV database and add the
+scoped LightNode account binding plus private operator configuration. It does
+not depend on deferred Announcements migration 0059 or reserved release files
+0060/0061. Runtime prerequisites remain 0040–0058 as documented elsewhere.
+
+Pass `LIGHTNODE_API_KEY` only to the backend/isolated DEV runner; never Vite or
+frontend bundles. Keep credentials and connection/anchor config outside Git.
+Update the standalone DEV runner only, preserving production PM2 and the owner-run
+local services. No new billable canary is implied by setup. The owner authorizes
+that through dashboard quote confirmation after readiness verification.
+LightNode region/image/package discovery is automatic; remove obsolete private
+`regionalMachines`, `prices`, and `policy` fields for this provider. Unknown rates
+are explicitly provider-priced, never zero. No additional migration is needed.
+See `docs/runbooks/lightnode-automation.md` for bootstrap assurance, billing terms,
+instance-package billing limits, acceptance and protected-node handling.
+
+## Telegram Bot Links DEV Gate (0058)
+
+Migration `backend/supabase/migrations/0058_telegram_bot_content.sql` is already
+applied to DEV project huqmzvlzfcexycdrsxpn. The links-only update needs no new
+migration. Install backend dependencies (`npm ci`) if needed. The owner starts or
+reloads the local backend and reseller dashboard; agents do not start services.
+
+Open `/app/bot-links` (old `/app/bot-content` bookmarks redirect). Test save and
+clear on both guide URLs. Verify configured guide URLs open posts directly, blank
+guides retain in-chat instructions, and both guides are always shown. Downloads
+must use the built-in device/app links, including Outline, with no dashboard
+download-post settings. Verify
+another reseller retains independent links and old callbacks still work. Text,
+label and command-description editing is no longer offered or accepted by the API;
+historical text rows remain stored but are ignored. Notifications stay unchanged.
+No production migration, deployment or shared runner update is included.
+
+## Isolated DEV Runner
+
+The fixed-IP runner is a separate service, `novanet-dev-runner.service`, on the
+configured management host. It never uses the production backend deploy playbook,
+directory, environment file, dependency tree or PM2 process. Source releases are
+under /opt/novanet-dev-runner/releases; current is a symlink. Private runner files
+are under /etc/novanet-dev-runner, and its working directory is
+/var/lib/novanet-dev-runner. See docs/runbooks/fixed-ip-dev-runner.md.
+
+Use only the standalone entrypoint backend/src/infrastructureRunner.js.
+NODE_ENV=production and explicit DEV scope are required. The explicit
+SERVER_RUNNER_ENV_FILE is the only environment file it reads; generic dotenv
+loading is disabled. Never run src/server.js remotely for this purpose.
+The isolated install assets are ansible/files/install-dev-runner.sh and
+ansible/files/novanet-dev-runner.service. Do not run ansible/deploy.yml as a
+substitute: that deploys/reloads the production application.
+
+## Panel Incarnation Migration Gate (0057)
+
+Apply `backend/supabase/migrations/0057_panel_resource_retirement.sql` in DEV
+before the panel deletion/archive source update is manually tested. It adds an
+append-only private archive, explicit retirement markers and a fenced archive
+RPC, changes node uniqueness to retain inactive decommissioned history without
+reserving reused IDs, and gates receipt replacement on terminal deletion proof.
+Applying the migration alone archives nothing. Previously stale DEV receipts
+need the separately reviewed bounded reset SQL, not a production backfill.
+Do not resume the cancelled/reset candidate or replay DEV resource IDs against
+production. No production deployment or migration is authorized here.
+
+## Myanmar 04:00 Cutoff Rollout Gate (2026-10-28)
+
+Local source changes do not rewrite existing panel deadlines. Before enabling
+this release in an environment, coordinate backend, dashboards/Mini App and
+owner-reviewed migrations 0055 then 0056. Review existing active order/user/token
+bindings before moving any old midnight deadline to the new canonical time;
+preserve user keys, service IDs, quota, usage, enabled state and subscription URLs.
+Do not reactivate an expired/stopped customer as an incidental backfill. An
+operator-approved reconciliation is separate from this code change and must
+target DEV first. No production deployment or backfill has been performed.
+
+For date label D the new instant is D at 21:30 UTC, D+1 at 04:00 Myanmar. Plan
+dates/accounting are unchanged. A fresh DEV trial or paid test user is the clearest
+manual canary; existing users retain their recorded panel expiry until explicitly
+reconciled. Verify one second before/at cutoff and notification morning timing.
+
+
+## Server Naming Release Prerequisite (0053)
+
+Before deploying the server-display update, apply
+`backend/supabase/migrations/0053_server_display_names.sql` after the lifecycle
+migrations. DEV application is verified; production application/deployment still
+requires owner approval. Applying the migration renames nothing on its own.
+It adds only a service-role fenced naming RPC using existing display columns.
+The owner continues to start/restart local services manually. Existing panel
+branding/host changes are separate, explicitly approved cosmetic maintenance;
+never replay DEV node/host IDs against another environment.
+
 This repository is aligned around the current production shape:
 
 - Backend API and multi-tenant Telegram bot: DigitalOcean Droplet, PM2, Nginx
@@ -13,6 +141,36 @@ This repository is aligned around the current production shape:
 Do not use DO App Platform or Cloudflare Workers for customer-facing production
 traffic. Those paths were retired because customer networks may block Cloudflare
 IPs.
+
+## Local Public-Access Rollout Gate (Not Applied)
+
+Lifecycle controls now have connected provider, panel, SSH and protocol-probe
+adapters. Owner-enabled startup verifies database-owned scope and authenticated
+identities before composing the worker. Flags do not bypass ownership checks.
+Follow `docs/testing/server-access-lifecycle-local.md` for unapplied SQL 0040-0049,
+configuration and owner-run development acceptance. Production rollout is not
+authorized or verified by these source changes.
+
+Keep execution flags false outside the explicitly configured manual canary. The
+owner uses the existing development Supabase and starts services themselves; an
+empty local database is not required. The agent runs finite offline tests and
+synthetic SQL checks, not shared Supabase/panel mutations.
+
+Before a separately approved canary, configure `SERVER_ACCESS_ENVIRONMENT`,
+`SERVER_ACCESS_DATABASE_IDENTITY` (the exact Supabase hostname),
+`SERVER_ACCESS_PANEL_IDENTITY`, and `SERVER_ACCESS_POOL_ID`. Each environment
+needs its own proven public service and node registrations even on a shared panel.
+Do not copy production identifiers into development ownership registrations.
+
+`node backend/scripts/adopt-public-server-access.mjs --manifest PATH` performs
+offline structural inspection and prints an approval hash plus blocked status.
+It does not load `.env`, contact providers/panels, prove runtime ownership or
+apply metadata. `--apply` is unavailable until guarded live adapters, fenced
+coordination and explicit owner authorization exist. Existing active VLESS trials
+must migrate in place with preserved account identity, traffic, limits and expiry;
+expired/used history is never reactivated. Keep server lifecycle execution off
+until ownership setup and an owner-run isolated DEV canary pass. Optional local
+multi-connection SQL tests are extra verification, not a connection prerequisite.
 
 ## Archived Provider Coexistence Gate
 
@@ -520,7 +678,7 @@ not mounted.
 
 ## Pending business-display release prerequisite
 
-The business-display release requires reviewed migrations 0037, then 0038, then 0039 before its
+The business-display release requires reviewed migrations 0037 then 0038 before its
 backend, then the dependent dashboards/Mini App. These are independent of Messenger
 0027–0036. Use the pinned production-only source in the
 [scoped release plan](docs/superpowers/plans/2026-10-15-production-business-display-release.md),
@@ -528,3 +686,15 @@ which includes the original circular Mini App design. Never source an Ansible sy
 from the dirty development checkout. No production application is implied by local validation.
 See [business-display release runbook](docs/runbooks/business-display-consistency-release.md)
 for ownership recovery, compatibility, preflight and rollback.
+
+## Pending Server Management Release
+
+Dynamic DO/Vultr catalogues and independent readiness are local implementation
+changes, not a production rollout. Follow
+[server management operator guide](docs/testing/server-management-operator-guide.md)
+and [release matrix](docs/testing/server-management-release-matrix.md). Review new
+infrastructure migrations in numeric order and apply to DEV first. Migrations
+register no live nodes automatically. Existing-node adoption, provider-account
+registration, billable VPS acceptance and production Ansible deployment each need
+explicit owner approval. Preserve operation history/ownership ledgers during
+rollback and reconcile in-flight work rather than deleting its records.

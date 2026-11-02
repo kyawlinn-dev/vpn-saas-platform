@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabase.js";
 import {
   addDaysToDateOnly,
   businessDateOnly,
+  accessDateOnly,
   currentBusinessMonth,
   parseBusinessDay,
   parseBusinessMonth,
@@ -15,7 +16,7 @@ const router = express.Router();
 
 export function isTelegramManagedOrder(order) {
   const source = String(order?.source || "").toLowerCase();
-  return order?.customer?.customer_type === "telegram" || source === "miniapp" || source === "bot";
+  return ["telegram"].includes(order?.customer?.customer_type) || ["miniapp", "bot"].includes(source);
 }
 
 // A Telegram/miniapp purchase still awaiting review doesn't belong in the
@@ -52,7 +53,7 @@ router.get("/overview", async (req, res) => {
     const reseller = req.reseller;
     const monthWindow = parseBusinessMonth(currentBusinessMonth());
     const todayWindow = parseBusinessDay(businessDateOnly());
-    const today = businessDateOnly();
+    const today = accessDateOnly();
     const expiryHorizon = addDaysToDateOnly(today, 7);
 
     const [

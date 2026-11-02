@@ -1,6 +1,6 @@
 import {PackageUsage} from "../components/PackageUsage";
 import {BusinessStatus,PaymentReviewStatus} from "../components/BusinessStatus";
-import {daysLeft} from "../lib/businessDisplay";
+import {daysLeft,formatExpiryDeadline,type ExpiryValue} from "../lib/businessDisplay";
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Clipboard, Copy, Eye, Loader2, Search, Trash2, UserCheck, Users, Wallet } from 'lucide-react';
 import { ActionMenu, type ActionMenuItem } from '@/components/ui/action-menu';
@@ -80,7 +80,7 @@ function getAccessUrl(customer: Customer) {
   );
 }
 
-function remainingDays(value?:string|null) { const days=daysLeft(value); return days==null ? "Unavailable" : days<0 ? "Expired" : days===0 ? "Today" : `${days} days left`; }
+function remainingDays(value?:ExpiryValue) { const days=daysLeft(value); return days==null ? "Unavailable" : days<0 ? "Expired" : days===0 ? "Less than 1 day left" : `${days} days left`; }
 
 function displayTelegram(customer: Customer) {
   const username = customer.telegram_username || customer.telegram_link?.telegram_username;
@@ -446,7 +446,7 @@ export function CustomersPage({ resellers }: Props) {
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{customer.reseller?.name || '-'}</TableCell>
                     <TableCell>
-                      <div className="font-medium text-foreground">{activeOrder?.plan?.name || "No active package"}{!activeOrder && customer.last_order && <div className="text-xs text-muted-foreground">Last package: {customer.last_order.plan?.name || "Package"} · {formatDate(customer.last_order.expiry_date)}</div>}</div>
+                      <div className="font-medium text-foreground">{activeOrder?.plan?.name || "No active package"}{!activeOrder && customer.last_order && <div className="text-xs text-muted-foreground">Last package: {customer.last_order.plan?.name || "Package"} · {formatExpiryDeadline(customer.last_order)}</div>}</div>
                       <div className="text-xs text-muted-foreground">{activeOrder?.order_type || customer.customer_type}</div>
                     </TableCell>
                     <TableCell>
@@ -456,8 +456,8 @@ export function CustomersPage({ resellers }: Props) {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div>{formatDate(activeOrder?.expiry_date)}</div>
-                      <div className="text-xs text-muted-foreground">{remainingDays(activeOrder?.expiry_date)}</div>
+                      <div>{formatExpiryDeadline(activeOrder)}</div>
+                      <div className="text-xs text-muted-foreground">{remainingDays(activeOrder)}</div>
                     </TableCell>
                     <TableCell>
                       <PackageUsage quota={activeOrder?.business_summary?.quota} />
@@ -581,7 +581,7 @@ function CleanupPreviewDialog({
             <AlertTriangle size={16} className="mt-0.5 shrink-0" />
             <div>
               <p className="font-semibold">Only selected customers under {preview.reseller_name || 'this reseller'} will be deleted.</p>
-              <p className="mt-1 text-warning/85">This removes linked orders, payment ledger rows, VPN keys, tokens, and Telegram links for the selected test customers.</p>
+              <p className="mt-1 text-warning/85">This removes linked orders, payment ledger rows, VPN keys, tokens, trial history, and Telegram links for the selected test customers. These accounts can register again as fresh customers.</p>
             </div>
           </div>
         </div>
@@ -744,9 +744,9 @@ function CustomerDetailDialog({
 
           <div className="rounded-lg border border-border p-4">
             <div className="text-xs uppercase text-muted-foreground">Current Package</div>
-            <div className="mt-2 text-lg font-semibold text-foreground">{activeOrder?.plan?.name || "No active package"}{!activeOrder && customer.last_order && <div className="text-xs text-muted-foreground">Last package: {customer.last_order.plan?.name} · {formatDate(customer.last_order.expiry_date)}</div>}</div>
+            <div className="mt-2 text-lg font-semibold text-foreground">{activeOrder?.plan?.name || "No active package"}{!activeOrder && customer.last_order && <div className="text-xs text-muted-foreground">Last package: {customer.last_order.plan?.name} · {formatExpiryDeadline(customer.last_order)}</div>}</div>
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <Info label="Expiry" value={`${formatDate(activeOrder?.expiry_date)} (${remainingDays(activeOrder?.expiry_date)})`} />
+              <Info label="Expiry" value={`${formatExpiryDeadline(activeOrder)} (${remainingDays(activeOrder)})`} />
               <PackageUsage quota={activeOrder?.business_summary?.quota} freshness={activeOrder?.business_summary?.usage_freshness} />
               <Info label="Key Status" value={activeKey?.status || '-'} />
               <Info label="Orders" value={String(orders.length)} />
@@ -789,7 +789,7 @@ function CustomerDetailDialog({
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium text-foreground">{order.plan?.name || '-'}</div>
                   <div className="text-xs text-muted-foreground">
-                    {formatDate(order.created_at)} - expires {formatDate(order.expiry_date)}
+                    {formatDate(order.created_at)} - expires {formatExpiryDeadline(order)}
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {order.plan?.duration_days ?? '-'} days / {order.plan?.data_limit_gb ?? '-'} GB

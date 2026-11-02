@@ -19,6 +19,7 @@ const {
   createMarzneshinUser,
   panelExpireDateForOrder,
   updateMarzneshinUserDataLimit,
+  updateMarzneshinUserServices,
 } = await import("../services/marzneshinService.js");
 
 const server = {
@@ -44,8 +45,8 @@ beforeEach(() => {
 });
 
 describe("Marzneshin order expiry", () => {
-  it("ends after the order expiry day in Asia/Bangkok", () => {
-    expect(panelExpireDateForOrder("2026-10-10")).toBe("2026-10-10T17:00:00.000Z");
+  it("ends at 04:00 Myanmar the day after the displayed expiry date", () => {
+    expect(panelExpireDateForOrder("2026-10-10")).toBe("2026-10-10T21:30:00.000Z");
     expect(() => panelExpireDateForOrder(null)).toThrow("valid order expiry_date");
     expect(() => panelExpireDateForOrder("2026-02-30")).toThrow("valid order expiry_date");
   });
@@ -64,7 +65,7 @@ describe("Marzneshin order expiry", () => {
     expect(payload).toMatchObject({
       service_ids: [8],
       expire_strategy: "fixed_date",
-      expire_date: "2026-10-10T17:00:00.000Z",
+      expire_date: "2026-10-10T21:30:00.000Z",
       data_limit: 1024,
     });
   });
@@ -96,8 +97,39 @@ describe("Marzneshin order expiry", () => {
     expect(put).toHaveBeenCalledWith("/users/trial_customer", expect.objectContaining({
       service_ids: [8],
       expire_strategy: "fixed_date",
-      expire_date: "2026-10-17T17:00:00.000Z",
+      expire_date: "2026-10-17T21:30:00.000Z",
       data_limit: 2048,
     }));
+  });
+
+  it("changes only the service assignment for an existing user", async () => {
+    get.mockResolvedValue({ data: {
+      username: "existing_customer",
+      service_ids: [9],
+      expire_strategy: "fixed_date",
+      expire_date: "2026-12-23T17:00:00",
+      data_limit: 107374182400,
+      data_limit_reset_strategy: "no_reset",
+      note: "Existing customer",
+      enabled: true,
+    } });
+    put.mockResolvedValue({ data: { service_ids: [12] } });
+
+    await updateMarzneshinUserServices({
+      server,
+      outlineKeyId: "existing_customer",
+      serviceIds: [12],
+    });
+
+    expect(put).toHaveBeenCalledWith("/users/existing_customer", {
+      username: "existing_customer",
+      service_ids: [12],
+      expire_strategy: "fixed_date",
+      expire_date: "2026-12-23T17:00:00",
+      data_limit: 107374182400,
+      data_limit_reset_strategy: "no_reset",
+      note: "Existing customer",
+      enabled: true,
+    });
   });
 });

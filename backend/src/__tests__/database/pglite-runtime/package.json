@@ -1,0 +1,6 @@
+{
+  "name": "novanet-lifecycle-sql-validation",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@electric-sql/pglite": "0.3.14" }
+}

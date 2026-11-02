@@ -1,24 +1,18 @@
-// Reseller-initiated server switching for PAID orders only.
-//
-// Business rule (2026-08): paid customers may connect to ANY active,
-// healthy server with spare capacity — trial-tier included, any region.
-// This mirrors the relaxed access rule in resellerMiniappRoutes.js
-// (getMiniAppServerAccessState) so a reseller can manually move a customer
-// during an outage even to a trial server that happens to have room.
-// Trial orders are never eligible for this feature — trial customers stay
-// on trial-tier servers via the normal miniapp flow.
-//
-// No rate limit, no automatic customer notification — reseller handles
-// communication themselves (per user 2026-08-16 decision).
+// Public-mode SS trials and purchases share the same verified pool policy.
+// Legacy mode retains paid-only switching. Resellers handle customer notices.
 
 import express from "express";
 import { supabase } from "../../lib/supabase.js";
 import { switchOrderServer } from "../../services/subscriptionProvisionService.js";
-import { getRegionLocation } from "../../constants/doRegions.js";
+import { serverDisplay } from "../../services/serverDisplay.js";
+import { resolveServerAccessContext } from "../../services/serverAccessContext.js";
+import { evaluateServerAccess } from "../../services/serverAccessPolicy.js";
+import { accessDateOnly } from "../../utils/businessTime.js";
+import { annotateServerMaintenance } from "../../services/serverMaintenanceService.js";
 
 const router = express.Router();
 
-async function loadPaidActiveOrder(orderId, resellerId) {
+async function loadSwitchableActiveOrder(orderId, resellerId, accessContext) {
   const { data: order, error } = await supabase
     .from("vpn_orders")
     .select(`
@@ -33,17 +27,19 @@ async function loadPaidActiveOrder(orderId, resellerId) {
   if (error) throw error;
   if (!order) return { order: null, reason: "ORDER_NOT_FOUND" };
   if (order.status !== "active") return { order: null, reason: "ORDER_NOT_ACTIVE" };
-  if (order.order_type === "trial" || order.plan?.is_trial) {
+  if (accessContext?.publicAccessEnabled && (!order.expiry_date || order.expiry_date < accessDateOnly())) return { order: null, reason: "ORDER_EXPIRED" };
+  if (!accessContext?.publicAccessEnabled && (order.order_type === "trial" || order.plan?.is_trial)) {
     return { order: null, reason: "TRIAL_ORDERS_NOT_ELIGIBLE" };
   }
   return { order, reason: null };
 }
 
-async function loadCurrentActiveKey(orderId) {
+async function loadCurrentActiveKey(orderId, resellerId) {
   const { data, error } = await supabase
     .from("vpn_keys")
     .select("id, server_id, outline_key_id, status, protocol")
     .eq("order_id", orderId)
+    .eq("reseller_id", resellerId)
     .eq("status", "active")
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
@@ -65,14 +61,15 @@ router.get("/:orderId/eligible-servers", async (req, res) => {
   const { orderId } = req.params;
 
   try {
-    const { order, reason } = await loadPaidActiveOrder(orderId, resellerId);
+    const accessContext = await resolveServerAccessContext();
+    const { order, reason } = await loadSwitchableActiveOrder(orderId, resellerId, accessContext);
     if (!order) {
       const status = reason === "ORDER_NOT_FOUND" ? 404 : 400;
       return res.status(status).json({ error: reason });
     }
 
     // The active key defines the live protocol; preference is only for future keys.
-    const currentKey = await loadCurrentActiveKey(orderId);
+    const currentKey = await loadCurrentActiveKey(orderId, resellerId);
     const protocol = currentKey?.protocol || "shadowsocks";
     if (protocol !== "shadowsocks") {
       return res.status(400).json({
@@ -83,7 +80,7 @@ router.get("/:orderId/eligible-servers", async (req, res) => {
 
     const { data: servers, error } = await supabase
       .from("vpn_servers")
-      .select(
+      .select(accessContext.publicAccessEnabled ? "*,server_health_status(outline_api_status)" :
         "id, name, region, region_code, display_country, display_city, flag_emoji, " +
           "server_tier, current_active_keys, max_active_keys, " +
           "server_health_status(outline_api_status)"
@@ -96,26 +93,31 @@ router.get("/:orderId/eligible-servers", async (req, res) => {
     // Same city/country/flag fallback the miniapp uses (mapServerForMiniApp
     // in resellerMiniappRoutes.js) — falls back to the server's DigitalOcean
     // region when display_country/display_city/flag_emoji aren't set.
+    const visibleServers = await annotateServerMaintenance(servers || []);
     const toDisplayServer = (s) => {
-      const loc = getRegionLocation(s.region);
+      const display = serverDisplay(s);
       return {
         id: s.id,
-        name: s.name,
+        name: display.name,
         region: s.region,
         region_code: s.region_code,
-        display_country: s.display_country || loc?.country || s.region,
-        display_city: s.display_city || loc?.city || s.name,
-        flag_emoji: s.flag_emoji || loc?.flag || "🌐",
+        display_country: display.country || s.region,
+        display_city: display.city,
+        flag_emoji: display.flag,
         server_tier: s.server_tier || "premium",
+        under_maintenance: s.under_maintenance === true,
       };
     };
 
     const currentServerRow = currentKey?.server_id
-      ? (servers || []).find((s) => s.id === currentKey.server_id)
+      ? visibleServers.find((s) => s.id === currentKey.server_id)
       : null;
 
-    const eligible = (servers || [])
+    const eligible = visibleServers
+      .filter(s => !s.under_maintenance)
       .filter((s) => s.id !== currentKey?.server_id)
+      .filter(s => !accessContext.publicAccessEnabled || evaluateServerAccess({ server: s, protocol,
+        orderType: order.order_type, environment: accessContext.environment, poolId: accessContext.poolId, purpose: "switch" }).allowed)
       .filter((s) => {
         const capacity = Number(s.max_active_keys || 0) - Number(s.current_active_keys || 0);
         return capacity > 0;
@@ -154,13 +156,14 @@ router.post("/:orderId/switch-server", async (req, res) => {
   }
 
   try {
-    const { order, reason } = await loadPaidActiveOrder(orderId, resellerId);
+    const accessContext = await resolveServerAccessContext();
+    const { order, reason } = await loadSwitchableActiveOrder(orderId, resellerId, accessContext);
     if (!order) {
       const status = reason === "ORDER_NOT_FOUND" ? 404 : 400;
       return res.status(status).json({ error: reason });
     }
 
-    const currentKey = await loadCurrentActiveKey(orderId);
+    const currentKey = await loadCurrentActiveKey(orderId, resellerId);
     const protocol = currentKey?.protocol || "shadowsocks";
     if (protocol !== "shadowsocks") {
       return res.status(400).json({
@@ -178,7 +181,7 @@ router.post("/:orderId/switch-server", async (req, res) => {
 
     const { data: newServer, error: serverErr } = await supabase
       .from("vpn_servers")
-      .select(
+      .select(accessContext.publicAccessEnabled ? "*,server_health_status(outline_api_status)" :
         "id, name, region, server_tier, panel_type, panel_url, panel_username, panel_password_encrypted, " +
           "marzneshin_service_ids, marzneshin_vless_service_ids, " +
           "current_active_keys, max_active_keys, status, " +
@@ -190,6 +193,13 @@ router.post("/:orderId/switch-server", async (req, res) => {
     if (serverErr) throw serverErr;
     if (!newServer || newServer.status !== "active") {
       return res.status(400).json({ error: "SERVER_NOT_AVAILABLE" });
+    }
+    Object.assign(newServer, (await annotateServerMaintenance([newServer]))[0]);
+    if (newServer.under_maintenance) return res.status(409).json({ error: "SERVER_UNDER_MAINTENANCE" });
+    if (accessContext.publicAccessEnabled) {
+      const decision = evaluateServerAccess({ server: newServer, protocol, orderType: order.order_type,
+        environment: accessContext.environment, poolId: accessContext.poolId, purpose: "switch" });
+      if (!decision.allowed) return res.status(409).json({ error: decision.code });
     }
 
     const health = Array.isArray(newServer.server_health_status)
@@ -209,7 +219,7 @@ router.post("/:orderId/switch-server", async (req, res) => {
     }
 
     // migrateActiveOrderToServer expects order.customer/order.plan for key
-    // naming + data limit — already loaded by loadPaidActiveOrder.
+    // naming + data limit, already loaded with reseller ownership checks.
     const orderForMigration = {
       ...order,
       customer: order.customer,
@@ -221,6 +231,7 @@ router.post("/:orderId/switch-server", async (req, res) => {
       order: orderForMigration,
       newServer,
       oldKey: currentKey,
+      accessContext,
     });
 
     return res.json({

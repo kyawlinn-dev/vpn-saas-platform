@@ -10,6 +10,9 @@ import {
   Loader2,
   MapPin,
   Network,
+  Plus,
+  ArrowRightLeft,
+  Trash2,
   Server as ServerIcon,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -22,6 +25,9 @@ import { ActionMenu, type ActionMenuItem } from '@/components/ui/action-menu';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Server } from '@/types/api';
+import { readPendingServerOperation, ServerOperationDialog } from '@/components/servers/ServerOperationDialog';
+import { ServerOperationProgress } from '@/components/servers/ServerOperationProgress';
+import { serverOperationsApi, type OperationKind, type OperationList, type ServerOperation } from '@/features/serverOperations/api';
 
 const DO_REGIONS: { slug: string; label: string; country: string; code: string; area: string }[] = [
   { slug: 'sgp1', label: 'Singapore', country: 'Singapore', code: 'SG', area: 'Asia Pacific' },
@@ -43,6 +49,10 @@ function regionMeta(slug?: string | null) {
 function regionLabel(slug?: string | null) {
   if (!slug) return 'Unknown region';
   return regionMeta(slug)?.label ?? slug;
+}
+
+function serverLocation(server: Server) {
+  return server.display_city || regionLabel(server.region);
 }
 
 function formatDate(value?: string | null) {
@@ -75,6 +85,12 @@ function ServerTierBadge({ tier }: { tier?: string | null }) {
       {normalized === 'trial' ? 'Trial' : 'Premium'}
     </Badge>
   );
+}
+
+function ServerAccessBadge({ server }: { server: Server }) {
+  return server.supported_protocols?.length
+    ? <Badge variant="info">{server.supported_protocols.includes('shadowsocks') ? 'Dual Protocol' : 'VLESS Only'}</Badge>
+    : <ServerTierBadge tier={server.server_tier} />;
 }
 
 function copyValue(value?: string | number | null) {
@@ -228,9 +244,9 @@ function ServerDetailsDialog({ server, onClose }: { server: Server; onClose: () 
     <Dialog open onClose={onClose} size="lg">
       <DialogHeader>
         <div>
-          <DialogTitle>{server.name}</DialogTitle>
+          <DialogTitle>{server.flag_emoji ? `${server.flag_emoji} ` : ''}{server.name}</DialogTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            {server.provider ?? 'Unknown provider'} / {regionLabel(server.region)} / {getServerTier(server)} / {server.host_ip ?? 'No IP yet'}
+            {server.provider ?? 'Unknown provider'} / {serverLocation(server)} / {getServerTier(server)} / {server.host_ip ?? 'No IP yet'}
           </p>
         </div>
         <DialogClose onClose={onClose} />
@@ -245,7 +261,8 @@ function ServerDetailsDialog({ server, onClose }: { server: Server; onClose: () 
                 <p className="text-xs text-muted-foreground">active keys from {server.max_active_keys} max</p>
               </div>
               <div className="flex flex-col items-end gap-2">
-                <ServerTierBadge tier={server.server_tier} />
+                <ServerAccessBadge server={server} />
+                {server.under_maintenance && <Badge variant="warning">Under Maintenance</Badge>}
                 <ServerStatusBadge status={server.status} />
               </div>
             </div>
@@ -259,7 +276,7 @@ function ServerDetailsDialog({ server, onClose }: { server: Server; onClose: () 
             <div className="mt-3 space-y-2 text-sm">
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Region</span>
-                <span className="font-medium">{regionLabel(server.region)}</span>
+                <span className="font-medium">{serverLocation(server)}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Code</span>
@@ -270,8 +287,8 @@ function ServerDetailsDialog({ server, onClose }: { server: Server; onClose: () 
                 <span>{meta?.area ?? '-'}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">Tier</span>
-                <span className="font-medium">{getServerTier(server) === 'trial' ? 'Trial' : 'Premium'}</span>
+                <span className="text-muted-foreground">Access Pool</span>
+                <span className="min-w-0 break-all text-right text-xs">{server.access_pool_id ?? 'Legacy / unadopted'}</span>
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">Default</span>
@@ -293,7 +310,9 @@ function ServerDetailsDialog({ server, onClose }: { server: Server; onClose: () 
 
         <div className="grid gap-2 md:grid-cols-2">
           <DetailField label="Host IP" value={server.host_ip} copyable />
-          <DetailField label="Droplet ID" value={server.droplet_id} copyable />
+          <DetailField label="Instance ID" value={server.provider_resource_id || server.droplet_id} copyable />
+          <DetailField label="Server ID" value={server.id} copyable />
+          <DetailField label="Panel Node ID" value={server.panel_node_id} copyable />
           <DetailField label="Created" value={formatDate(server.created_at)} />
           <DetailField label="Updated" value={formatDate(server.updated_at)} />
         </div>
@@ -315,7 +334,39 @@ export function ServersPage({ servers, onSuccess }: Props) {
   const [detailTarget, setDetailTarget] = useState<Server | null>(null);
   const [tierUpdatingId, setTierUpdatingId] = useState<string | null>(null);
   const [serverError, setServerError] = useState('');
+  const [operations, setOperations] = useState<OperationList | null>(null);
+  const [operationError, setOperationError] = useState(false);
+  const [dialog, setDialog] = useState<{ mode: OperationKind; source?: Server } | null>(null);
+  const [selected, setSelected] = useState<ServerOperation | null>(null);
+  const publicAccess = operations?.public_access_enabled === true;
+  const recoveryAvailable = operations?.recovery_enabled ?? operations?.enabled;
+  const providerAvailable = operations?.provider_readiness === undefined || operations.provider_readiness.some(p => p.ready && p.profiles.length > 0);
+  const addUnavailableReason = operationError ? 'Operation status unavailable. Reconnecting.' : !operations ? 'Loading infrastructure readiness.' :
+    !operations.enabled ? `Infrastructure execution disabled${operations.reason ? `: ${operations.reason}` : ''}` : !providerAvailable ? 'No provider is ready. Check provider configuration.' : '';
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>; let delay = 10000;
+    async function refresh() {
+      try {
+        const current = await serverOperationsApi.list(controller.signal);
+        if (controller.signal.aborted) return;
+        setOperations(current); setOperationError(false); delay = 10000;
+        setSelected(previous => previous ? current.operations.find(op => op.id === previous.id) || previous : current.operations[0] || null);
+      } catch { if (controller.signal.aborted) return; setOperationError(true); delay = Math.min(delay * 2, 30000); }
+      timer = setTimeout(() => void refresh(), delay);
+    }
+    void refresh();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, []);
+
+  const operationCreated = (operation: ServerOperation) => {
+    setDialog(null); setSelected(operation);
+    setOperations(previous => previous && ({ ...previous, operations: [operation, ...previous.operations.filter(op => op.id !== operation.id)] }));
+    void onSuccess().catch(() => setServerError('Inventory refresh failed. Reload to confirm maintenance status.'));
+  };
+  const pendingSubmission = readPendingServerOperation();
 
   const isProvisioning = servers.some((server) => server.status === 'provisioning');
 
@@ -377,6 +428,18 @@ export function ServersPage({ servers, onSuccess }: Props) {
       onSelect: () => copyValue(server.host_ip),
     },
     {
+      label: 'Replace server',
+      icon: <ArrowRightLeft size={14} />,
+      disabled: !operations?.enabled || !providerAvailable || operationError || !server.access_pool_id || server.lifecycle_protected !== false || server.status === 'decommissioned',
+      onSelect: () => setDialog({ mode: 'replace', source: server }),
+    },
+    {
+      label: server.supported_protocols?.length === 1 && server.supported_protocols[0] === 'vless' ? 'Retire server' : 'Move and retire',
+      icon: server.supported_protocols?.length === 1 && server.supported_protocols[0] === 'vless' ? <Trash2 size={14} /> : <ArrowRightLeft size={14} />,
+      disabled: !recoveryAvailable || operationError || !server.access_pool_id || server.lifecycle_protected !== false || server.status === 'decommissioned',
+      onSelect: () => setDialog({ mode: 'move_retire', source: server }),
+    },
+    ...(!publicAccess ? [{
       label: 'Mark as trial',
       icon: <ServerIcon size={14} />,
       disabled:
@@ -395,7 +458,7 @@ export function ServersPage({ servers, onSuccess }: Props) {
         server.current_active_keys > 0 ||
         tierUpdatingId === server.id,
       onSelect: () => void updateServerTier(server, 'premium'),
-    },
+    }] : []),
   ];
 
   return (
@@ -407,7 +470,9 @@ export function ServersPage({ servers, onSuccess }: Props) {
             Capacity, region placement, and Marzneshin node health.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {pendingSubmission && <Button className="shrink-0 whitespace-nowrap" onClick={() => setDialog({ mode: pendingSubmission.quote.kind })}>Recover pending submission</Button>}
+          <Button className="shrink-0 whitespace-nowrap" variant="primary" leftIcon={<Plus size={15} />} disabled={Boolean(addUnavailableReason)} aria-describedby={addUnavailableReason ? 'add-server-unavailable' : undefined} onClick={() => setDialog({ mode: 'add' })}>Add Server</Button>
           {isProvisioning ? (
             <Badge variant="info" className="gap-1.5">
               <Loader2 size={11} className="animate-spin" />
@@ -416,6 +481,20 @@ export function ServersPage({ servers, onSuccess }: Props) {
           ) : null}
         </div>
       </div>
+
+      {addUnavailableReason && <p id="add-server-unavailable" role="status" className="break-words text-sm text-muted-foreground">{operations && !operations.enabled ? <><span>Infrastructure execution disabled</span>{operations.reason && <span>: {operations.reason}</span>}</> : addUnavailableReason}</p>}
+      {operations?.provider_readiness && <div aria-label="Provider readiness" className="flex flex-wrap gap-x-6 gap-y-1 border-y border-border py-3 text-xs text-muted-foreground">
+        {(['digitalocean', 'vultr'] as const).map(id => {
+          const provider = operations.provider_readiness?.find(p => p.id === id);
+          return <p key={id} className="min-w-0 break-words">{id === 'vultr' ? 'Vultr' : 'DigitalOcean'}: {provider?.ready ? 'Ready' : provider?.reason || 'Readiness unavailable'}</p>;
+        })}
+      </div>}
+      {selected && <ServerOperationProgress key={selected.id} initial={selected} onComplete={() => { void onSuccess().catch(() => setServerError('Inventory refresh failed. Reload to confirm server status.')); }} />}
+      {operations && operations.operations.length > 1 && <label className="block text-sm">Operation history
+        <select aria-label="Operation history" className="mt-1 block max-w-full rounded border border-border bg-background p-2 text-sm" value={selected?.id || ''} onChange={event => setSelected(operations.operations.find(op => op.id === event.target.value) || null)}>
+          {operations.operations.map(op => <option key={op.id} value={op.id}>{op.retire_only ? 'retire' : op.kind} / {op.status} / {op.id}</option>)}
+        </select>
+      </label>}
 
       {serverError ? (
         <div className="rounded-md border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -427,14 +506,14 @@ export function ServersPage({ servers, onSuccess }: Props) {
         <StatCard
           label="In Rotation"
           value={activeServers.length}
-          helper={`${premiumServers.length} premium, ${trialServers.length} trial`}
+          helper={publicAccess ? 'Shared trial and paid access' : `${premiumServers.length} premium, ${trialServers.length} trial`}
           icon={<ServerIcon size={17} />}
           tone="info"
         />
         <StatCard
-          label="Trial Capacity"
-          value={trialServers.reduce((sum, server) => sum + server.current_active_keys, 0) + '/' + trialServers.reduce((sum, server) => sum + server.max_active_keys, 0)}
-          helper={trialServers.length ? `${trialServers.length} trial server${trialServers.length !== 1 ? 's' : ''}` : 'No trial server configured'}
+          label={publicAccess ? 'Public Nodes' : 'Trial Capacity'}
+          value={publicAccess ? activeServers.filter(server => server.is_active && server.access_pool_id).length : trialServers.reduce((sum, server) => sum + server.current_active_keys, 0) + '/' + trialServers.reduce((sum, server) => sum + server.max_active_keys, 0)}
+          helper={publicAccess ? 'Published public pool members' : trialServers.length ? `${trialServers.length} trial server${trialServers.length !== 1 ? 's' : ''}` : 'No trial server configured'}
           icon={<Activity size={17} />}
           tone={trialServers.length ? 'success' : 'warning'}
         />
@@ -447,7 +526,7 @@ export function ServersPage({ servers, onSuccess }: Props) {
         />
         <StatCard
           label="Default Route"
-          value={defaultServer ? regionLabel(defaultServer.region) : '-'}
+          value={defaultServer ? serverLocation(defaultServer) : '-'}
           helper={defaultServer?.name ?? 'No default server'}
           icon={<Network size={17} />}
           tone={defaultServer ? 'success' : 'warning'}
@@ -474,7 +553,7 @@ export function ServersPage({ servers, onSuccess }: Props) {
             <p className="text-xs text-muted-foreground">Servers currently available or being prepared for customer keys.</p>
           </div>
           <Badge variant={failedServers.length ? 'warning' : 'success'}>
-            {failedServers.length ? `${failedServers.length} warning${failedServers.length !== 1 ? 's' : ''}` : 'Healthy'}
+            {failedServers.length ? `${failedServers.length} warning${failedServers.length !== 1 ? 's' : ''}` : 'No reported errors'}
           </Badge>
         </div>
 
@@ -500,30 +579,33 @@ export function ServersPage({ servers, onSuccess }: Props) {
                   )}
                 >
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-semibold text-foreground">{server.name}</span>
-                      <ServerTierBadge tier={server.server_tier} />
-                      {server.current_active_keys > 0 ? <Badge variant="outline">Tier locked</Badge> : null}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="min-w-0 break-words text-sm font-semibold text-foreground">{server.flag_emoji ? `${server.flag_emoji} ` : ''}{server.name}</span>
+                      <ServerAccessBadge server={server} />
+                      {!publicAccess && server.current_active_keys > 0 ? <Badge variant="outline">Tier locked</Badge> : null}
                       {server.is_default ? <Badge variant="info">Default</Badge> : null}
                       {rowWarning ? <Badge variant={server.status === 'failed' ? 'destructive' : 'warning'}>Check</Badge> : null}
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
                         <MapPin size={12} />
-                        {regionLabel(server.region)} {meta ? `(${meta.code})` : ''}
+                        {serverLocation(server)} {meta ? `(${meta.code})` : ''}
                       </span>
                       <span className="font-mono">{server.region ?? '-'}</span>
                       <span>{server.provider ?? 'provider unknown'}</span>
+                      {server.access_pool_id && <span>{server.environment === 'development' ? 'Development' : 'Production'} pool</span>}
+                      {server.supported_protocols?.length ? <span>{server.is_active ? 'Published' : 'Not published'}</span> : null}
                     </div>
                   </div>
 
-                  <div className="flex items-center">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {server.under_maintenance && <Badge variant="warning">Under Maintenance</Badge>}
                     <ServerStatusBadge status={server.status} />
                   </div>
 
                   <div className="min-w-0">
                     {server.status === 'provisioning' ? (
-                      <p className="text-xs text-muted-foreground">Waiting for Outline setup</p>
+                      <p className="text-xs text-muted-foreground">Waiting for node setup</p>
                     ) : (
                       <CapacityBar current={server.current_active_keys} max={server.max_active_keys} compact />
                     )}
@@ -577,11 +659,11 @@ export function ServersPage({ servers, onSuccess }: Props) {
                   <div>
                     <div className="flex items-center gap-2">
                       <p className="font-medium text-muted-foreground">{server.name}</p>
-                      <ServerTierBadge tier={server.server_tier} />
+                      <ServerAccessBadge server={server} />
                     </div>
                     <p className="font-mono text-xs text-muted-foreground/70">{server.host_ip ?? '-'}</p>
                   </div>
-                  <div className="text-muted-foreground">{regionLabel(server.region)}</div>
+                  <div className="text-muted-foreground">{serverLocation(server)}</div>
                   <div className="text-xs text-muted-foreground">Updated {formatDate(server.updated_at)}</div>
                   <ActionMenu items={getActions(server)} label="Server history actions" />
                 </div>
@@ -591,6 +673,7 @@ export function ServersPage({ servers, onSuccess }: Props) {
         </details>
       ) : null}
 
+      {dialog && (operations?.enabled || dialog.mode === 'move_retire' && recoveryAvailable || pendingSubmission) && <ServerOperationDialog mode={dialog.mode} source={dialog.source} servers={servers} options={operations?.options} providerReadiness={operations?.provider_readiness} onClose={() => setDialog(null)} onCreated={operationCreated} />}
       {editTarget ? (
         <EditCapacityDialog server={editTarget} onClose={() => setEditTarget(null)} onSuccess={onSuccess} />
       ) : null}

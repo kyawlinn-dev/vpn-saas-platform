@@ -1,16 +1,13 @@
-const CORE_COMMANDS = [
-  { command: "start", description: "🏠 ပင်မစာမျက်နှာ ဖွင့်ရန်" },
-  { command: "app", description: "📱 Mini App ဖွင့်ရန်" },
-  { command: "key", description: "🔑 VPN Key ကြည့်ရန်" },
-  { command: "balance", description: "📊 ဒေတာနှင့် သက်တမ်း စစ်ရန်" },
-  { command: "buy", description: "🛒 ပက်ကေ့ဂျ် ဝယ်ယူရန်" },
-  { command: "help", description: "💬 အကူအညီ ရယူရန်" },
-];
+import {COMMAND_DEFAULTS,contentItem} from './contentCatalog.js';
+import {renderBotContent} from './contentRendering.js';
 
-export function getBotCommands(trialEnabled) {
-  return trialEnabled
-    ? [...CORE_COMMANDS, { command: "trial", description: "🎁 အခမဲ့ စမ်းသုံးရန်" }]
-    : [...CORE_COMMANDS];
+export function getBotCommands(trialEnabled,snapshot={}) {
+  return COMMAND_DEFAULTS.filter(([command])=>trialEnabled||command!=='trial').map(([command,fallback])=>{
+    const key=`commands.${command}.description`;
+    let description=contentItem(key).default_text||fallback;
+    try{description=renderBotContent(key,snapshot[key]??description);}catch{}
+    return {command,description};
+  });
 }
 
 export function setCommandsMenu(telegram, chatId) {

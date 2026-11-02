@@ -72,7 +72,7 @@ export function TelegramOrdersPage() {
   } = usePaginatedTable<Order>(
     "/reseller/orders",
     {
-      scope: "telegram_purchases",
+      scope: "self_service_purchases",
       review_status: reviewFilter === "all" ? "" : reviewFilter,
       source: sourceFilter === "all" ? "" : sourceFilter,
     },
@@ -210,10 +210,10 @@ export function TelegramOrdersPage() {
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="font-display text-[18px] font-black tracking-tight text-foreground">
-            Telegram Orders
+            Payment Reviews
           </h1>
           <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
-            Review instant-access purchases from Mini App and bot. Confirm valid payments or reject fake ones.
+            Mini App and Telegram bot purchases
           </p>
         </div>
         <Button
@@ -248,7 +248,7 @@ export function TelegramOrdersPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         <Card className="p-2.5">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total Telegram Orders</div>
+          <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total Purchases</div>
           <div className="mt-1 text-lg font-black font-display text-foreground">{counts.total}</div>
         </Card>
         <Card className="p-2.5">
@@ -305,7 +305,7 @@ export function TelegramOrdersPage() {
         {/* Orders list */}
         {!loading && filteredOrders.length === 0 ? (
           <div className="rounded-md border border-border bg-secondary/40 px-4 py-8 text-center text-sm text-muted-foreground">
-            No Telegram purchase orders found for the current filter.
+            No purchase orders found for the current filter.
           </div>
         ) : (
           <>
@@ -333,7 +333,7 @@ export function TelegramOrdersPage() {
                             {order.customer?.full_name || "Unknown customer"}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            @{order.customer?.telegram_username || "no_username"}
+                            {`@${order.customer?.telegram_username || "no_username"}`}
                           </div>
                         </TableCell>
 
@@ -423,7 +423,7 @@ export function TelegramOrdersPage() {
                           {order.customer?.full_name || "Unknown customer"}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          @{order.customer?.telegram_username || "no_username"}
+                          {`@${order.customer?.telegram_username || "no_username"}`}
                         </div>
                       </div>
                       <Badge variant="default" className="capitalize shrink-0">

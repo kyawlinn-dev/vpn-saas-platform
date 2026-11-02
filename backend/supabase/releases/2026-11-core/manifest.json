@@ -1,0 +1,126 @@
+{
+  "productionProject": "daenwuszqdfkbjiatsjs",
+  "status": "rehearsal-only, no deployment authorization",
+  "baseline": "verified production through0039",
+  "migrations": [
+    {
+      "file": "0060_telegram_shared_core.sql",
+      "sha256": "7d1225ffeabd261ad3cf88a9d1bb0db3f6b7131f6c4e35431b5637e2d19e28b1"
+    },
+    {
+      "file": "0040_public_server_access.sql",
+      "sha256": "6802218c0da826f71c49605dce383f4831c6f53c9974408d4d86266d583ac8ce"
+    },
+    {
+      "file": "0041_server_operations.sql",
+      "sha256": "3346d6cdf6a0602487f0bfad3e19a7e71f8df6fc1d4d8df4bec8905f47435549"
+    },
+    {
+      "file": "0042_server_operation_coordination.sql",
+      "sha256": "5965065ed57f3166f13f9cbed647416e0c8f7203680dd746b2216b474f8bdf3b"
+    },
+    {
+      "file": "0043_server_operation_access_moves.sql",
+      "sha256": "fa27f90a5bc193c2ec988d25e7fdb2210b62da70edfa48fbc5f9c6f0c3315920"
+    },
+    {
+      "file": "0044_server_operation_commands.sql",
+      "sha256": "a764641961a54ef2821abbe360fd950b632d32407e732bc12439bf60cbff63d8"
+    },
+    {
+      "file": "0045_server_infrastructure_runtime.sql",
+      "sha256": "43e97a473981f64c0e66e1f5b3a8d199084c2ab592a146f66667720ed7dcecd6"
+    },
+    {
+      "file": "0046_server_candidate_publication.sql",
+      "sha256": "6ed6abeee6ad4f9a08e4bc783a9a78e4487afc20c1b498734e21a252e5d8faa0"
+    },
+    {
+      "file": "0047_server_customer_ownership.sql",
+      "sha256": "8bb6f60b244dc722a34262c3635747bd3208ec85fb4a9052f3ade248d69afe00"
+    },
+    {
+      "file": "0048_server_operation_item_recovery.sql",
+      "sha256": "2513e1d2ab7c24fba301a8745716accd9050f2520fb5edaface5d93a22c51a38"
+    },
+    {
+      "file": "0049_server_terminal_service_locks.sql",
+      "sha256": "92b8d044d256ecf33a34742d7e0d90326bed7566882ba1f0b0ab90e1feef69bd"
+    },
+    {
+      "file": "0051_existing_node_adoption.sql",
+      "sha256": "e41c738ddea314d31f0412d952b871011fba5ff94eee8fcdf48fc242111725f7"
+    },
+    {
+      "file": "0052_worker_runnable_pagination.sql",
+      "sha256": "75d700a80eae9be79888888621c659ba0480f05bbe19c0974499d31fcdb95bf4"
+    },
+    {
+      "file": "0053_server_display_names.sql",
+      "sha256": "8e3deff5d850fcd40cdd6f74400a9bbf7f9cfc996a9da8eabc9914fa4ab027a7"
+    },
+    {
+      "file": "0054_assignment_repair_conflicts.sql",
+      "sha256": "81006e5d931c6f9c1573f7ccb887e5a7b8d5dcf8cd677390bf7f53eff8248e95"
+    },
+    {
+      "file": "0055_expiration_safe_server_moves.sql",
+      "sha256": "c38dba395e30b927214feac79af4aa2e775357f1688473f1a5e980ffda737c49"
+    },
+    {
+      "file": "0057_panel_resource_retirement.sql",
+      "sha256": "c1bf3e02719d35bae312f25a9a98c63c274c0e82821fd4c50f69d066b119c054"
+    },
+    {
+      "file": "0058_telegram_bot_content.sql",
+      "sha256": "6183e57fa721df832c20713148a2101bfd83f2adf6e24eeae960ad4ff9edede7"
+    },
+    {
+      "file": "0061_telegram_customer_cleanup.sql",
+      "sha256": "4028fbf850cef98b8f8c36aff1c97e77a9d8eb221587e957e0de16f143eac753"
+    },
+    {
+      "file": "0062_lightnode_infrastructure.sql",
+      "sha256": "3e64c2e3ca638f53d7f64c8cfec43bbaa0a16b5f14309066ba7240ee6a5869f7"
+    },
+    {
+      "file": "0063_lightnode_access_adoption.sql",
+      "sha256": "3d0fb7a7c0ba09b2f72ed734f1f59377404997cde9efb7c50b8d71872ac790e3"
+    }
+  ],
+  "superseded": [
+    "0027–0036 mixed DEV history",
+    "0050_atomic_test_customer_cleanup.sql",
+    "0056_myanmar_trial_cutoff.sql"
+  ],
+  "deferred": [
+    "0059 announcements"
+  ],
+  "applyMode": "single atomic reviewed bundle; never sort migration filenames",
+  "baselineFunctions": [
+    {
+      "name": "activate_vpn_key",
+      "md5": "b8b915848d7585dcc35acf7f07447df0"
+    },
+    {
+      "name": "apply_confirmed_payment",
+      "md5": "894dcc13621e85e2c28c455678316b9e"
+    },
+    {
+      "name": "prepare_dashboard_purchase",
+      "md5": "3e54d60f5c61f1fedb4885f7cb35340b"
+    },
+    {
+      "name": "reserve_pending_key",
+      "md5": "b95eefcd0bd687894f2a716860186011"
+    },
+    {
+      "name": "sync_server_active_keys",
+      "md5": "1e53f02b19dae49560046f942e51d3aa"
+    }
+  ],
+  "bundle": {
+    "file": "apply-reviewed-package.sql",
+    "sha256": "1f71bc0c6743c005e348aa9629eff3c723eec994c5bd2be5aeec8bc89a16d377"
+  }
+}

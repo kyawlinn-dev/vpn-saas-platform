@@ -60,6 +60,8 @@ function getServerTier(server) {
 }
 
 function getTierSections(servers) {
+  const publicServers = (servers || []).filter(server => server.access_pool === "public");
+  if (publicServers.length) return [{ key: "public", tier: "public", Icon: Zap, tone: "violet", servers: publicServers }];
   return [
     {
       key: "premium",
@@ -113,7 +115,7 @@ function CurrentServerSummary({ server }) {
   const { t } = useLanguage();
   if (!server) return null;
 
-  const location = [server?.country, server?.city || server?.name]
+  const location = [server?.country, server?.name || server?.city]
     .filter(Boolean)
     .join(" / ");
   const ms = getLatencyMs(server);
@@ -145,11 +147,12 @@ function CurrentServerSummary({ server }) {
 
 function ServerRow({ server, linking, onSelect, locked = false, isVless = false }) {
   const { t } = useLanguage();
+  const maintenance = server?.under_maintenance === true || server?.access_reason === "SERVER_UNDER_MAINTENANCE";
   const isCurrent = !locked && !isVless && Boolean(server?.is_current);
-  const canAccess = locked || Boolean(server?.can_access);
+  const canAccess = !maintenance && (locked || Boolean(server?.can_access));
   const isIncluded = !locked && isVless && Boolean(server?.is_current) && canAccess;
   const ms = getLatencyMs(server);
-  const serverLabel = server?.city || server?.name || server?.region || t("nav.servers");
+  const serverLabel = server?.name || server?.city || server?.region || t("nav.servers");
 
   return (
     <div
@@ -163,7 +166,7 @@ function ServerRow({ server, linking, onSelect, locked = false, isVless = false 
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-[14px] font-medium text-foreground">
             {serverLabel}
-            {server?.server_number ? (
+            {server?.server_number && !serverLabel.endsWith(`#${server.server_number}`) ? (
               <span className="ml-1 text-[12px] font-bold text-warning">
                 #{server.server_number}
               </span>
@@ -182,7 +185,11 @@ function ServerRow({ server, linking, onSelect, locked = false, isVless = false 
         </div>
       </div>
 
-      {isIncluded ? (
+      {maintenance ? (
+        <span aria-disabled="true" className="max-w-[45%] shrink-0 rounded-md bg-warning/10 px-2.5 py-1 text-center text-[11px] font-semibold text-warning">
+          {t("servers.underMaintenance")}
+        </span>
+      ) : isIncluded ? (
         <span className="flex shrink-0 items-center gap-1 rounded-md bg-primary/20 px-2.5 py-1 text-[11px] font-semibold text-primary">
           <Check size={13} /> {t("servers.included")}
         </span>
@@ -289,7 +296,7 @@ function ServerTierSection({ section, openGroupKey, onToggleGroup, linking, onSe
         </span>
         <div>
           <h3 className="text-[14px] font-semibold text-foreground">
-            {section.tier === "trial" ? t("servers.trialServers") : t("servers.premiumServers")}
+            {section.tier === "public" ? t("servers.publicServers") : section.tier === "trial" ? t("servers.trialServers") : t("servers.premiumServers")}
           </h3>
           <p className="text-[11px] text-muted-foreground">
             {t("servers.count", { count })}
@@ -342,9 +349,8 @@ export default function ServersPage({
   const brand = data?.config?.brand || null;
   const protocol = data?.vpn_key?.protocol || data?.outline_key?.protocol || data?.protocol_preference || "shadowsocks";
   const isVless = protocol === "vless" || protocol === "hysteria2";
-  // Trial VLESS/Hysteria2 customers connect to the trial node only;
-  // premium VLESS customers get a global subscription URL covering all nodes.
-  const isVlessTrial = isVless && subscription?.type === "trial";
+  const hasPublicAccess = servers.some(server => server.access_pool === "public");
+  const isVlessTrial = isVless && subscription?.type === "trial" && !hasPublicAccess;
   const isVlessPremium = isVless && !isVlessTrial;
 
   useMiniAppPageView({
@@ -545,7 +551,7 @@ export default function ServersPage({
             </Dialog.Title>
             <Dialog.Description className="mt-2 mb-6 text-[13px] text-muted-foreground">
               {t("payment.linkDescription", {
-                server: selectedServer?.city || selectedServer?.name || t("servers.currentServer"),
+                server: selectedServer?.name || selectedServer?.city || t("servers.currentServer"),
               })}
             </Dialog.Description>
 

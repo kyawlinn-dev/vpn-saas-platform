@@ -12,7 +12,7 @@ import {
   SecondaryButton,
 } from "../components/ui/primitives";
 import { cn } from "@/lib/utils";
-import { formatDate } from "../lib/format";
+import { expiryCutoffAt, formatExpiryDeadline } from "../lib/businessDisplay";
 import { getShareUrl, getImportUrl } from "../lib/links";
 import { copyText } from "../lib/clipboard";
 import {
@@ -40,7 +40,7 @@ function AccessHero({ subscription, keyForActions, hasImportLink, onToast }) {
   const { t } = useLanguage();
   const quota = quotaDisplay(subscription?.business_summary?.quota ?? subscription?.quota);
   const percent = quota.percent;
-  const validUntil = subscription?.expiry_date ? formatDate(subscription.expiry_date) : null;
+  const validUntil = expiryCutoffAt(subscription) ? formatExpiryDeadline(subscription, {timeZoneLabel:t('access.myanmarTime')}) : null;
   const secondary = quota.kind === "unknown" ? t("business.unavailable")
     : quota.used.replace(/ GB$/, "") + " / " + (quota.kind === "unlimited" ? t("business.unlimited") : quota.total);
   const paymentLabel = getPackagePaymentLabel(subscription,t);
@@ -94,7 +94,7 @@ function AccessHero({ subscription, keyForActions, hasImportLink, onToast }) {
       {/* Expiry */}
       <div className="mb-4 flex items-center justify-center gap-1.5 text-[12px] text-muted-foreground">
         <span className="h-1 w-1 rounded-full bg-muted-foreground" />
-        {validUntil ? t("access.validUntil", { date: validUntil }) : t("access.validUntilMissing")}
+        {validUntil ? t("access.expiryDeadline", { date: validUntil }) : t("access.validUntilMissing")}
       </div>
 
       <PrimaryButton onClick={handleCopySubscription} disabled={!hasImportLink}>
@@ -107,7 +107,7 @@ function AccessHero({ subscription, keyForActions, hasImportLink, onToast }) {
 
 function CurrentServerCard({ server, onChangeServer }) {
   const { t } = useLanguage();
-  const location = [server?.country, server?.city || server?.name]
+  const location = [server?.country, server?.name || server?.city]
     .filter(Boolean)
     .join(" / ");
 

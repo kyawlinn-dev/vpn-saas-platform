@@ -6,7 +6,7 @@ import {
   GlassCard,
   PrimaryButton,
 } from "../components/ui/primitives";
-import { formatDate } from "../lib/format";
+import { expiryCutoffAt, formatExpiryDeadline } from "../lib/businessDisplay";
 import { cn } from "@/lib/utils";
 import PackageCard from "../features/packages/PackageCard";
 import { useLanguage } from "../i18n/language";
@@ -57,7 +57,7 @@ function EmptyStateCard({ icon, title, description }) {
 function CurrentPlanCard({ subscription }) {
   const { t } = useLanguage();
   const planName = subscription?.plan_name || "Premium Plan";
-  const expiry = subscription?.expiry_date ? formatDate(subscription.expiry_date) : null;
+  const expiry = expiryCutoffAt(subscription) ? formatExpiryDeadline(subscription, {timeZoneLabel:t('access.myanmarTime')}) : null;
 
   return (
     <GlassCard className="flex items-center justify-between p-3.5">
@@ -65,7 +65,7 @@ function CurrentPlanCard({ subscription }) {
         <p className="text-[14px] font-semibold text-foreground">{planName}</p>
         {expiry && (
           <p className="text-[12px] text-muted-foreground">
-            {t("access.validUntil", { date: expiry })}
+            {t("access.expiryDeadline", { date: expiry })}
           </p>
         )}
       </div>

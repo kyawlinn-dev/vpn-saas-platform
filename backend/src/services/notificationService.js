@@ -1,33 +1,19 @@
-// Customer notification service — Phase 1a of bot v2.
-//
-// Runs from customerNotificationsJob (every 10 min). One pass per tick:
-// for each of the 6 event types, find eligible customers, filter for anti-spam
-// (quiet hours, daily cap, dedup, reseller kill-switch), then send.
-//
-// Design principles:
-//  - Missed > duplicate. Failed sends are logged and dropped, never retried.
-//    The unique constraint on (customer_id, event_type, order_id) is the
-//    hard dedup floor even if the JS-side dedup check races.
-//  - Per-reseller kill-switch: `resellers.notifications_paused = true` skips
-//    ALL customer notifications for that reseller's customers.
-//  - Quiet hours 22:00–08:00 Myanmar time (Asia/Yangon). During quiet hours
-//    the whole pass no-ops for customer events.
-//  - Daily cap: at most 2 sends per customer in the last 24h. Simpler and
-//    close enough to "current calendar day Yangon" without TZ math.
-//  - No retroactive spam: on first run against production, run the seed
-//    script (backend/scripts/seed-notifications-sent.mjs) BEFORE the job
-//    ticks, so already-eligible triggers get marked "sent" and skipped.
+// Scheduled eligibility and template selection; delivery is channel-aware.
+// Payment review also calls the shared notifier immediately. Durable delivery
+// claims deduplicate both paths. Reminder caps exclude payment-result events.
 
 import { Markup } from "telegraf";
 import { supabase } from "../lib/supabase.js";
 import { logger } from "../lib/logger.js";
-import { sendMessageAsReseller } from "../bot/manager.js";
-import { renderNotification, formatBurmeseDate } from "../bot/notificationTemplates.js";
+import { notifyCustomerEvent } from "./customerNotificationService.js";
+import { renderNotification, formatBurmeseDate, formatExpiryDeadline } from "../bot/notificationTemplates.js";
+import { orderExpiryAt, EXPIRY_TIME_ZONE } from "../utils/businessTime.js";
 import { buildWebAppUrl } from "../bot/webAppUrl.js";
 
 const log = logger.child({ service: "notifications" });
 
 const DAILY_CAP = 2;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ── Time helpers ─────────────────────────────────────────────────────────────
 // All customer-facing scheduling uses Asia/Yangon (Myanmar), UTC+06:30.
@@ -45,12 +31,12 @@ export function yangonDate(now = new Date()) {
   return fmt.format(now); // en-CA => "YYYY-MM-DD"
 }
 
-/** Add `days` to a YYYY-MM-DD string, return YYYY-MM-DD. */
-function shiftDate(ymd, days) {
-  const [y, m, d] = ymd.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
+/** Date-based notifications only; payment/data delivery has no quiet gate. */
+function expiryNotificationHours(now) {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: EXPIRY_TIME_ZONE, hour: "2-digit", hourCycle: "h23",
+  }).format(now));
+  return hour >= 8 && hour < 21;
 }
 
 // ── Send + record ────────────────────────────────────────────────────────────
@@ -110,15 +96,17 @@ function buildNotificationMarkup(eventType, deepLinkUrl, supportUsername) {
   return rows.length > 0 ? Markup.inlineKeyboard(rows) : null;
 }
 
-async function sendAndRecord({
+export async function sendAndRecord({
   resellerId,
   customerId,
-  telegramUserId,
   eventType,
   orderId,
   text,
   replyMarkup,
+  data,
+  paymentId,
 }) {
+  const isPayment = ["payment_confirmed", "payment_rejected"].includes(eventType);
   // Dedup pre-check — cheaper than round-tripping to Telegram then hitting a
   // unique-violation. Race-safe because the DB constraint is the ultimate
   // guard.
@@ -129,32 +117,29 @@ async function sendAndRecord({
     .eq("event_type", eventType)
     .eq("order_id", orderId)
     .maybeSingle();
-  if (existing) return { sent: false, reason: "already_sent" };
+  if (existing && !isPayment) return { sent: false, reason: "already_sent" };
 
   // Daily cap — count in last 24h. Approximate to "calendar day Yangon" for
   // the customer, but avoids TZ math around midnight.
   const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { count: todaysCount } = await supabase
+  const { count: todaysCount, error: capError } = isPayment ? { count: 0 } : await supabase
     .from("notifications_sent")
     .select("*", { count: "exact", head: true })
     .eq("customer_id", customerId)
+    .not("event_type", "in", "(payment_confirmed,payment_rejected)")
     .gte("sent_at", dayAgo);
+  if (capError) return { sent: false, reason: "cap_lookup_failed" };
   if ((todaysCount || 0) >= DAILY_CAP) {
     return { sent: false, reason: "daily_cap_hit" };
   }
 
-  // Send via the reseller's bot.
-  const result = await sendMessageAsReseller(resellerId, telegramUserId, text, {
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
-    ...(replyMarkup || {}),
-  });
-  if (!result.ok) {
+  const result = await notifyCustomerEvent({ resellerId, customerId, orderId, eventType, text, replyMarkup, data, paymentId });
+  if (!result.sent) {
     log.warn(
       { event_type: eventType, customer_id: customerId, code: result.code, err: result.message },
       "notification send failed"
     );
-    return { sent: false, reason: `send_failed:${result.code}` };
+    return result;
   }
 
   // Record. Ignore unique-violation (23505) silently — a parallel job tick
@@ -163,7 +148,7 @@ async function sendAndRecord({
     customer_id: customerId,
     event_type: eventType,
     order_id: orderId,
-    channel: "telegram",
+    channel: result.channel,
   });
   if (insertErr && insertErr.code !== "23505") {
     log.warn(
@@ -187,8 +172,8 @@ function buildDeepLink(resellerRow) {
 // Each fetch returns an array of { customer_id, telegram_user_id, order_id,
 // data{...template placeholders...} } rows ready to hand to sendAndRecord.
 //
+// Recipient selection belongs to customerNotificationService, not these queries.
 // Excludes:
-//  - customers with no telegram_links (can't DM them)
 //  - resellers with notifications_paused = true (kill switch)
 //  - orders whose notification for this event has already been recorded
 //    (JS-side skip; the unique constraint is the safety net)
@@ -207,7 +192,7 @@ async function fetchResellerMiniappsById(resellerIds) {
   return new Map((data || []).map((r) => [r.reseller_id, r]));
 }
 
-async function fetchOrderBasedEvent({ eventType, orderFilter }) {
+async function fetchOrderBasedEvent({ eventType, orderFilter, isDue }) {
   // Base: pending orders matching the trigger + reseller not paused +
   //       customer has a telegram_user_id via telegram_links.
   let q = supabase
@@ -232,12 +217,12 @@ async function fetchOrderBasedEvent({ eventType, orderFilter }) {
     return [];
   }
 
-  const miniappsById = await fetchResellerMiniappsById((data || []).map((o) => o.reseller_id));
+  const dueOrders = (data || []).filter(o => isDue(o.expiry_date));
+  const miniappsById = await fetchResellerMiniappsById(dueOrders.map((o) => o.reseller_id));
 
   const rows = [];
-  for (const o of data || []) {
+  for (const o of dueOrders) {
     const tgUserId = o.customer?.telegram_links?.[0]?.telegram_user_id;
-    if (!tgUserId) continue;
 
     const miniapp = miniappsById.get(o.reseller_id);
     const brand = miniapp?.brand_name || "";
@@ -255,6 +240,11 @@ async function fetchOrderBasedEvent({ eventType, orderFilter }) {
         brand_name: brand,
         plan_name: plan,
         expiry_date: expiry,
+        // expiry_date retains the stored date label for custom templates.
+        // Deadline text and machine metadata describe D+1 04:00 Myanmar.
+        expiry_deadline: formatExpiryDeadline(o.expiry_date),
+        expiry_cutoff_at: orderExpiryAt(o.expiry_date),
+        expiry_timezone: EXPIRY_TIME_ZONE,
         support_username: support,
         deep_link_url: deepLink,
       },
@@ -298,24 +288,22 @@ async function excludeCustomersWithActivePurchase(rows) {
   const customerIds = [...new Set(rows.map((r) => r.customerId))];
   const { data: activePurchases, error } = await supabase
     .from("vpn_orders")
-    .select("customer_id")
+    .select("customer_id, reseller_id")
+    .in("reseller_id", [...new Set(rows.map(r => r.resellerId))])
     .in("customer_id", customerIds)
     .eq("order_type", "purchase")
     .eq("status", "active");
   if (error) {
     log.warn({ err: error }, "failed to check active-purchase exclusion for trial events");
-    return rows;
+    return [];
   }
-  const excluded = new Set((activePurchases || []).map((p) => p.customer_id));
-  return rows.filter((r) => !excluded.has(r.customerId));
+  // Status remains active throughout paid grace; do not filter on calendar date.
+  const excluded = new Set((activePurchases || []).map((p) => `${p.reseller_id}:${p.customer_id}`));
+  return rows.filter((r) => !excluded.has(`${r.resellerId}:${r.customerId}`));
 }
 
-async function findTrialEndingIn24h() {
-  const target = shiftDate(yangonDate(), 1);
-  let rows = await fetchOrderBasedEvent({
-    eventType: "trial_ending_24h",
-    orderFilter: (q) => q.eq("order_type", "trial").eq("status", "active").eq("expiry_date", target),
-  });
+async function findTrialEndingIn24h(now) {
+  let rows = await findExpiryEvent("trial_ending_24h", true, now, 0, DAY_MS);
   rows = await excludeCustomersWithActivePurchase(rows);
   return attachCheapestPlanPrice(rows);
 }
@@ -331,40 +319,42 @@ async function attachCheapestPlanPrice(rows) {
   return rows;
 }
 
-// trial_expired and subscription_expired both used to match purely on
-// expiry_date, with no status check — so an order that already stopped
-// EARLY for any other reason (data_limit_reached, a manual stop, ...) would
-// still fire this a second, redundant/stale time once its original
-// calendar expiry date rolled around, even though the customer already
-// found out (or should have) days earlier. Restricting to status='active'
-// fixes that without breaking the normal case: autoStopJob only stops
-// orders once expiry_date is strictly in the PAST (`< today`), so on the
-// actual expiry day itself a normally-expiring order is still 'active' when
-// this check runs — this filter only excludes the early-stopped edge cases,
-// not the everyday one.
-async function findTrialExpired() {
-  const today = yangonDate();
-  let rows = await fetchOrderBasedEvent({
-    eventType: "trial_expired",
-    orderFilter: (q) => q.eq("order_type", "trial").eq("status", "active").eq("expiry_date", today),
-  });
+async function findTrialExpired(now) {
+  let rows = await findExpiryEvent("trial_expired", true, now, -DAY_MS, 0);
   rows = await excludeCustomersWithActivePurchase(rows);
   return attachCheapestPlanPrice(rows);
 }
 
-async function findSubscriptionExpiringIn3d() {
-  const target = shiftDate(yangonDate(), 3);
-  return fetchOrderBasedEvent({
-    eventType: "subscription_expiring_3d",
-    orderFilter: (q) => q.neq("order_type", "trial").eq("status", "active").eq("expiry_date", target),
-  });
+async function findSubscriptionExpiringIn3d(now) {
+  return findExpiryEvent("subscription_expiring_3d", false, now, 2 * DAY_MS, 3 * DAY_MS);
 }
 
-async function findSubscriptionExpired() {
-  const today = yangonDate();
+async function findSubscriptionExpired(now) {
+  return findExpiryEvent("subscription_expired", false, now, -DAY_MS, 0);
+}
+
+// Windows are (minRemaining, maxRemaining], measured against the true cutoff.
+// Expired notices catch up for 24h after cutoff, including auto-expired rows,
+// but never stopped orders (manual/data stops). Date bounds keep DB scans small;
+// canonical deadline validation is the final eligibility check.
+async function findExpiryEvent(eventType, trial, now, minRemaining, maxRemaining) {
+  if (!expiryNotificationHours(now)) return [];
+  const earliest = new Date(now.getTime() + minRemaining).toISOString().slice(0, 10);
+  const latest = new Date(now.getTime() + maxRemaining).toISOString().slice(0, 10);
+  const expiredEvent = maxRemaining === 0;
   return fetchOrderBasedEvent({
-    eventType: "subscription_expired",
-    orderFilter: (q) => q.neq("order_type", "trial").eq("status", "active").eq("expiry_date", today),
+    eventType,
+    orderFilter: q => {
+      q = trial ? q.eq("order_type", "trial") : q.neq("order_type", "trial");
+      q = expiredEvent ? q.in("status", ["active", "expired"]) : q.eq("status", "active");
+      return q.gte("expiry_date", earliest).lte("expiry_date", latest);
+    },
+    isDue: date => {
+      const cutoff = orderExpiryAt(date);
+      if (!cutoff) return false;
+      const remaining = Date.parse(cutoff) - now.getTime();
+      return remaining > minRemaining && remaining <= maxRemaining;
+    },
   });
 }
 
@@ -406,12 +396,13 @@ async function findPaymentEvent(reviewStatus, eventType) {
   const rows = [];
   for (const p of data || []) {
     const tgUserId = p.customer?.telegram_links?.[0]?.telegram_user_id;
-    if (!tgUserId || !p.order_id) continue;
+    if (!p.order_id) continue;
 
     const miniapp = miniappsById.get(p.reseller_id);
 
     rows.push({
       customerId: p.customer_id,
+      paymentId: p.id,
       telegramUserId: Number(tgUserId),
       orderId: p.order_id,
       resellerId: p.reseller_id,
@@ -486,7 +477,6 @@ async function sendSingleOrderNotification(orderId, eventType, extraData = {}) {
   if (!order) return { sent: false, reason: "not_found_or_reseller_paused" };
 
   const tgUserId = order.customer?.telegram_links?.[0]?.telegram_user_id;
-  if (!tgUserId) return { sent: false, reason: "no_telegram_link" };
 
   const miniappsById = await fetchResellerMiniappsById([order.reseller_id]);
   const miniapp = miniappsById.get(order.reseller_id);
@@ -511,6 +501,7 @@ async function sendSingleOrderNotification(orderId, eventType, extraData = {}) {
     eventType,
     orderId: order.id,
     text,
+    data,
     replyMarkup: buildNotificationMarkup(eventType, data.deep_link_url, data.support_username),
   });
 }
@@ -535,13 +526,13 @@ export async function notifyDataLimitWarning(orderId, { percentUsed, remainingGb
  * Run one notification pass. Callable from the scheduler OR one-off scripts.
  * Returns { skipped_quiet_hours, per_event: {...counts} } for observability.
  *
- * Quiet-hours gating removed 2026-08-24 per explicit product decision —
- * customer notifications can now fire at any hour. `force` is kept as a
- * no-op parameter for API/caller compatibility (admin "run pass now"
- * endpoint still passes it) rather than ripping it out everywhere at once.
+ * Expiry-only delivery window: 08:00 inclusive to 21:00 exclusive Myanmar.
+ * Payment and data events keep their immediate behavior. `force` remains a
+ * compatibility no-op and cannot bypass deadline eligibility or this window.
  */
 export async function runNotificationPass({ force = false } = {}) {
   void force;
+  const now = new Date();
 
   const events = [
     { type: "trial_ending_24h",         find: findTrialEndingIn24h },
@@ -554,7 +545,7 @@ export async function runNotificationPass({ force = false } = {}) {
 
   const summary = {};
   for (const { type, find } of events) {
-    const eligible = await find();
+    const eligible = await find(now);
     const customTemplates = eligible.length > 0
       ? await fetchCustomTemplatesForEvent(type)
       : new Map();
@@ -571,6 +562,8 @@ export async function runNotificationPass({ force = false } = {}) {
         eventType: type,
         orderId: row.orderId,
         text,
+        data: row.data,
+        paymentId: row.paymentId,
         replyMarkup: buildNotificationMarkup(type, row.data.deep_link_url, row.data.support_username),
       });
       if (result.sent) sent += 1;

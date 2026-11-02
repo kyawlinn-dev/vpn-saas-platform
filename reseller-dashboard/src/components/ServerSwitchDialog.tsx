@@ -10,13 +10,9 @@ import { FlagIcon } from "@/lib/flag";
 import { api } from "@/lib/api";
 import type { EligibleServer, EligibleServersResponse, Order } from "../types/api";
 
-// Mirrors how the miniapp presents servers to customers (ServersPage.jsx):
-// city as the title, country as the subtitle, real flag — never the raw
-// internal server name/slug. The backend fills display_city/display_country
-// from the server's DigitalOcean region as a fallback when they aren't set
-// directly, so this is never a raw slug like "sgp1-3111".
+// Preserve the public ordinal name; geography is secondary metadata.
 function serverLabel(s: { display_city: string | null; display_country: string | null; name: string }) {
-  const title = s.display_city || s.name;
+  const title = s.name || s.display_city;
   const subtitle = s.display_country && s.display_country !== title ? s.display_country : null;
   return { title, subtitle };
 }
@@ -139,6 +135,7 @@ export function ServerSwitchDialog({ order, open, onClose, onSwitched }: ServerS
               <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Currently connected
               </div>
+              {currentServer.under_maintenance && <div className="text-xs text-warning">Under Maintenance</div>}
               <div className="truncate text-sm font-medium text-foreground">
                 {serverLabel(currentServer).title}
                 {serverLabel(currentServer).subtitle ? (

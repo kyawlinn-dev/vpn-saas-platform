@@ -1,4 +1,4 @@
-import { expiryBusinessState } from "../utils/businessTime.js";
+import { expiryBusinessState, orderExpiryAt, EXPIRY_TIME_ZONE } from "../utils/businessTime.js";
 
 const numeric = (value) => value != null && Number.isFinite(Number(value)) ? Number(value) : null;
 const startedAt = (order) => order.activated_at || order.start_date || null;
@@ -43,6 +43,8 @@ export function summarizeOrderBusiness(order, { quota = order?.quota || null, fr
   const manualPending = staffPurchase && order?.order_type === "purchase" && state === "pending" && order?.payment_status === "paid" && order?.review_status === "confirmed" && Object.hasOwn(order,"dashboard_setup") && !setup;
   return {
     access_status: state === "scheduled" ? "queued" : state === "active" && expiry.expired ? "expired" : ["active", "pending", "stopped", "expired"].includes(state) ? state : "unknown",
+    expiry_cutoff_at: orderExpiryAt(order?.expiry_date),
+    expiry_timezone: EXPIRY_TIME_ZONE,
     payment_review_status: order?.order_type === "trial" ? "no_payment_required" : payments.length ? oneOrMixed(payments.map((p) => review(p.review_status))) : paymentsLoaded ? order?.payment_status === "unpaid" ? "unpaid" : review(order?.review_status) : "unknown",
     application_status: payments.length ? oneOrMixed(payments.map((p) => p.apply_status || (p.review_status === "confirmed" ? "applied" : "pending"))) : "unknown",
     pending_review_count: payments.filter((p) => p.review_status === "pending_review").length,
@@ -61,9 +63,9 @@ export function summarizeOrderBusiness(order, { quota = order?.quota || null, fr
 export function toPublicBusinessSummary(summary) {
   if (!summary) return null;
   const { access_status, payment_review_status, application_status, pending_review_count,
-    has_active_key, is_expiring_soon, quota, duration_days, usage_freshness, snapshot_basis } = summary;
+    has_active_key, is_expiring_soon, quota, duration_days, usage_freshness, snapshot_basis, expiry_cutoff_at, expiry_timezone } = summary;
   return { access_status, payment_review_status, application_status, pending_review_count,
-    has_active_key, is_expiring_soon, quota, duration_days, usage_freshness, snapshot_basis };
+    has_active_key, is_expiring_soon, quota, duration_days, usage_freshness, snapshot_basis, expiry_cutoff_at, expiry_timezone };
 }
 
 // Receipt review is independent of which package currently supplies access.

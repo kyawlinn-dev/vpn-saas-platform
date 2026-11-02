@@ -1,5 +1,157 @@
 # NovaNet MM - System Design
 
+## LightNode Provider Integration (2026-11-01, DEV Source)
+
+LightNode uses the same queue, leases, protected-resource registry, global VLESS
+pool, per-dual-node SS services and customer migration workflow as DO/Vultr.
+Its provider boundary handles asynchronous create/release receipts and discovers
+all API regions with compatible packages and root Ubuntu images automatically.
+The API does not return monetary prices: quotes retain a null amount, explicitly
+label provider billing, and require confirmation without a regional price gate.
+Traffic and bandwidth specifications come from the API, never console estimates.
+A token fingerprint and exact protected instance anchor support an
+operator-attested connection ID; this is not a provider-returned account UUID.
+
+Its explicit first-contact TOFU policy observes and saves the host key before
+authentication, then installs/verifies infrastructure key login and disables
+password authentication. Every subsequent session pins that key. Existing
+DO/Vultr cloud-init pre-pinning is unchanged. Cloud firewall creation/rule
+inspection is undocumented; LightNode verifies host UFW instead. Durable
+task/resource receipts prevent duplicate submission after uncertain responses.
+Instance-package billing evidence does not audit detached external resources.
+See `docs/runbooks/lightnode-automation.md` for supported boundaries and manual
+acceptance. Existing protected live mirrors stay protected.
+
+## Telegram Presentation Configuration (2026-10-29, DEV Source)
+
+Approved wording lives in `backend/src/bot/contentDefaults.js` (44 reviewed
+entries over the baseline catalogue). Messages, button labels, command descriptions
+and callback identifiers are code-owned. Historical reseller text overrides stay
+stored for history but are ignored by runtime snapshots.
+
+Reseller Bot Links configures two optional HTTPS guide URLs (Outline and
+Happ/Hiddify/V2Box). Filled guide URLs create direct Telegram URL buttons; blank
+guide URLs use existing in-chat instructions. Downloads always use the built-in
+device menus and app URLs, including Outline. Historical download-post overrides
+are ignored and cannot be edited.
+Both guides are always offered, without looking up the customer's protocol.
+Old inline callbacks remain compatible with the current link configuration.
+
+The existing private reseller_bot_content table and authenticated bot-content
+API are reused, with a server-side two-key guide allowlist for reads and mutations.
+Telegraf reads one URL snapshot per update and binds it with AsyncLocalStorage;
+parallel tenants cannot share mutable settings. Saves/clears affect the next
+interaction without rewriting messages or restarting bots. Notifications retain
+their existing settings/editor. Trial, quota, expiry, payment, provisioning and
+server-access policies are unchanged. Existing 0058 is sufficient; this refactor
+requires no new migration or production deployment.
+
+## Fixed-IP DEV Execution (2026-10-28)
+
+Local development may use SERVER_OPERATIONS_EXECUTION_MODE=remote. Existing
+admin-authenticated operation requests are sent over pinned SSH to a standalone,
+loopback-only DEV runner on the existing fixed-IP host. The runner uses the same
+scoped database operation queue, quotes, idempotency and fenced adapters; no
+second lifecycle engine or public management API is introduced. Customer mutation
+coordination remains enabled locally. Local provider construction/worker startup
+is disabled and there is no connection-loss fallback. The separate account,
+directory, environment and service do not run any customer/bot jobs or replace
+the production backend. Stable runner/panel sources are used in DEV firewall
+profiles and new-node UFW, removing laptop public-IP churn from the workflow.
+
+## Recycled Panel IDs (2026-10-28)
+
+Panel numeric IDs identify a current incarnation, not permanent ownership.
+Deletion records an encrypted subtree manifest, verifies remote absence and
+archives exact receipts under the current fence. Original receipts remain as
+readable tombstones until the deleting operation completes or is safely
+cancelled. Only then may an explicit new registration reuse an archived numeric
+ID. Current server uniqueness excludes inactive decommissioned history, while
+operation/provider receipts remain mandatory for candidate registration.
+Private-service cleanup compares its saved candidate receipts before mutation;
+an old candidate cannot delete a newer service that happens to reuse its ID.
+Audit history is append-only. Historical stale receipts are reconciled through
+an owner-reviewed, environment-bounded maintenance transaction, never blanket
+deletion or an automatic data-changing migration.
+
+## Selection-Only Server Maintenance (2026-10-28)
+
+An accepted replacement or retirement locks its source before provisioning starts.
+Customer selection derives `under_maintenance` from that scoped durable lock and
+operation source, excluding it from purchase/trial assignment and bot/dashboard
+switch choices. The Mini App and admin inventory show Under Maintenance. Paused
+or blocked operations retain the restriction. Listener, service membership and
+existing connections are left unchanged until the verified migration/cutover.
+Guarded terminal reconciliation releases maintenance; no separate mutable flag
+can be left behind. Existing customer mutation locks remain the authoritative
+concurrency protection. Destination locks are not mislabelled as retirement.
+Cached Happ configurations can still connect before cutover; this is selection
+control rather than a firewall or forced disconnection.
+
+## Customer Expiry Cutoff (2026-10-28)
+
+An order labelled with expiry date D remains valid until D+1 at 04:00 Myanmar
+time (Asia/Yangon), equivalent to D at 21:30 UTC and D+1 at 04:30 Bangkok.
+Quota exhaustion may end access earlier. Calendar/accounting and plan start-date
+calculations remain unchanged. A shared `orderExpiryAt` helper supplies panel
+fixed deadlines; `accessDateOnly` supplies date-filter thresholds during the
+overnight grace. Client deadline displays must distinguish this actual instant
+from the stored date label. Scheduled expiry and queued promotion must not run
+at Bangkok midnight during grace. Expiry reminders use daytime delivery; expired
+notices wait until the morning after the actual deadline, not the labelled day.
+
+Replacement/retirement relocate unchanged active records even if their deadline
+has passed while the expiry sweep is waiting. This is not renewal: credentials,
+quota, usage, expiry and enabled state remain unchanged. Inactive panel
+subscriptions may use placeholders; verification authenticates their original
+subscription through its info endpoint and checks actual service/inbound
+membership, source absence and destination presence where applicable. Active
+subscriptions retain exact endpoint checks. Expired Outline links may remain
+HTTP 410; unrelated transport/authentication failures never count as success.
+The normal expiry/queue saga resumes after infrastructure locks are released.
+
+
+## VLESS-Only Retire Action (2026-10-27)
+
+VLESS-only nodes expose Retire Server, without an operator-selected destination.
+The backend fixes a same-pool healthy compatible fallback in the reviewed quote
+for database key/token anchors. Users retain their global VLESS membership,
+credentials, subscription URLs, quota and expiry. The existing fenced retirement
+workflow detaches only the source inbound/host, verifies remaining access and
+permanent links, then deletes source-owned panel/provider resources. It cannot
+retire the last eligible node. Dual nodes still expose Move and Retire with an
+explicit SS destination. No additional persisted operation kind is introduced.
+
+
+## Server Presentation Update (2026-10-27)
+
+`vpn_servers.name` is the public location/ordinal label (for example Singapore #4),
+not a provider resource identifier. Geography stays in the existing display fields.
+The shared backend formatter preserves ordinals across Telegram, Messenger,
+Mini App and dashboard server selection. Infrastructure registration uses the
+fenced 0053 RPC to serialize city numbering, including historical names, before
+finalizing panel labels. Bound immutable IDs, not mutable names, identify resources
+on recovery. VLESS/SS subscription hosts use a leading country flag plus the public
+name; infrastructure IDs remain in admin technical details. Subscription branding
+is an operator-managed panel setting, not hardcoded into reseller application logic.
+
+## DEV Service Topology Update (2026-10-27)
+
+The enabled public-access/lifecycle model uses one permanent global VLESS service
+per environment/pool, containing VLESS inbounds from both VLESS-only and dual
+nodes. SS remains one dedicated service per SS-capable node with single-server
+customer selection. A VLESS-only addition creates no permanent service; a dual
+addition creates only one permanent SS service.
+
+Unpublished candidates use a temporary private VLESS service for isolated tunnel
+verification. After verified global membership, publication removes that service
+and its host filter before publishing database readiness. Zero users and scoped
+ownership are mandatory; cleanup does not delete users or edit the global service.
+Retries and existing-node checks use global membership when the private service
+is absent. Replacement/retirement detach only the selected global inbounds.
+Historical receipts remain immutable. Legacy production service topology is not
+migrated by these source changes.
+
 NovaNet MM is a multi-tenant VPN reseller platform. One platform owner manages
 servers, plans, resellers, and oversight. Each reseller owns a branded Telegram
 Mini App workspace and sells Marzneshin-backed VPN access to their customers.
@@ -13,6 +165,57 @@ Outline containers are retired. Historical Outline database rows remain only
 where required to preserve foreign-key and order history.
 
 ## Tenancy Model
+
+### Local Public-Access Lifecycle Work (Not Deployed)
+
+The approved target is one public pool per environment/panel. Dual nodes support
+Shadowsocks and VLESS; VLESS-only nodes never appear as Outline destinations.
+Outline retains one selected server. VLESS uses the verified pool service. Trial
+and paid access share public nodes without resetting trial claims, quota or dates.
+VIP is outside this release. Legacy tier/service behavior remains the default:
+`PUBLIC_SERVER_ACCESS_ENABLED` is false unless explicitly enabled.
+
+Local implementation resolves explicit database, panel, environment and pool
+identities. Existing rows remain unadopted/protected. Sharing a panel does not
+authorize DEV to mutate production resources. Adoption requires a reviewed,
+hashed manifest and independent registry evidence for nodes, providers, services
+and users, with protected resources listed explicitly. Names/IPs are not proof.
+Mock adoption supports compare-before-write metadata updates and checkpointed
+in-place active-trial service migration. The CLI cannot apply live changes yet.
+No public rollout or server-operation worker is enabled by these source changes.
+
+Owner-authorized shared-node DEV access uses dedicated DEV services on verified
+live inbounds. Provisioning startup accepts these VLESS members only when the
+protected DEV access record and protected server registry entry agree on scope,
+manifest, protocols, node ID and address, and the panel confirms the binding.
+It does not register the node/inbound/cloud resource as DEV-owned or grant
+lifecycle mutation authority. Newly provisioned DEV resources retain the normal
+ownership checks. This setup is distinct from production rollout or adoption.
+
+Move-and-retire may use an explicitly adopted shared DEV access row as its
+destination without adopting its live provider/node/inbounds. This is a narrow
+destination-only permission; source drain and deletion still require full
+lifecycle ownership. Existing shared hosts must already be in the DEV global
+service, and SS users move into the verified dedicated DEV SS service. No shared
+host configuration or production service membership is rewritten. Move-and-retire
+verifies existing destination node health, scoped service/inbound/host bindings
+and migrated permanent links through the panel/API. It does not require a third
+node, SSH or temporary tunnel-test users. Fresh tunnel verification remains
+mandatory for Add Server and provision-new replacement operations. Legacy
+inbound-inherited ports and Reality settings are resolved without changing panel
+configuration. The UI uses
+Review Migration (no provider pricing), retaining expiring approval and explicit
+source-deletion confirmation.
+
+Lifecycle source includes connected provider/catalogue transports, strict SSH
+installation, panel adapters and protocol probes, encrypted checkpoints, in-place
+migration, repeated destructive gates and dashboard recovery. Owner-enabled startup
+composes a live runtime only after verifying database bindings, authenticated
+provider/panel identities and service ownership. Defaults remain off. SQL 0040-0049
+is not applied to Supabase by the agent; offline tests and PostgreSQL WASM checks
+do not replace the owner-run VPS/phone canary. Use the existing development
+Supabase; no empty database is required. See
+`docs/testing/server-access-lifecycle-local.md` for setup and acceptance.
 
 ```text
 ADMIN
@@ -335,3 +538,19 @@ A crashed running attempt needs reconciliation; there is no timeout-only takeove
 Trials and Telegram policy remain as described above. Older dashboard clients
 without the request key retain manual creation compatibility during rollout.
 See SCHEMA.md and SKILL_API_CONTRACTS.md for staged contracts and prerequisites.
+
+## Server Management Provider Boundary
+
+DigitalOcean and Vultr expose normalized live region/plan snapshots through an
+admin-only catalogue. Operator policies restrict purchases without embedding
+Singapore-only choices in the UI. Provider readiness is independent; global
+environment/DB/pool/panel authority still fails closed. Purchase readiness is
+separate from recovery eligibility so a missing bootstrap prerequisite does not
+prevent reconciliation of an already billable resource.
+
+Owned node lifecycle remains fenced and resumable. Shared DEV global-service
+members are verified read-only exposure dependencies, not owned nodes. Existing
+infrastructure can be explicitly inspected and hash-approved for atomic DB
+adoption; it is never inferred from names or silently relabelled from production.
+See docs/testing/server-management-operator-guide.md and the release matrix for
+manual acceptance and remaining deployment gates.

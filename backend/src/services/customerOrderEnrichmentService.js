@@ -4,6 +4,7 @@ import { summarizeOrderMoney } from "./paymentSummaryService.js";
 import { isRecognizedPayment, legacyOrderMoney } from "./paymentSummaryService.js";
 import { buildAccessUrlForProtocol } from "./publicAccessUrlService.js";
 import { buildOrderQuotaSnapshot } from "./subscriptionProvisionService.js";
+import { accessDateOnly } from "../utils/businessTime.js";
 
 function bytesToGb(bytes) {
   const value = Number(bytes || 0);
@@ -79,6 +80,11 @@ export function enrichOrderAccess(order, req, { now = new Date(), freshness, pay
 
   return {
     ...order,
+    ...(process.env.PUBLIC_SERVER_ACCESS_ENABLED === "true" ? {
+      can_switch_server: Boolean(order.status === "active" && order.expiry_date >= accessDateOnly(now) &&
+        activeKey?.status === "active" && !activeKey.deleted_at && protocol === "shadowsocks" &&
+        (quota.isUnlimited || quota.remainingBytes > 0)),
+    } : {}),
     business_summary: summarizeOrderBusiness(order, {quota:quotaPayload,now,freshness,paymentsLoaded}),
     money_summary: summarizeOrderMoney(order, {paymentsLoaded}),
     protocol,
